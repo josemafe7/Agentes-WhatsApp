@@ -1,0 +1,50 @@
+# Claves y contraseñas: nunca se suben
+.env
+.env.*
+!.env.example
+
+# Claves privadas y certificados
+*.pem
+*.key
+
+# Claude Code: aprobaciones personales ("Sí, y no volver a preguntar")
+.claude/settings.local.json
+
+# Nada más de los agentes se ignora: .claude/ (skills, agentes y settings.json), .agents/, AGENTS.md,
+# CLAUDE.md y docs/ son la configuración y la memoria del proyecto, y van en el repositorio.
+
+# Dependencias
+/node_modules
+/.pnp
+.pnp.*
+
+# Base de datos local y archivos subidos (data/local.db, data/e2e.db, data/uploads, data/outbox)
+/data/
+
+# Pruebas
+/coverage
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# Next.js
+/.next/
+/out/
+/build
+
+# Varios
+.DS_Store
+
+# Logs de depuración
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts

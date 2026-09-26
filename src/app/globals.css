@@ -1,0 +1,230 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Theme from DESIGN.md (zinc base + business colour). Light values in :root, dark values in .dark.
+ * The --primary* values below are the result for the default colour #3d6df2; the root layout will override them
+ * with primaryCssVars() from src/lib/color.ts when the business picks another colour.
+ */
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-geist-sans);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-text: var(--primary-text);
+  --color-primary-soft: var(--primary-soft);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-text: var(--destructive-text);
+  --color-destructive-soft: var(--destructive-soft);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Semantic states (never brand-dependent; always with icon + text) */
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-ai: var(--ai);
+  --color-ai-soft: var(--ai-soft);
+
+  /* Channel identity (icons, filter chips, chart series; never for states) */
+  --color-channel-whatsapp: var(--channel-whatsapp);
+  --color-channel-email: var(--channel-email);
+  --color-channel-web: var(--channel-web);
+  --color-channel-telegram: var(--channel-telegram);
+
+  /* Agenda resource colours (8 named choices) */
+  --color-resource-blue: var(--resource-blue);
+  --color-resource-violet: var(--resource-violet);
+  --color-resource-pink: var(--resource-pink);
+  --color-resource-orange: var(--resource-orange);
+  --color-resource-amber: var(--resource-amber);
+  --color-resource-emerald: var(--resource-emerald);
+  --color-resource-teal: var(--resource-teal);
+  --color-resource-gray: var(--resource-gray);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --radius: 0.5rem;
+
+  --background: #ffffff;
+  --foreground: #09090b;
+  --card: #ffffff;
+  --card-foreground: #09090b;
+  --popover: #ffffff;
+  --popover-foreground: #09090b;
+
+  --primary: #3c6cf1;
+  --primary-foreground: #ffffff;
+  --primary-text: #3462e6;
+  --primary-soft: #eaf1ff;
+
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  /* Darker than zinc-500: >= 5.07:1 on every light surface */
+  --muted-foreground: #65656f;
+  --accent: #f4f4f5;
+  --accent-foreground: #18181b;
+
+  --destructive: #e7000b;
+  --destructive-text: #c10007;
+  --destructive-soft: #fef2f2;
+
+  --border: #e4e4e7;
+  /* Field borders need 3:1 (WCAG 1.4.11) */
+  --input: #8b8b96;
+  --ring: var(--primary);
+
+  --success: #007a55;
+  --success-soft: #ecfdf5;
+  --warning: #bb4d00;
+  --warning-soft: #fffbeb;
+  --info: #0069a8;
+  --info-soft: #f0f9ff;
+  --ai: #7008e7;
+  --ai-soft: #f5f3ff;
+
+  --channel-whatsapp: #008236;
+  --channel-email: #ca3500;
+  --channel-web: var(--muted-foreground);
+  --channel-telegram: #0069a8;
+
+  --resource-blue: oklch(54.6% 0.245 262.881);
+  --resource-violet: oklch(54.1% 0.281 293.009);
+  --resource-pink: oklch(59.2% 0.249 0.584);
+  --resource-orange: oklch(64.6% 0.222 41.116);
+  --resource-amber: oklch(66.6% 0.179 58.318);
+  --resource-emerald: oklch(59.6% 0.145 163.225);
+  --resource-teal: oklch(60% 0.118 184.704);
+  --resource-gray: oklch(44.2% 0.017 285.786);
+
+  --chart-1: var(--primary);
+  --chart-2: var(--ai);
+  --chart-3: var(--warning);
+  --chart-4: var(--success);
+  --chart-5: var(--info);
+
+  --sidebar: #fafafa;
+  --sidebar-foreground: #09090b;
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: #f4f4f5;
+  --sidebar-accent-foreground: #18181b;
+  --sidebar-border: #e4e4e7;
+  --sidebar-ring: var(--primary);
+}
+
+.dark {
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: #18181b;
+  --card-foreground: #fafafa;
+  --popover: #18181b;
+  --popover-foreground: #fafafa;
+
+  --primary: #3c6cf1;
+  --primary-foreground: #ffffff;
+  --primary-text: #5a89fe;
+  --primary-soft: #131b31;
+
+  --secondary: #27272a;
+  --secondary-foreground: #fafafa;
+  --muted: #27272a;
+  --muted-foreground: #9f9fa9;
+  --accent: #27272a;
+  --accent-foreground: #fafafa;
+
+  --destructive: #ff6467;
+  --destructive-text: #ff6467;
+  --destructive-soft: #460809;
+
+  --border: rgb(255 255 255 / 10%);
+  --input: #73737e;
+  --ring: var(--primary);
+
+  --success: #00d492;
+  --success-soft: #002c22;
+  --warning: #ffb900;
+  --warning-soft: #461901;
+  --info: #00bcff;
+  --info-soft: #052f4a;
+  --ai: #a684ff;
+  --ai-soft: #2f0d68;
+
+  --channel-whatsapp: #05df72;
+  --channel-email: #ff8904;
+  --channel-web: var(--muted-foreground);
+  --channel-telegram: #00bcff;
+
+  --resource-blue: oklch(70.7% 0.165 254.624);
+  --resource-violet: oklch(70.2% 0.183 293.541);
+  --resource-pink: oklch(71.8% 0.202 349.761);
+  --resource-orange: oklch(75% 0.183 55.934);
+  --resource-amber: oklch(82.8% 0.189 84.429);
+  --resource-emerald: oklch(76.5% 0.177 163.223);
+  --resource-teal: oklch(77.7% 0.152 181.912);
+  --resource-gray: oklch(70.5% 0.015 286.067);
+
+  --sidebar: #18181b;
+  --sidebar-foreground: #fafafa;
+  --sidebar-accent: #27272a;
+  --sidebar-accent-foreground: #fafafa;
+  --sidebar-border: rgb(255 255 255 / 10%);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}

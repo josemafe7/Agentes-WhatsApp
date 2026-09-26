@@ -1,0 +1,8 @@
+{
+  "openrouter": {
+    "valid": "sk-or-v1-e2e-valid-00000000000000000000",
+    "freeTier": "sk-or-v1-e2e-free-tier-000000000000000",
+    "management": "sk-or-v1-e2e-management-0000000000000",
+    "invalid": "sk-or-v1-e2e-invalid-000000000000000000"
+  }
+}

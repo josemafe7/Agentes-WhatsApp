@@ -1,0 +1,42 @@
+# Ajustes de seguridad de pnpm (docs/security.md, «Dependencias»).
+
+# No instala versiones publicadas hace menos de 7 días (en minutos).
+minimumReleaseAge: 10080
+# D1 (docs/security.md, «Excepciones aprobadas»): parche de seguridad de Next.js 16.3.6 dentro del margen.
+# Quitar a partir del 2026-09-29, cuando 16.3.6 cumpla 7 días. Los @next/* son paquetes de la misma
+# versión 16.3.6 que next exige tal cual (pnpm no admite patrones con versión: van uno a uno).
+minimumReleaseAgeExclude:
+  - next@16.3.6
+  - eslint-config-next@16.3.6
+  - '@next/env@16.3.6'
+  - '@next/eslint-plugin-next@16.3.6'
+  - '@next/swc-darwin-x64@16.3.6'
+  - '@next/swc-darwin-arm64@16.3.6'
+  - '@next/swc-linux-x64-gnu@16.3.6'
+  - '@next/swc-linux-x64-musl@16.3.6'
+  - '@next/swc-win32-x64-msvc@16.3.6'
+  - '@next/swc-linux-arm64-gnu@16.3.6'
+  - '@next/swc-linux-arm64-musl@16.3.6'
+  - '@next/swc-win32-arm64-msvc@16.3.6'
+
+# Rechaza versiones publicadas con menos garantías que las anteriores.
+trustPolicy: no-downgrade
+# D2: versiones antiguas indirectas sin procedencia (vía eslint-config-next y @babel/core del CLI de shadcn).
+trustPolicyExclude:
+  - eslint-import-resolver-typescript@3.10.1
+  - semver@6.3.1
+
+# Rechaza dependencias indirectas que vienen de git o de una URL.
+blockExoticSubdeps: true
+
+# Un script de instalación sin aprobar hace fallar la instalación.
+strictDepBuilds: true
+allowBuilds:
+  ffmpeg-static: true # D3: descarga el binario de FFmpeg (notas de voz)
+  esbuild: false # funciona sin su postinstall (binario en dependencias opcionales)
+  unrs-resolver: false # su binario llega por dependencias opcionales
+  fsevents: false # solo macOS, opcional
+  sharp: false # opcional; sin script en la versión usada
+
+# Versiones exactas en package.json (sin ^ ni ~).
+savePrefix: ''
