@@ -1,11 +1,24 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@/db";
-import { auditLog, integrationSettings } from "@/db/schema";
+import { agents, aiRuns, appKv, auditLog, integrationSettings, rateLimits } from "@/db/schema";
 import type { Role } from "@/lib/enums";
 import type { OpenRouterKeyCheck } from "@/lib/openrouter/key";
 import { DEFAULT_MODELS } from "@/lib/openrouter/default-models";
 import type { Actor } from "@/lib/permissions";
+import { getModelCatalog } from "@/server/ai/models";
 import { createBusiness, createUser, type TestUser } from "@/test/factories";
+import {
+  FAKE_BASE_URL,
+  FAKE_OPENROUTER_KEY,
+  fakeFetch,
+  jsonResponse,
+  modelEndpointsBody,
+  routes,
+  sampleCatalog,
+  VOXTRAL_ENDPOINTS,
+  WHISPER_ENDPOINTS,
+  zdrEndpointsBody,
+} from "@/test/fake-openrouter";
 
 const state = vi.hoisted(() => ({
   actor: null as Actor | null,
@@ -29,14 +42,16 @@ vi.mock("@/server/session", async () => {
   };
 });
 vi.mock("next/cache", () => ({ revalidatePath: () => undefined }));
-vi.mock("@/lib/openrouter/key", () => ({
+vi.mock("@/lib/openrouter/key", async (importOriginal) => ({
+  // Only «Probar clave» is simulated; the OpenRouter client keeps the rest of the module.
+  ...(await importOriginal<typeof import("@/lib/openrouter/key")>()),
   checkOpenRouterKey: async (key: string) => {
     state.checkedKeys.push(key);
     return state.check;
   },
 }));
 
-import { removeAiSecretAction, saveAiSettingsAction, testOpenRouterKeyAction } from "./actions";
+import { checkTranscriptionPrivacyAction, removeAiSecretAction, saveAiSettingsAction, testOpenRouterKeyAction } from "./actions";
 import { loadAiSettingsView } from "./_lib/view";
 
 const FORBIDDEN = { ok: false, error: "No tienes permiso para hacer esto." };
@@ -47,6 +62,7 @@ const validForm = (extra: Record<string, string> = {}) => {
   const data = new FormData();
   const values: Record<string, string> = {
     chat: "openai/gpt-5.6-luna",
+    fallback: "anthropic/claude-haiku-4.5",
     transcription: "openai/whisper-large-v3-turbo",
     embeddings: "openai/text-embedding-3-small",
     imageDescription: "google/gemini-3.1-flash-lite",
@@ -77,6 +93,11 @@ beforeEach(async () => {
   state.checkedKeys.length = 0;
   await db.update(integrationSettings).set({ openrouterKeyEnc: null, mistralKeyEnc: null, defaultModels: {}, recommendedModels: [], zdr: false });
   await db.delete(auditLog);
+  await db.delete(appKv);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("Ajustes › IA: what the page receives [AJU-04] [AJU-16] [SEG-02] [PER-07]", () => {
@@ -109,6 +130,7 @@ describe("Ajustes › IA: what the page receives [AJU-04] [AJU-16] [SEG-02] [PER
     const view = await loadAiSettingsView(owner.actor);
     expect(view.models).toEqual({
       chat: DEFAULT_MODELS.chat,
+      fallback: DEFAULT_MODELS.fallback,
       transcription: DEFAULT_MODELS.transcription,
       embeddings: DEFAULT_MODELS.embeddings,
       imageDescription: DEFAULT_MODELS.imageDescription,
@@ -209,5 +231,224 @@ describe("Ajustes › IA actions", () => {
     state.actor = admin.actor;
     for (let i = 0; i < 10; i++) await testOpenRouterKeyAction(null, typed);
     expect(await testOpenRouterKeyAction(null, typed)).toEqual({ ok: false, error: "Demasiados intentos. Espera un minuto y vuelve a probar." });
+  });
+});
+
+/** Keeps the sample catalogue in the 12 h cache, as the picker leaves it, and leaves the AI without a key. */
+async function cacheSampleCatalog() {
+  vi.stubEnv("OPENROUTER_BASE_URL", FAKE_BASE_URL);
+  vi.stubEnv("OPENROUTER_API_KEY", FAKE_OPENROUTER_KEY);
+  const fake = fakeFetch(routes({ "GET /models/user": () => jsonResponse({ data: sampleCatalog() }) }));
+  await getModelCatalog({ fetchImpl: fake.fetch, refresh: true });
+  vi.stubEnv("OPENROUTER_API_KEY", "");
+}
+
+const SAME_PROVIDER = "El modelo de respaldo tiene que ser de otro proveedor.";
+
+describe("Ajustes › IA: chat model with a fallback from another provider [MOD-05] [AJU-04]", () => {
+  it("saves the fallback, and rejects one of the same provider as the chat model without saving anything", async () => {
+    expect(await saveAiSettingsAction(null, validForm({ fallback: "google/gemini-3.1-flash-lite" }))).toMatchObject({ ok: true });
+    expect((await stored()).defaultModels).toMatchObject({ chat: "openai/gpt-5.6-luna", fallback: "google/gemini-3.1-flash-lite" });
+    await db.delete(auditLog);
+
+    expect(await saveAiSettingsAction(null, validForm({ fallback: "openai/gpt-6-luna" }))).toEqual({
+      ok: false,
+      error: "Revisa los campos marcados.",
+      fieldErrors: { fallback: [SAME_PROVIDER] },
+    });
+    // Moving the chat model to the fallback's provider is caught too.
+    const chatMoved = await saveAiSettingsAction(null, validForm({ chat: "google/gemini-3.1-pro", fallback: "google/gemini-3.1-flash-lite" }));
+    expect(chatMoved).toMatchObject({ ok: false, fieldErrors: { fallback: [SAME_PROVIDER] } });
+    expect((await stored()).defaultModels).toMatchObject({ chat: "openai/gpt-5.6-luna", fallback: "google/gemini-3.1-flash-lite" });
+    expect(await db.select().from(auditLog)).toEqual([]);
+  });
+
+  it("the fallback is required and written like an OpenRouter id [AJU-15]", async () => {
+    const missing = await saveAiSettingsAction(null, validForm({ fallback: "" }));
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.fieldErrors?.fallback?.[0]).toMatch(/modelo/i);
+    const badlyWritten = await saveAiSettingsAction(null, validForm({ fallback: "claude haiku" }));
+    expect(badlyWritten).toMatchObject({ ok: false, fieldErrors: { fallback: [expect.stringMatching(/OpenRouter/)] } });
+    expect((await stored()).defaultModels).toEqual({});
+  });
+});
+
+describe("Ajustes › IA: default models checked against the model list [MOD-02] [AJU-04]", () => {
+  it("a newly chosen model must be in the list and fit its use; otherwise nothing is saved", async () => {
+    await cacheSampleCatalog();
+    const result = await saveAiSettingsAction(
+      null,
+      validForm({
+        chat: "meta/llama-no-tools",
+        fallback: "deepseek/deepseek-v3.2",
+        transcription: "openai/gpt-5.6-luna",
+        embeddings: "nadie/no-existe",
+        imageDescription: "qwen/qwen3.8-27b:free",
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.fieldErrors?.chat?.[0]).toMatch(/herramientas/);
+    expect(result.fieldErrors?.fallback?.[0]).toBe("Este modelo se retira a partir del 28 sep 2026: elige otro.");
+    expect(result.fieldErrors?.transcription?.[0]).toMatch(/transcribir/);
+    expect(result.fieldErrors?.embeddings?.[0]).toMatch(/no está en la lista de OpenRouter/);
+    expect(result.fieldErrors?.imageDescription?.[0]).toMatch(/gratuitos/);
+    expect((await stored()).defaultModels).toEqual({});
+  });
+
+  it("models already saved that retire or leave the list do not block saving other changes [MOD-06]", async () => {
+    await cacheSampleCatalog();
+    await db.update(integrationSettings).set({ defaultModels: { chat: "deepseek/deepseek-v3.2", fallback: "vieja/modelo-retirado" } });
+    const result = await saveAiSettingsAction(null, validForm({ chat: "deepseek/deepseek-v3.2", fallback: "vieja/modelo-retirado", zdr: "on" }));
+    expect(result).toMatchObject({ ok: true });
+    expect((await stored()).zdr).toBe(true);
+  });
+});
+
+describe("Ajustes › IA: a new embeddings model must give 1536 numbers [AJU-05] (decision 0013)", () => {
+  const vector = (length: number) => Array.from({ length }, () => 0.01);
+
+  it("with a key it is tried before saving: another size is rejected, the right one is saved with the warning", async () => {
+    vi.stubEnv("OPENROUTER_BASE_URL", FAKE_BASE_URL);
+    vi.stubEnv("OPENROUTER_API_KEY", FAKE_OPENROUTER_KEY);
+    await db.delete(aiRuns);
+    await db.delete(rateLimits);
+    let size = 2;
+    const fake = fakeFetch(
+      routes({ "POST /embeddings": () => jsonResponse({ data: [{ index: 0, embedding: vector(size) }], usage: { prompt_tokens: 1, cost: 0 } }) }),
+    );
+    vi.stubGlobal("fetch", fake.fetch);
+
+    const wrong = await saveAiSettingsAction(null, validForm({ embeddings: "acme/embed-2d" }));
+    expect(wrong).toMatchObject({ ok: false, fieldErrors: { embeddings: [expect.stringMatching(/1536/)] } });
+    expect(fake.calls[0].body).toMatchObject({ model: "acme/embed-2d", dimensions: 1536, provider: { data_collection: "deny" } });
+    expect((await stored()).defaultModels).toEqual({});
+
+    size = 1536;
+    const right = await saveAiSettingsAction(null, validForm({ embeddings: "openai/text-embedding-3-large", zdr: "on" }));
+    expect(right).toMatchObject({ ok: true, message: expect.stringMatching(/volver a procesar/) });
+    expect(fake.calls[1].body).toMatchObject({ provider: { zdr: true } });
+    expect((await stored()).defaultModels).toMatchObject({ embeddings: "openai/text-embedding-3-large" });
+    expect(await db.select().from(aiRuns)).toHaveLength(2);
+
+    // Saving without changing it does not call OpenRouter again.
+    await saveAiSettingsAction(null, validForm({ embeddings: "openai/text-embedding-3-large" }));
+    expect(fake.calls).toHaveLength(2);
+    expect(JSON.stringify(right)).not.toContain(FAKE_OPENROUTER_KEY);
+  });
+
+  it("the check spends AI, so it is limited per person [SEG-07]", async () => {
+    vi.stubEnv("OPENROUTER_BASE_URL", FAKE_BASE_URL);
+    vi.stubEnv("OPENROUTER_API_KEY", FAKE_OPENROUTER_KEY);
+    await db.delete(rateLimits);
+    const fake = fakeFetch(() => jsonResponse({ data: [{ index: 0, embedding: [0.1] }] }));
+    vi.stubGlobal("fetch", fake.fetch);
+    for (let i = 0; i < 10; i++) await saveAiSettingsAction(null, validForm({ embeddings: "acme/embed-2d" }));
+    expect(await saveAiSettingsAction(null, validForm({ embeddings: "acme/embed-2d" }))).toEqual({
+      ok: false,
+      error: "Has hecho muchas peticiones a la IA seguidas. Espera un minuto y vuelve a intentarlo.",
+    });
+    expect(fake.calls).toHaveLength(10);
+  });
+});
+
+describe("Ajustes › IA: warns when a transcription model has providers outside the zero-retention list [AJU-04] [CUM-10]", () => {
+  const openRouter = () =>
+    fakeFetch(
+      routes({
+        "GET /models/openai/whisper-large-v3-turbo/endpoints": () => jsonResponse(modelEndpointsBody("openai/whisper-large-v3-turbo", WHISPER_ENDPOINTS)),
+        "GET /models/mistralai/voxtral-mini-transcribe/endpoints": () => jsonResponse(modelEndpointsBody("mistralai/voxtral-mini-transcribe", VOXTRAL_ENDPOINTS)),
+        "GET /endpoints/zdr": () => jsonResponse(zdrEndpointsBody()),
+      }),
+    );
+
+  beforeEach(async () => {
+    await db.delete(rateLimits);
+  });
+
+  it("names the providers outside the list; the default model has none; the key never comes back", async () => {
+    vi.stubEnv("OPENROUTER_BASE_URL", FAKE_BASE_URL);
+    vi.stubEnv("OPENROUTER_API_KEY", FAKE_OPENROUTER_KEY);
+    const fake = openRouter();
+    vi.stubGlobal("fetch", fake.fetch);
+
+    const voxtral = await checkTranscriptionPrivacyAction({ modelId: "mistralai/voxtral-mini-transcribe" });
+    expect(voxtral).toEqual({ ok: true, data: { status: "not_zdr", providers: ["Mistral"] } });
+    expect(await checkTranscriptionPrivacyAction({ modelId: DEFAULT_MODELS.transcription })).toEqual({ ok: true, data: { status: "zdr" } });
+    expect(JSON.stringify(voxtral)).not.toContain(FAKE_OPENROUTER_KEY);
+
+    // Kept: asking again does not call OpenRouter.
+    const calls = fake.calls.length;
+    await checkTranscriptionPrivacyAction({ modelId: "mistralai/voxtral-mini-transcribe" });
+    expect(fake.calls).toHaveLength(calls);
+  });
+
+  it("without a key, or with something that is not a model, it cannot be known and nothing is asked", async () => {
+    const fake = openRouter();
+    vi.stubGlobal("fetch", fake.fetch);
+    expect(await checkTranscriptionPrivacyAction({ modelId: DEFAULT_MODELS.transcription })).toEqual({ ok: true, data: { status: "unknown" } });
+    vi.stubEnv("OPENROUTER_API_KEY", FAKE_OPENROUTER_KEY);
+    expect(await checkTranscriptionPrivacyAction({ modelId: "../key" })).toEqual({ ok: true, data: { status: "unknown" } });
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  it("asking OpenRouter is limited per person [SEG-07]", async () => {
+    vi.stubEnv("OPENROUTER_BASE_URL", FAKE_BASE_URL);
+    vi.stubEnv("OPENROUTER_API_KEY", FAKE_OPENROUTER_KEY);
+    // OpenRouter fails, so nothing is kept and every check asks again.
+    const fake = fakeFetch(() => jsonResponse({ error: { code: 502, message: "down" } }, 502));
+    vi.stubGlobal("fetch", fake.fetch);
+    for (let i = 0; i < 10; i++) await checkTranscriptionPrivacyAction({ modelId: "mistralai/voxtral-mini-transcribe" });
+    expect(await checkTranscriptionPrivacyAction({ modelId: "mistralai/voxtral-mini-transcribe" })).toEqual({
+      ok: false,
+      error: "Has hecho muchas peticiones a la IA seguidas. Espera un minuto y vuelve a intentarlo.",
+    });
+  });
+
+  it.each<Role>(["supervisor", "agent", "viewer"])("%s cannot ask it [PER-04]", async (role) => {
+    const other = await createUser(role);
+    state.actor = other.actor;
+    expect(await checkTranscriptionPrivacyAction({ modelId: DEFAULT_MODELS.transcription })).toEqual(FORBIDDEN);
+  });
+});
+
+describe("Ajustes › IA: models in use that retire or left the list [MOD-06]", () => {
+  it("the page lists each one with the agents and default models that use it", async () => {
+    await cacheSampleCatalog();
+    await db.delete(agents);
+    const [recepcion] = await db
+      .insert(agents)
+      .values({ name: "Recepción", model: "deepseek/deepseek-v3.2", fallbackModel: "google/gemini-3.1-flash-lite" })
+      .returning();
+    const [ventas] = await db.insert(agents).values({ name: "Ventas", model: "vieja/modelo-retirado", fallbackModel: "deepseek/deepseek-v3.2" }).returning();
+    await db.insert(agents).values({ name: "Sin problemas", model: "openai/gpt-5.6-luna", fallbackModel: "google/gemini-3.1-flash-lite" });
+    await db.update(integrationSettings).set({ defaultModels: { chat: "deepseek/deepseek-v3.2" } });
+
+    const view = await loadAiSettingsView(owner.actor);
+    expect(view.warnings).toEqual([
+      {
+        modelId: "deepseek/deepseek-v3.2",
+        kind: "expiring",
+        message: expect.stringMatching(/se retira a partir del 28 sep 2026/),
+        agents: [
+          { id: recepcion.id, name: "Recepción" },
+          { id: ventas.id, name: "Ventas" },
+        ],
+        defaults: ["Chat por defecto"],
+      },
+      {
+        modelId: "vieja/modelo-retirado",
+        kind: "missing",
+        message: expect.stringMatching(/ya no aparece en la lista/),
+        agents: [{ id: ventas.id, name: "Ventas" }],
+        defaults: [],
+      },
+    ]);
+    await db.delete(agents);
+  });
+
+  it("without a saved model list there is nothing to warn about", async () => {
+    await db.update(integrationSettings).set({ defaultModels: { chat: "vieja/modelo-retirado" } });
+    expect((await loadAiSettingsView(owner.actor)).warnings).toEqual([]);
   });
 });

@@ -58,6 +58,8 @@ export const aiRuns = sqliteTable(
     promptTokens: integer("prompt_tokens"),
     completionTokens: integer("completion_tokens"),
     reasoningTokens: integer("reasoning_tokens"),
+    /** Prompt tokens read from the provider's cache (usage.prompt_tokens_details.cached_tokens). */
+    cachedTokens: integer("cached_tokens"),
     totalTokens: integer("total_tokens"),
     /** USD, from usage.cost; never computed from hard-coded prices. */
     costUsd: real("cost_usd"),

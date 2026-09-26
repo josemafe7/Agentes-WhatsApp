@@ -1,8 +1,8 @@
 # Arquitectura
 
 > Describe cómo está pensado el sistema según las decisiones de `docs/decisions/` (0001 a 0015) y qué hay ya
-> construido. La fase 0 (base) está hecha: «Lo que ya está construido» dice dónde vive cada pieza. Lo demás llega
-> en las fases de `docs/spec.md` y se corrige aquí cuando se construya.
+> construido. Las fases 0 (base) y 1 (agentes y OpenRouter) están hechas: «Lo que ya está construido» dice dónde
+> vive cada pieza. Lo demás llega en las fases de `docs/spec.md` y se corrige aquí cuando se construya.
 
 ## Visión general
 
@@ -23,25 +23,34 @@ preguntando cada pocos segundos (0009). Los servicios externos (OpenRouter, Meta
 de correo) se llaman con clientes propios cuya dirección base sale de una variable de entorno, para que las
 pruebas usen un simulador y nunca los servicios reales.
 
-## Lo que ya está construido (fase 0)
+## Lo que ya está construido (fases 0 y 1)
 
 | Pieza | Dónde | Notas |
 |---|---|---|
-| Pantallas y rutas | `src/app/` | `(auth)/`: entrar, `/dos-pasos`, `/recuperar`, `/restablecer` e `/invitacion/[token]`. `(app)/`: el panel (las 7 secciones aún sin contenido, `ajustes/*` completo, `/perfil`, «Mi cuenta», y `/ayuda`, las guías de `docs/guia-*.md`, que `next.config.ts` añade a la compilación con `outputFileTracingIncludes`). `setup/`: el asistente. `legal/`: las tres páginas públicas. `api/`: `auth/[...all]`, `cron/tick`, `health` y `files/[...key]`. |
+| Pantallas y rutas | `src/app/` | `(auth)/`: entrar, `/dos-pasos`, `/recuperar`, `/restablecer` e `/invitacion/[token]`. `(app)/`: el panel (Bandeja, Contactos, Agenda, Conocimiento, Canales e Informes aún sin contenido; `agentes/`, desde la fase 1; `ajustes/*` completo, `/perfil`, «Mi cuenta», y `/ayuda`, las guías de `docs/guia-*.md`, que `next.config.ts` añade a la compilación con `outputFileTracingIncludes`). `setup/`: el asistente. `legal/`: las tres páginas públicas. `api/`: `auth/[...all]`, `cron/tick`, `health` y `files/[...key]`. |
 | Proxy | `src/proxy.ts` | Sin cookie de sesión, una página privada redirige a `/login?next=…`. Pasa la ruta pedida en la cabecera `x-dominia-path` (siempre la sobrescribe) para el layout del panel. No es la frontera de seguridad. |
 | Arranque del servidor | `src/instrumentation.ts` | Sin una `APP_ENCRYPTION_KEY` válida la app no atiende peticiones y lo dice en el registro ([SEG-03]). |
 | Sesión y actor | `src/server/session.ts`, `src/server/session-2fa.ts` | `getActor()` lee la sesión de Better Auth y el rol, los canales y el estado de la verificación en dos pasos de la base en cada petición. Las páginas usan `requirePageActor()`; las acciones y rutas, `requireActor()` o `requirePermission()`. El layout del panel usa `requireTwoFactorCompliance()`: propietarios y administradores sin verificación en dos pasos, cuando el negocio la exige, solo pueden abrir `/perfil`. |
 | Rutas de entrada | `src/lib/auth-paths.ts` | Rutas públicas y `sanitizeNextPath()`, la única comprobación de a dónde se vuelve tras entrar: solo rutas de la app, sin barras invertidas ni trucos con `//` ni puntos. |
 | Permisos | `src/lib/permissions.ts` | `PERMISSIONS` (38 acciones), `can(actor, acción, alcance)` y `channelFilter()`, con la tabla de roles de la especificación. |
-| Acceso a datos | `src/data/` | Uno por tema: `settings`, `business`, `business-hours`, `notification-settings`, `users`, `invitations`, `setup`, `activity`, `diagnostics`, `system-mail` y `audit`. Todos con `server-only`, reciben el actor y comprueban con `assertCan()` (`guard.ts`). |
-| Base de datos | `src/db/` y `drizzle/` | 52 tablas en `src/db/schema/`. Migraciones `0000_initial` (generada) y `0001_kb_search_indexes` (a medida: índice vectorial y FTS5). `db` se abre en el primer uso, nunca al importar. |
+| Acceso a datos | `src/data/` | Uno por tema: `settings`, `business`, `business-hours`, `notification-settings`, `users`, `invitations`, `setup` (y `setup-agent`, el paso 5 «Primer agente», que guarda el id del agente en `app_kv` › `setup.first_agent` para el paso 6), `activity`, `diagnostics`, `system-mail` y `audit`. Todos con `server-only`, reciben el actor y comprueban con `assertCan()` (`guard.ts`). |
+| Base de datos | `src/db/` y `drizzle/` | 52 tablas en `src/db/schema/`. Migraciones `0000_initial` (generada), `0001_kb_search_indexes` (a medida: índice vectorial y FTS5) y `0002_ai_runs_cached_tokens` (fase 1, añade una columna). `db` se abre en el primer uso, nunca al importar. |
 | Adaptadores | `src/server/adapters/` | `job-queue`, `realtime`, `rate-limiter`, `file-storage` (disco o Vercel Blob), `text-search` (FTS5), `vector-search`, y `database-health`/`database-info` para Diagnóstico. Único sitio con SQL propio de SQLite. |
 | Trabajo en segundo plano | `src/server/jobs/` | `tick()` y el registro de trabajos; hoy solo existe el de los correos del sistema. |
 | Usuarios | `src/server/auth.ts`, `src/server/accounts.ts` | Better Auth (email y contraseña, sin registro público, verificación en dos pasos, límite de peticiones en base de datos). Por HTTP solo responde a `get-session`, `sign-out` y el enlace de recuperación (`httpAllowlist`); el resto va por Server Actions con `auth.api.*`. Las cuentas solo se crean en `accounts.ts`: asistente (con el código de instalación `SETUP_TOKEN` al publicar), invitaciones y demo. |
 | Correo del sistema | `src/server/mailer.ts`, `src/server/email-templates.ts` | SMTP de Ajustes › Correo del sistema, con el nombre, el logo y el color del negocio en cada correo ([AJU-01]). La contraseña guardada solo se envía al mismo servidor, puerto, seguridad y usuario. Sin SMTP, en local o con la demo, cada correo se guarda como `.eml` en `data/outbox/`; publicado, da un error claro. Todos quedan anotados para Diagnóstico. |
 | Cifrado | `src/server/crypto.ts`, `src/server/redact.ts` | AES-256-GCM (`v1:iv:tag:texto`), máscara `••••1234` y limpieza de secretos en registros y errores. |
 | Límites de peticiones | `src/server/client-ip.ts` y cada acción | Las Server Actions que llaman a `auth.api.*` (entrar, dos pasos, recuperar, invitación, Mi cuenta, asistente) cuentan sus intentos con el `RateLimiter`, por IP y por email o usuario; sus rutas HTTP de Better Auth están cerradas para que nadie se salte esos límites. Better Auth limita las pocas que siguen abiertas. |
-| Demo y órdenes | `scripts/`, `seed/`, `src/lib/sectors/`, `src/server/demo/` | Preparación (`scripts/lib/setup.ts`), demo por sector, `db:reset`, `db:fresh`, worker y el lanzador de `pnpm dev` (`scripts/dev.mjs`). Los datos de cada sector son datos puros en `src/lib/sectors/`, que también usa el asistente. |
+| Demo y órdenes | `scripts/`, `seed/`, `src/lib/sectors/`, `src/server/demo/` | Preparación (`scripts/lib/setup.ts`), demo por sector (pasos en `seed/steps/`: negocio, usuarios, horario, agenda y agentes: recepción desde la plantilla del sector, correo y uno fuera de horario preparado sin activar), `db:reset`, `db:fresh`, worker y el lanzador de `pnpm dev` (`scripts/dev.mjs`). Los datos de cada sector son datos puros en `src/lib/sectors/`, que también usa el asistente. |
+| Cliente de OpenRouter (fase 1) | `src/lib/openrouter/` | `createOpenRouterClient()`: clave, catálogo (`/models/user` y, si falla, `/models`), proveedores de un modelo y lista sin retención de datos, chat sin streaming, embeddings, transcripción y rerank. Valida cada respuesta con Zod, trata el 200 con `error` como error y convierte cada fallo en `OpenRouterError` con su mensaje en español. Siempre `data_collection: "deny"` en chat, embeddings y rerank. |
+| IA del servidor (fase 1) | `src/server/ai/` | `models.ts` (catálogo normalizado, 12 h en `app_kv`, filtros y validación del modelo y su respaldo), `prompt.ts` (prompt puro de lo estable a lo variable) y `context.ts` (los datos del negocio que lo alimentan), `tools/` (herramientas con Zod, registro de actividad y `transferir_a_humano`), `run-agent.ts` (una vuelta del agente con hasta 6 pasos, registrada en `ai_runs`), `draft.ts` («Generar borrador con IA» desde una web o una descripción, que son datos entre marcas y nunca órdenes), `usage.ts` (suma de tokens y coste de varias llamadas), `openrouter.ts` (cliente con la clave de la instalación, modelos por defecto y respaldo de otro proveedor) y `limits.ts` (límites de lo que gasta IA). |
+| Lectura segura de webs (fase 1) | `src/server/web-fetch.ts` | Lee una página pública y la pasa a Markdown (Readability, linkedom y turndown). Solo direcciones públicas, comprobadas también al conectar y en cada redirección, con tiempo, tamaño y tipos máximos (`docs/security.md`). Lo usa el borrador con IA; lo reutilizarán las URL del conocimiento. |
+| Pantallas de agentes (fase 1) | `src/app/(app)/agentes/` | Lista, «Nuevo agente» (plantilla del sector, de otro sector, en blanco o borrador con IA) y el editor con una ruta por pestaña (`[id]/`, `instrucciones`, `modelo`, `conocimiento`, `herramientas`, `traspaso`, `canales`, `probar` y `versiones`). Cada pestaña guarda solo sus campos con `updateAgent`, que crea una versión; barra «Cambios sin guardar» y aviso al salir. El layout no es la frontera de seguridad: cada página vuelve a comprobar el permiso. |
+| Probar agente (fase 1) | `src/app/(app)/agentes/[id]/probar/` | El navegador guarda la conversación de prueba y la envía entera en cada mensaje (como mucho 20 mensajes); el servidor no guarda conversaciones ni mensajes, solo la fila de `ai_runs` con `is_test`. Sin clave no llama a OpenRouter ni gasta el límite de peticiones. Al navegador solo llega lo que se ve (texto, modelo, tokens, coste, tiempo, herramientas), nunca ids internos ni la clave. |
+| Selector de modelos (fase 1) | `src/components/model-picker/` | `<ModelPicker kind>` para chat, transcripción, embeddings y visión, con búsqueda, recomendados, precios por millón y iconos. Pide la lista una vez por tipo y página (Server Actions con permiso y Zod) y reutiliza los filtros de `src/server/ai/models.ts`. Sin clave se desactiva y no pregunta a OpenRouter. Lo usan la pestaña Modelo y Ajustes › IA, que comprueba en el servidor los modelos por defecto y prueba de verdad un modelo de embeddings nuevo (1536 dimensiones). |
+| Traspaso (interfaz) | `src/server/handoff/` | Contrato `HandoffService` que la bandeja (fase 2) implementa y registra; hasta entonces un traspaso real falla con un error claro y «Probar agente» lo simula. |
+| Agentes (fase 1) | `src/data/agents.ts`, `src/data/agent-channels.ts`, `src/lib/agent-input.ts`, `src/lib/agent-tools.ts` | Alta en blanco o desde la plantilla del sector, edición por pestañas con versión en cada guardado, restaurar, duplicar, borrar (con confirmación si está activo en canales), avatar y «Activo aquí» por canal. Los modelos nuevos salen de Ajustes › IA con un respaldo de otro proveedor (`defaultFallbackFor`, compartido con la demo). |
+| Primer agente del asistente (fase 1) | `src/app/setup/_steps/agent-*.tsx`, `src/data/setup-agent.ts` | Paso 5: la plantilla del sector (o el borrador generado desde la web del negocio si hay clave) con nombre, tono, instrucciones y preguntas frecuentes editables; volver al paso edita el mismo agente. |
 | Pruebas | `src/**/*.test.ts`, `scripts/**/*.test.ts`, `e2e/` | Ver `docs/testing.md`. |
 
 Detalles que salieron al construir y que conviene saber:
@@ -61,6 +70,26 @@ Detalles que salieron al construir y que conviene saber:
 - **Guías de Ayuda:** se leen de `docs/` en el servidor y `next.config.ts` las añade a la salida de la compilación
   (`outputFileTracingIncludes`). Importarlas como texto con el tipo `raw` de Turbopack no sirve en Next 16.3.6:
   compila, pero el contenido llega vacío; y el tipo `text` no existe.
+- **Catálogo de modelos:** se guarda ya filtrado y normalizado en `app_kv` (`ai.model_catalog`) y se renueva
+  cuando alguien abre un selector o un agente responde y tiene más de 12 h. Los avisos de modelos que se retiran
+  o desaparecen ([MOD-06]) solo leen esa copia, nunca llaman a OpenRouter al pintar una página. Si la descarga
+  falla, no se vuelve a pedir en 5 minutos (`ai.model_catalog_retry`) salvo con «Actualizar lista». Supervisor
+  y Solo lectura solo ven la copia guardada: nunca hacen que el servidor llame a OpenRouter con la clave. Al
+  guardar un agente (también el primero del asistente) o el modelo del paso 4, si todavía no hay copia se pide
+  con la clave (en el paso 4, la que se está escribiendo) y se comprueba contra ella ([MOD-05]).
+- **Privacidad de la transcripción:** la transcripción no admite `data_collection` ni `zdr` por petición, así
+  que Ajustes › IA compara los proveedores del modelo elegido (`/models/{id}/endpoints`) con la lista pública
+  sin retención (`/endpoints/zdr`) por su `tag`, y avisa junto al campo ([AJU-04], [CUM-10]). El resultado se
+  guarda 12 h por modelo en `app_kv` (`ai.transcription_privacy`).
+- **Herramientas de una respuesta:** de cada respuesta del modelo se ejecutan como mucho 5 llamadas; las demás
+  reciben un error corto y una sola entrada en el registro de actividad. Tras un traspaso no se ejecuta nada más
+  de esa respuesta ([MOT-10]). Un nombre de herramienta que el agente no tiene se registra como «desconocida».
+- **Formularios que se vuelven a crear al guardar:** el aviso de guardado llega a veces antes que los datos
+  nuevos del servidor. Por eso Ajustes › IA se vuelve a crear también cuando cambian esos datos, y un campo
+  secreto (`SecretField`) vuelve a la máscara «••••1234» cuando cambia el valor guardado.
+- **Listas desplegables largas:** el selector de modelos nunca es más alto que el espacio que queda en la
+  pantalla (`--radix-popover-content-available-height`), para que el buscador y «Actualizar lista» siempre se
+  puedan pulsar.
 - **IP del cliente:** la de más a la derecha de `x-forwarded-for` (la que añade el proxy de delante: Vercel o
   Traefik). Si `next start` se expone sin proxy, un cliente podría cambiarla para esquivar los límites por IP; el
   límite por email sigue funcionando.

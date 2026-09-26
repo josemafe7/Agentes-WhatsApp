@@ -12,6 +12,8 @@ export type AgentInstructions = {
   cannot?: string;
   style?: string;
   handoff?: string;
+  /** Anything else the business wants to add, after the guided fields. */
+  freeText?: string;
 };
 /** Hand-off rules ([AGE-09], [TRA-01]). */
 export type AgentHandoffConfig = {

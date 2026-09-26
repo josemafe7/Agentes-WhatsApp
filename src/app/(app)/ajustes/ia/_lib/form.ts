@@ -1,10 +1,35 @@
 // Form of Ajustes › IA, with Spanish messages next to each field ([AJU-15]). src/data/settings.ts validates again.
 import { z } from "zod";
+import type { DefaultModels } from "@/db/schema/settings";
+import { DEFAULT_MODELS } from "@/lib/openrouter/default-models";
+import { MODEL_ID_HINT as MODEL_HINT, MODEL_ID_PATTERN } from "@/lib/openrouter/model-id";
 
-/** «proveedor/modelo» as OpenRouter writes it (openai/gpt-5.6-luna, mistralai/voxtral-mini-transcribe…). */
-export const MODEL_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*$/i;
 export const MAX_RECOMMENDED_MODELS = 50;
-const MODEL_HINT = "Escribe el modelo como aparece en OpenRouter, por ejemplo openai/gpt-5.6-luna.";
+
+/** Default models edited on this page ([AJU-04]); rerank arrives with the knowledge search (phase 4). */
+export const DEFAULT_MODEL_FIELDS = ["chat", "fallback", "transcription", "embeddings", "imageDescription"] as const;
+export type DefaultModelField = (typeof DEFAULT_MODEL_FIELDS)[number];
+export type AiModels = Record<DefaultModelField, string>;
+
+/** How each default is named in warnings. */
+export const DEFAULT_MODEL_LABELS: Record<DefaultModelField, string> = {
+  chat: "Chat por defecto",
+  fallback: "Respaldo por defecto",
+  transcription: "Transcripción de audios",
+  embeddings: "Embeddings",
+  imageDescription: "Descripción de imágenes",
+};
+
+/** The defaults in use: the saved ones, or those of docs/integracion-openrouter.md §10 until they are changed. */
+export function effectiveDefaultModels(stored: DefaultModels): AiModels {
+  return {
+    chat: stored.chat || DEFAULT_MODELS.chat,
+    fallback: stored.fallback || DEFAULT_MODELS.fallback,
+    transcription: stored.transcription || DEFAULT_MODELS.transcription,
+    embeddings: stored.embeddings || DEFAULT_MODELS.embeddings,
+    imageDescription: stored.imageDescription || DEFAULT_MODELS.imageDescription,
+  };
+}
 
 const modelId = z.string().trim().min(1, "Escribe el modelo.").max(200, MODEL_HINT).regex(MODEL_ID_PATTERN, MODEL_HINT);
 /** A secret field: absent = keep (the «Cambiar» button was not pressed); "" also keeps ([AJU-16]). */
@@ -14,6 +39,8 @@ export const aiSettingsFormSchema = z.object({
   openrouterKey: secret,
   mistralKey: secret,
   chat: modelId,
+  /** From another provider than `chat` ([MOD-05]); checked by the Server Action with the model list. */
+  fallback: modelId,
   transcription: modelId,
   embeddings: modelId,
   imageDescription: modelId,
@@ -39,6 +66,7 @@ export function aiSettingsFromFormData(formData: FormData) {
     openrouterKey: optionalText(formData, "openrouterKey"),
     mistralKey: optionalText(formData, "mistralKey"),
     chat: String(formData.get("chat") ?? ""),
+    fallback: String(formData.get("fallback") ?? ""),
     transcription: String(formData.get("transcription") ?? ""),
     embeddings: String(formData.get("embeddings") ?? ""),
     imageDescription: String(formData.get("imageDescription") ?? ""),

@@ -4,10 +4,12 @@ Plataforma de agentes IA de atención al cliente (WhatsApp, correo y chat web) q
 negocio y se configura sin tocar código. Cada instalación es de un solo negocio, con su propia base de datos y
 sus propias claves.
 
-**Estado: fase 0 (base) terminada, solo en local.** Ya funcionan el arranque con la demo, el inicio de sesión
-con roles e invitaciones, el asistente de arranque, los ajustes y el cifrado de claves. Los canales, los
-agentes, la bandeja, la agenda y el conocimiento llegan en las fases siguientes (`docs/spec.md`, «Fases»). La
-app todavía no está publicada en internet.
+**Estado: fases 0 (base) y 1 (agentes y OpenRouter) construidas, solo en local.** Ya funcionan el arranque con
+la demo, el inicio de sesión con roles e invitaciones, el asistente de arranque, los ajustes, el cifrado de
+claves y los agentes de IA: crearlos desde la plantilla del sector, editarlos con versiones, elegir su modelo
+de OpenRouter y probarlos en «Probar agente» viendo el coste y el tiempo de cada respuesta. Los canales, la
+bandeja, la agenda y el conocimiento llegan en las fases siguientes (`docs/spec.md`, «Fases»). La app todavía no
+está publicada en internet.
 
 ## Requisitos
 
@@ -63,7 +65,37 @@ clave de OpenRouter». Hay dos formas de ponerla:
 2. **En `.env.local`:** añade `OPENROUTER_API_KEY=<tu clave>` y reinicia `pnpm dev`.
 
 Si hay clave en los dos sitios, manda la de Ajustes. Antes de usar datos reales, revisa la privacidad de tu
-cuenta de OpenRouter (que los proveedores no guarden ni entrenen con los datos).
+cuenta de OpenRouter en <https://openrouter.ai/settings/privacy> (que los proveedores no guarden ni entrenen
+con los datos); la app, además, lo prohíbe en cada petición.
+
+Sin clave, la lista de modelos no se carga, los selectores de modelo y «Generar borrador con IA» están
+desactivados y «Probar agente» no deja enviar: todos lo explican con el mismo aviso.
+
+### Prueba a mano con una clave real
+
+Las pruebas automáticas usan un OpenRouter simulado: nunca gastan. Para comprobar la fase 1 con OpenRouter de
+verdad (gasta céntimos):
+
+1. En <https://openrouter.ai/settings/keys> crea una clave nueva **con un límite de gasto pequeño** (por
+   ejemplo, 1 US$) y comprueba que la cuenta tiene saldo. Revisa la privacidad de la cuenta (enlace de arriba).
+2. Arranca la demo con `pnpm dev` y entra como `propietario@demo.test`.
+3. **Ajustes › IA:** pega la clave, pulsa «Probar clave» (debe decir que es válida y enseñar el límite de
+   gasto) y «Guardar cambios». La clave se ve solo como `••••` y sus 4 últimos caracteres, y el aviso «Añade
+   tu clave de OpenRouter» desaparece.
+4. **Agentes › Asistente de citas › Modelo:** abre «Modelo principal». Debe salir la lista real con
+   «Recomendados» primero, el precio de entrada y de salida por millón de tokens en US$, el contexto y los
+   iconos de imagen, PDF y audio, y abajo «Lista de tu cuenta de OpenRouter». Prueba «Actualizar lista» y el
+   buscador.
+5. **Probar:** escribe «Hola, ¿qué horario tenéis?». La respuesta debe usar el horario de Ajustes › Horario y,
+   debajo, los tokens, el coste en US$ y el tiempo en ms. «Ver detalles» enseña el modelo y el proveedor que
+   respondieron.
+6. Cambia «Simular canal» a Correo y pregunta otra cosa: la respuesta llega con saludo y firma. Escribe
+   «Quiero hablar con una persona»: se ve el traspaso simulado con el mensaje de la pestaña Traspaso.
+7. Compara el coste con la actividad de tu cuenta en OpenRouter: debe coincidir con lo que muestra la app.
+8. Vuelve a Ajustes › IA y pulsa «Quitar clave»: en Probar reaparece el aviso y no se puede enviar.
+
+Si algo falla, el mensaje de la app explica el motivo en español (clave no válida, sin saldo, modelo no
+disponible con tu privacidad…).
 
 ## Recorrido de la demo
 
@@ -82,21 +114,36 @@ Lo que ya puedes probar:
   `data/outbox/` al cabo de unos segundos (lo envía el trabajo en segundo plano).
 - **Mi cuenta** (menú de tu usuario): nombre, contraseña, verificación en dos pasos con una app de
   autenticación y códigos de recuperación, tus avisos y cerrar sesión aquí o en los demás dispositivos.
-- **Ayuda** (menú de tu usuario, o Ajustes › Acerca de): las guías paso a paso dentro de la app. Por ahora, la de
-  publicación en Vercel; las demás llegan con sus fases.
+- **Agentes:** la demo trae tres agentes, creados desde la plantilla de la peluquería: «Asistente de citas»
+  (con dos versiones, para probar a restaurar), «Asistente de correo» y «Asistente fuera de horario», preparado
+  sin activar. Crea uno con «Nuevo agente» (plantilla de tu sector, de otro sector, en blanco o «Generar
+  borrador con IA» desde tu web o una descripción) y recorre su editor: General, Instrucciones (con «Vista
+  previa del prompt»), Modelo, Conocimiento, Herramientas (solo «Pasar a una persona» por ahora), Traspaso,
+  Canales, Probar y Versiones. Cada guardado crea una versión que se puede restaurar. Desde la tarjeta se
+  duplica o se borra.
+- **Probar agente** (pestaña Probar de un agente): un chat con el agente, sin canales reales, con «Simular
+  canal» (WhatsApp, correo o chat web) y, en cada respuesta, los tokens, el coste en US$, el tiempo y «Ver
+  detalles». Necesita la clave de OpenRouter (ver arriba); sin ella verás el aviso y no se puede enviar. El
+  supervisor también puede probar; «Solo lectura» ve los agentes sin cambiar nada y el rol Agente no entra.
+- **Ayuda** (menú de tu usuario, o Ajustes › Acerca de): las guías paso a paso dentro de la app: crear y probar
+  agentes, y publicar en Vercel. Las demás llegan con sus fases.
 - **Ajustes › Horario, IA, Correo del sistema, Privacidad y legal y Notificaciones:** horario con varios tramos
-  por día y festivos; clave y modelos de IA; el servidor SMTP de los correos de la app; textos legales,
-  aviso de IA y plazos de conservación; y quién recibe cada aviso.
+  por día y festivos; la clave de OpenRouter, los modelos por defecto (chat, respaldo de otro proveedor,
+  transcripción, embeddings y descripción de imágenes) elegidos de la lista con precios, la lista de
+  recomendados y «Sin retención de datos», con aviso si un modelo en uso se retira o si el de transcripción tiene
+  proveedores que pueden guardar los audios; el servidor SMTP de los
+  correos de la app; textos legales, aviso de IA y plazos de conservación; y quién recibe cada aviso.
 - **Ajustes › Registro de actividad y Diagnóstico:** quién hizo qué, con filtros; y el estado de la base de
   datos, de la cola de trabajos (con «Reintentar») y de los correos que ha enviado la app, que en local puedes
   abrir desde ahí.
 - **Páginas legales públicas**, sin iniciar sesión: `/legal/privacidad`, `/legal/terminos` y
   `/legal/eliminacion-datos`.
 - **Asistente de arranque:** con `pnpm db:fresh` (ver «Paso a un negocio real») la app queda vacía y te guía:
-  cuenta de propietario, negocio y sector, horario, clave de IA y canales.
+  cuenta de propietario, negocio y sector, horario, clave de IA, primer agente (desde la plantilla del sector
+  o generado desde la web del negocio si hay clave) y canales.
 
 Próximamente: el simulador de canales, `/widget-demo` con el chat web, la bandeja con traspaso a una persona,
-los agentes asignados a canales, la agenda con citas y el conocimiento con sus documentos (fases 1 a 5).
+los agentes asignados a canales, la agenda con citas y el conocimiento con sus documentos (fases 2 a 5).
 
 ## Órdenes
 
@@ -190,6 +237,14 @@ A partir de aquí `pnpm seed` se niega a cargar la demo en esa base, para no mez
   `pnpm build` y `pnpm start`). Es el valor de `SETUP_TOKEN`; si no existe, créalo como explica
   `docs/guia-despliegue.md`. Con `pnpm dev` no se pide.
 - **Quiero empezar la demo de cero:** `pnpm db:reset` (o `pnpm seed --sector=…` para otro sector).
+- **«Añade tu clave de OpenRouter» aunque la he puesto en `.env.local`:** reinicia `pnpm dev`; la de Ajustes › IA
+  funciona al momento.
+- **El agente no responde en Probar:** el mensaje dice por qué. Lo habitual: clave no válida o caducada, cuenta
+  sin saldo o clave en su límite de gasto (se sube en OpenRouter), o «Este modelo no está disponible con tu
+  configuración de privacidad» (elige otro modelo en la pestaña Modelo o revisa la privacidad de la cuenta).
+- **La lista de modelos no sale o le falta alguno:** sin clave no se carga. Solo aparecen modelos que admiten
+  herramientas, con precio y sin fecha de retirada; «Actualizar lista» la vuelve a pedir a OpenRouter (se guarda
+  12 horas).
 
 ## Cómo se trabaja en este proyecto
 
@@ -216,3 +271,9 @@ Se construye por fases con un agente de código. Lo que el agente cumple sin que
 Todo lo demás está en `docs/`, con su índice en `docs/README.md`: la especificación (`docs/spec.md`), la
 arquitectura (`docs/architecture.md`), la seguridad (`docs/security.md`), las pruebas (`docs/testing.md`) y los
 datos comprobados de cada servicio externo (`docs/integracion-*.md`).
+
+Guías para el negocio (también dentro de la app, en Ayuda):
+
+- [Crear agentes y darles el conocimiento del negocio](docs/guia-agentes-y-conocimiento.md): crear, ajustar y
+  probar un agente (la parte de conocimiento llega con su fase).
+- [Publicar la app en Vercel](docs/guia-despliegue.md).

@@ -2,8 +2,9 @@
 // knowledge, bookings…): a step reads what earlier steps created from `ctx.refs`.
 import type { SeedStep } from "../types";
 import { agendaStep } from "./agenda";
+import { agentsStep } from "./agents";
 import { businessStep } from "./business";
 import { hoursStep } from "./hours";
 import { usersStep } from "./users";
 
-export const SEED_STEPS: readonly SeedStep[] = [businessStep, usersStep, hoursStep, agendaStep];
+export const SEED_STEPS: readonly SeedStep[] = [businessStep, usersStep, hoursStep, agendaStep, agentsStep];

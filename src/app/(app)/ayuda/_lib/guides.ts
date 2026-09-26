@@ -19,6 +19,11 @@ export type HelpGuide = {
 
 export const HELP_GUIDES: readonly HelpGuide[] = [
   {
+    slug: "agentes-y-conocimiento",
+    file: "guia-agentes-y-conocimiento.md",
+    description: "Crear un agente desde la plantilla de tu sector, ajustar sus instrucciones y su modelo, y probarlo.",
+  },
+  {
     slug: "despliegue",
     file: "guia-despliegue.md",
     description: "Publicar la app en Vercel con Turso, Vercel Blob y el cron, y más adelante en un servidor propio.",

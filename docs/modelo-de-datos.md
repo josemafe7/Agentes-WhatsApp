@@ -36,7 +36,7 @@ Vienen de la decisión 0003 y valen para todas las tablas:
 | `channel_members` | Canales de cada usuario con rol Agente. Único el par usuario + canal. Sin filas, el agente ve todos los canales. | [PER-02], [USU-17] |
 | `invitations` | Email, rol, canales (si es Agente), huella del enlace (no el enlace en claro), quién invita, caducidad (7 días) y cuándo se usó o se revocó. Una sola pendiente por email. | [USU-05]–[USU-09] |
 | `business_settings` | Una sola fila: nombre, datos de contacto, dirección, sector, zona horaria (`Europe/Madrid`), logo (clave del archivo), color principal (`#3d6df2`), terminología y modo de la agenda con su intervalo de huecos, textos legales, aviso de IA por defecto, plazos de conservación, horas de pausa de la IA (12), exigir 2FA, sucesos que avisan y a quién por defecto, paso actual del asistente y `setup_completed_at`. | [AJU-01], [AJU-03], [AJU-07], [AJU-08], [ASI-10], [ASI-11], [AGD-01], [AGD-06], [AGD-08], [BAN-11], [CUM-05], [USU-12] |
-| `integration_settings` | Una sola fila: claves de OpenRouter y Mistral OCR (cifradas); ZDR; modelos por defecto (chat, respaldo, transcripción, embeddings, descripción de imágenes y reordenación, con su interruptor); recomendados y caché del catálogo de modelos (12 h); correo del sistema SMTP (la contraseña, cifrada); verify token de WhatsApp de la instalación y hora de la última verificación correcta de Meta; claves VAPID (la privada, cifrada). | [AJU-04], [AJU-06], [MOD-01], [WA-12], [WA-13], [PWA-03] |
+| `integration_settings` | Una sola fila: claves de OpenRouter y Mistral OCR (cifradas); ZDR; modelos por defecto (chat, respaldo, transcripción, embeddings, descripción de imágenes y reordenación, con su interruptor); lista de modelos recomendados; correo del sistema SMTP (la contraseña, cifrada); verify token de WhatsApp de la instalación y hora de la última verificación correcta de Meta; claves VAPID (la privada, cifrada). | [AJU-04], [AJU-06], [MOD-01], [WA-12], [WA-13], [PWA-03] |
 | `pricing_rates` | Tarifas por mensaje: tipo de canal (hoy `whatsapp`), mercado (país), categoría de precio, importe, moneda (USD) y si es de ejemplo. Único por canal + mercado + categoría. No está en el §4 del encargo: la pide [AJU-09]. | [AJU-09], [WA-47] |
 | `business_hours` | Tramos del horario semanal (día y horas de inicio y fin locales; varios por día). | [AJU-03], [ASI-06], [CAN-08] |
 | `closures` | Festivos y cierres, por fecha o rango. | [AJU-03], [AGD-05] |
@@ -85,7 +85,7 @@ variables y el id de Meta. Único por canal + nombre + idioma. Sirve a [WA-22], 
 
 | Tabla | Qué guarda y campos clave | Reglas |
 |---|---|---|
-| `agents` | Nombre, descripción, avatar, idioma, tono, instrucciones guiadas, modelo y respaldo, temperatura, razonamiento, longitud máxima, modo de conocimiento (`auto` o `always`), configuración de traspaso (palabras clave, número de «no lo sé», temas sensibles, mensajes dentro y fuera de horario, a quién avisar) y herramientas del sistema activas. | [AGE-03]–[AGE-09], [MOD-05], [MOD-07] |
+| `agents` | Nombre, descripción, avatar, idioma, tono, instrucciones guiadas (rol, negocio, qué puede y qué no, estilo, cuándo pasar a una persona y «Otras instrucciones»), número de la versión actual, modelo y respaldo, temperatura, razonamiento, longitud máxima, modo de conocimiento (`auto` o `always`), configuración de traspaso (palabras clave, número de «no lo sé», temas sensibles, mensajes dentro y fuera de horario, a quién avisar) y herramientas del sistema activas. | [AGE-03]–[AGE-09], [MOD-05], [MOD-07] |
 | `agent_versions` | Copia completa del agente en cada guardado, con número de versión, autor y fecha. Único agente + número. Recuperar una crea otra nueva. | [AGE-12] |
 | `agent_context_files` | Archivos de contexto del nivel 1: título, Markdown editable, tamaño en tokens y archivo de origen. | [CON-01], [CON-02] |
 | `custom_tools` | Herramientas HTTP: nombre (único), descripción, parámetros, método, URL, tiempo máximo y cabeceras secretas cifradas. | [HER-11]–[HER-14] |
@@ -149,7 +149,7 @@ variables y el id de Meta. Único por canal + nombre + idioma. Sirve a [WA-22], 
 | `internal_notes` | Notas del equipo en una conversación, con autor. Nunca se envían. | [BAN-07] |
 | `handoff_events` | Cada traspaso: conversación, quién lo lanza (herramienta, regla o persona), motivo, resumen, urgencia, a quién se asigna, hora de la petición y hora y mensaje de la primera respuesta humana. De aquí salen los informes de traspasos y del tiempo de respuesta. | [TRA-01], [TRA-06], [TRA-07], [INF-04], [INF-05], [CUM-11] |
 | `webhook_events` | Avisos en bruto de los canales: origen, canal, cuerpo, si la firma era correcta, cuándo se procesó y error. Para un número de WhatsApp que no es de ningún canal, solo la hora y el número. Se borran a los 14 días por defecto. | [CAN-09], [WA-34], [WA-35], [CUM-05], [AJU-11] |
-| `ai_runs` | Cada uso de la IA (chat, transcripción, embeddings, reordenación, descripción de imágenes): modelo pedido y usado, tokens, coste de `usage.cost`, tiempo, herramientas usadas y error. | [MOT-11], [MED-01], [INF-07], [PRU-02] |
+| `ai_runs` | Cada uso de la IA (chat, transcripción, embeddings, reordenación, descripción de imágenes): modelo pedido y usado, proveedor, tokens (de entrada, de salida, de razonamiento y leídos de la caché), coste de `usage.cost`, tiempo, herramientas usadas, error y si fue de «Probar agente». | [MOT-11], [MED-01], [INF-07], [PRU-02] |
 
 ## Operación
 
@@ -161,6 +161,7 @@ variables y el id de Meta. Único por canal + nombre + idioma. Sirve a [WA-22], 
 | `audit_log` | Registro de actividad: quién (persona, IA o sistema), qué, sobre qué y cuándo, sin datos personales. Solo se añade: nadie lo edita ni lo borra a mano. | [AJU-10], [SEG-10], [HER-03], [CUM-06] |
 | `realtime_events` | Cambios para las pantallas, con un cursor que crece. Se borran pronto. No está en el §4: la pide el sondeo (0009). | [BAN-03], [WEB-06] |
 | `rate_limits` | Contadores de límites de peticiones por clave (IP, visitante, email) y ventana. Better Auth usa además su propia tabla para el inicio de sesión. | [SEG-07], [USU-13], [WEB-08] |
+| `app_kv` | Almacén pequeño de clave y valor: el catálogo de modelos de OpenRouter ya normalizado (`ai.model_catalog`, se renueva a las 12 h), el agente que creó el asistente y sus preguntas frecuentes (`setup.first_agent`), la última ronda del trabajo en segundo plano y otros cursores. | [MOD-01], [MOD-06], [ASI-11], [AJU-11] |
 
 ## Agenda
 

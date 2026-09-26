@@ -21,13 +21,17 @@ import {
 import { isValidHex } from "@/lib/color";
 import { SECTORS, type Sector } from "@/lib/enums";
 import { isValidTimeZone } from "@/lib/format";
-import { DEFAULT_MODELS, RECOMMENDED_CHAT_MODELS } from "@/lib/openrouter/default-models";
+import { createOpenRouterClient } from "@/lib/openrouter/client";
+import { DEFAULT_MODELS, defaultFallbackFor, RECOMMENDED_CHAT_MODELS } from "@/lib/openrouter/default-models";
 import { checkOpenRouterKey, type CheckKeyOptions, type OpenRouterKeyCheck } from "@/lib/openrouter/key";
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
 import { getSectorPreset, type AgentTemplate, type Faq } from "@/lib/sectors";
 import { optionalText } from "@/lib/validation";
 import { createFirstOwner, firstOwnerSchema } from "@/server/accounts";
 import { generateFileKey, getFileStorage, type FileStorage } from "@/server/adapters/file-storage";
+import { catalogForValidation, validateModelChoice } from "@/server/ai/models";
+import type { OpenRouterDeps } from "@/server/ai/openrouter";
+import { getAppUrl } from "@/server/app-url";
 import { AuthError, ConflictError, parseInput, ValidationError } from "@/server/errors";
 import { timingSafeEqualStr } from "@/server/crypto";
 import { applySectorPreset } from "@/server/demo/sector-preset";
@@ -51,8 +55,8 @@ import {
 export const SETUP_STEP = { owner: 1, business: 2, hours: 3, ai: 4, agent: 5, webchat: 6, channels: 7 } as const;
 export const SETUP_STEP_COUNT = 7;
 /**
- * Steps with nothing required: «Hacerlo más tarde» (AI) or «Continuar» just marks them done. The agent and web
- * chat steps are placeholders until agents (phase 1) and the web chat (phase 2) exist.
+ * Steps with nothing required: «Hacerlo más tarde» (AI), «Saltar este paso» (first agent) or «Continuar» (web
+ * chat, a placeholder until the web chat exists in phase 2) just marks them done.
  */
 export const SKIPPABLE_SETUP_STEPS: readonly number[] = [SETUP_STEP.ai, SETUP_STEP.agent, SETUP_STEP.webchat];
 
@@ -86,13 +90,13 @@ function effectiveStep(settings: BusinessSettingsRow): number {
 }
 
 /** Only the owner continues the wizard ([ASI-11]); the reused settings functions check their own permission too. */
-function assertSetupOwner(actor: Actor): void {
+export function assertSetupOwner(actor: Actor): void {
   if (actor.role !== "owner") throw new AuthError("forbidden");
   assertCan(actor, PERMISSIONS.settings.business);
 }
 
 /** Settings row for a step: refused once finished, or while an earlier step is still pending. */
-async function openStep(executor: Executor, step: number): Promise<BusinessSettingsRow> {
+export async function openStep(executor: Executor, step: number): Promise<BusinessSettingsRow> {
   const settings = await loadBusinessSettings(executor);
   if (settings.setupCompletedAt) throw new ConflictError(FINISHED_MESSAGE);
   if (effectiveStep(settings) < step) throw new ConflictError(PREVIOUS_STEPS_MESSAGE);
@@ -340,7 +344,7 @@ export async function getBusinessStepData(actor: Actor) {
   };
 }
 
-/** For the first-agent step (phase 1): the sector's agent template and FAQs kept by step 2, or null. */
+/** For the first-agent step: the sector's agent template and FAQs kept by step 2, or null. */
 export async function getSetupSectorTemplate(
   actor: Actor,
 ): Promise<{ sector: Sector; agentTemplate: AgentTemplate; faqs: Faq[] } | null> {
@@ -468,15 +472,27 @@ export type AiStepInput = z.input<typeof aiStepSchema>;
 /**
  * Step 4 ([ASI-07]): saves the key (encrypted by updateIntegrationSettings) and the default chat model, and fills
  * the other default models and the recommended list of docs/integracion-openrouter.md §10 if they are empty.
+ * The chat model passes the same checks as an agent's ([MOD-02], [MOD-05]) against the model list (with the key
+ * being typed when there is one); the default fallback is kept of another provider. Nothing is saved otherwise.
  */
-export async function saveAiStep(actor: Actor, input: unknown): Promise<void> {
+export async function saveAiStep(actor: Actor, input: unknown, deps: Pick<OpenRouterDeps, "fetchImpl"> = {}): Promise<void> {
   assertSetupOwner(actor);
   const data = parseInput(aiStepSchema, input);
-  await openStep(db, SETUP_STEP.ai);
+  const settings = await openStep(db, SETUP_STEP.ai);
   const current = await loadIntegrationSettings();
+  const fallback = defaultFallbackFor(data.chatModel, current.defaultModels.fallback);
+  const typedKey = data.openrouterKey
+    ? createOpenRouterClient({ apiKey: data.openrouterKey, fetchImpl: deps.fetchImpl, appUrl: getAppUrl() })
+    : undefined;
+  const catalog = await catalogForValidation({ fetchImpl: deps.fetchImpl, client: typedKey });
+  const problems = validateModelChoice(data.chatModel, fallback, catalog?.models ?? null, {
+    checkCatalog: { model: true, fallbackModel: false },
+    timeZone: settings.timezone,
+  });
+  if (problems?.model) throw new ValidationError(undefined, { chatModel: problems.model });
   await updateIntegrationSettings(actor, {
     ...(data.openrouterKey ? { openrouterKey: data.openrouterKey } : {}),
-    defaultModels: { ...DEFAULT_MODELS, ...current.defaultModels, chat: data.chatModel },
+    defaultModels: { ...DEFAULT_MODELS, ...current.defaultModels, chat: data.chatModel, fallback },
     ...(current.recommendedModels.length === 0 ? { recommendedModels: [...RECOMMENDED_CHAT_MODELS] } : {}),
   });
   await completeStep(actor, SETUP_STEP.ai, "setup.ai_saved");
@@ -513,14 +529,15 @@ const skippableStepSchema = z
   .int()
   .refine((step) => SKIPPABLE_SETUP_STEPS.includes(step), "Este paso no se puede saltar.");
 
-/** «Hacerlo más tarde» (AI) and «Continuar» on the placeholder steps (first agent, web chat). */
+/** «Hacerlo más tarde» (AI), «Saltar este paso» (first agent) and «Continuar» on the web chat placeholder. */
 export async function skipSetupStep(actor: Actor, step: unknown): Promise<void> {
   assertSetupOwner(actor);
   const value = parseInput(skippableStepSchema, step);
   await completeStep(actor, value, "setup.step_skipped");
 }
 
-async function completeStep(actor: Actor, step: number, action: string): Promise<void> {
+/** Marks `step` done (checked again inside the transaction) with an audit entry; also used by src/data/setup-agent.ts. */
+export async function completeStep(actor: Actor, step: number, action: string): Promise<void> {
   await db.transaction(async (tx) => {
     const settings = await openStep(tx, step);
     await tx

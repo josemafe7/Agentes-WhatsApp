@@ -10,12 +10,13 @@ export type TestUser = { email: string; password: string };
 
 export const DEMO_PASSWORD = "demo1234";
 
-export const DEMO_USERS: Record<RoleKey, TestUser & { roleLabel: string }> = {
-  owner: { email: "propietario@demo.test", password: DEMO_PASSWORD, roleLabel: "Propietario" },
-  admin: { email: "admin@demo.test", password: DEMO_PASSWORD, roleLabel: "Administrador" },
-  supervisor: { email: "supervisor@demo.test", password: DEMO_PASSWORD, roleLabel: "Supervisor" },
-  agent: { email: "agente@demo.test", password: DEMO_PASSWORD, roleLabel: "Agente" },
-  viewer: { email: "lectura@demo.test", password: DEMO_PASSWORD, roleLabel: "Solo lectura" },
+/** `name` is the one of seed/users.ts: it is what the app shows as the author of a change ([AGE-12]). */
+export const DEMO_USERS: Record<RoleKey, TestUser & { roleLabel: string; name: string }> = {
+  owner: { email: "propietario@demo.test", password: DEMO_PASSWORD, roleLabel: "Propietario", name: "Elena Ruiz" },
+  admin: { email: "admin@demo.test", password: DEMO_PASSWORD, roleLabel: "Administrador", name: "Javier Moreno" },
+  supervisor: { email: "supervisor@demo.test", password: DEMO_PASSWORD, roleLabel: "Supervisor", name: "Carmen López" },
+  agent: { email: "agente@demo.test", password: DEMO_PASSWORD, roleLabel: "Agente", name: "Pablo Sánchez" },
+  viewer: { email: "lectura@demo.test", password: DEMO_PASSWORD, roleLabel: "Solo lectura", name: "Sofía Navarro" },
 };
 
 /** Users that exist only in the e2e database, so a test can change them without touching the demo users. */

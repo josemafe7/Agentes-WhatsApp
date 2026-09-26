@@ -561,13 +561,18 @@ con ffmpeg. Modelos: `output_modalities=speech` (21 hoy). No se implementa en v1
   por cuenta, por grupo de modelos (Anthropic, OpenAI, Google, SpaceXAI y «el resto»; p. ej. el de OpenAI
   quita los endpoints propios de OpenAI y deja Azure) o por guardarraíl. Todas se suman: la petición solo
   puede endurecer, nunca relajar el ajuste de la cuenta.
-- Lista pública de endpoints ZDR: `GET /api/v1/endpoints/zdr` (921 el 2026-09-26).
+- Lista pública de endpoints ZDR: `GET /api/v1/endpoints/zdr` (921 el 2026-09-26). Responde `{ "data": [ … ] }`
+  con la misma forma de endpoint que `GET /models/{autor}/{slug}/endpoints` (`{ "data": { "id", …,
+  "endpoints": [ … ] } }`): `model_id`, `provider_name`, `tag` («deepinfra/us»), `pricing`, `status`… Un endpoint
+  se identifica por `model_id` + `tag` (comprobado en vivo el 2026-09-26).
 - ZDR solo se aplica al enrutado de la inferencia, **no a los plugins ni a las herramientas del servidor**
   (búsqueda web…). No usamos ninguno salvo `file-parser`; con `mistral-ocr` el PDF va a Mistral.
 - **Transcripción y voz no aceptan `data_collection` ni `zdr` por petición.** Si el ajuste de la cuenta se
   aplica a ellas está **no verificado**. Por eso el modelo de transcripción por defecto es uno cuyos
   proveedores son todos ZDR hoy (`openai/whisper-large-v3-turbo`: DeepInfra y Groq). Si el negocio cambia de
-  modelo, Ajustes muestra si todos sus endpoints están en la lista ZDR.
+  modelo, Ajustes muestra si todos sus endpoints están en la lista ZDR: pide los endpoints del modelo y la lista
+  ZDR, compara por `tag` y nombra los proveedores que faltan. Se guarda 12 h por modelo; sin clave o si
+  OpenRouter falla, no se muestra nada (no se sabe).
 - Con ZDR activado, hoy: `openai/gpt-5.6-luna` solo por Azure; `google/gemini-3.1-flash-lite` por Google
   Vertex; `openai/text-embedding-3-small` solo por Azure; rerank solo `qwen/qwen3-reranker-8b`.
 - Región UE: `eu.openrouter.ai` solo existe para clientes empresa. No se usa.

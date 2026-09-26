@@ -25,6 +25,7 @@ import { deleteUserAccount } from "@/server/accounts";
 import type { FileStorage } from "@/server/adapters/file-storage";
 import { AuthError, ConflictError, ValidationError } from "@/server/errors";
 import { actorFor, TEST_PASSWORD } from "@/test/factories";
+import { fakeFetch, jsonResponse, routes, sampleCatalog } from "@/test/fake-openrouter";
 import { MAX_LOGO_BYTES } from "./business";
 import { ensureSettingsRows, getOpenRouterKey, loadBusinessSettings, loadIntegrationSettings } from "./settings";
 import {
@@ -97,6 +98,11 @@ function memoryStorage() {
 }
 
 const BUSINESS = { name: "Peluquería Aurora", sector: "peluqueria", color: "#3D6DF2" } as const;
+
+/** OpenRouter's model list (fake fetch, one model of each exclusion), for the check of the chat model in step 4. */
+function catalogFetch() {
+  return fakeFetch(routes({ "GET /models/user": () => jsonResponse({ data: sampleCatalog() }) }));
+}
 
 /** Owner with steps 2 and 3 done (the first pending step is 4). */
 async function ownerAtAiStep(): Promise<Actor> {
@@ -383,12 +389,13 @@ describe("step 3 · hours, closures and time zone [ASI-06]", () => {
 describe("step 4 · OpenRouter key and model [ASI-07] [ARR-14]", () => {
   it("saves the key encrypted, the chat model and the other default models", async () => {
     const owner = await ownerAtAiStep();
-    await saveAiStep(owner, { openrouterKey: "sk-or-v1-wizard-key-4321", chatModel: "google/gemini-3.1-flash-lite" });
+    await saveAiStep(owner, { openrouterKey: "sk-or-v1-wizard-key-4321", chatModel: "google/gemini-3.1-flash-lite" }, { fetchImpl: catalogFetch().fetch });
     const settings = await loadIntegrationSettings();
     expect(settings.openrouterKeyEnc).toMatch(/^v1:/);
     expect(JSON.stringify(settings)).not.toContain("wizard-key");
     expect(await getOpenRouterKey()).toBe("sk-or-v1-wizard-key-4321");
-    expect(settings.defaultModels).toEqual({ ...DEFAULT_MODELS, chat: "google/gemini-3.1-flash-lite" });
+    // The default fallback (Google) would be of the same provider as this chat model: another one is kept [MOD-05].
+    expect(settings.defaultModels).toEqual({ ...DEFAULT_MODELS, chat: "google/gemini-3.1-flash-lite", fallback: DEFAULT_MODELS.chat });
     expect(settings.recommendedModels.length).toBeGreaterThan(0);
     expect((await getSetupStatus()).currentStep).toBe(5);
 
@@ -399,10 +406,43 @@ describe("step 4 · OpenRouter key and model [ASI-07] [ARR-14]", () => {
 
   it("an empty key keeps the saved one; an invalid model is rejected", async () => {
     const owner = await ownerAtAiStep();
-    await saveAiStep(owner, { openrouterKey: "sk-or-v1-first-1111", chatModel: DEFAULT_MODELS.chat });
-    await saveAiStep(owner, { openrouterKey: "", chatModel: DEFAULT_MODELS.chat });
+    const { fetch } = catalogFetch();
+    await saveAiStep(owner, { openrouterKey: "sk-or-v1-first-1111", chatModel: DEFAULT_MODELS.chat }, { fetchImpl: fetch });
+    await saveAiStep(owner, { openrouterKey: "", chatModel: DEFAULT_MODELS.chat }, { fetchImpl: fetch });
     expect(await getOpenRouterKey()).toBe("sk-or-v1-first-1111");
     await expect(saveAiStep(owner, { chatModel: "un modelo cualquiera" })).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("the chat model is checked like an agent's: free, tool-less, retiring or unknown ones are refused and nothing is saved [MOD-02] [MOD-05]", async () => {
+    const owner = await ownerAtAiStep();
+    const fake = catalogFetch();
+    const refused = [
+      ["qwen/qwen3.8-27b:free", /gratuitos/],
+      ["meta/llama-no-tools", /herramientas/],
+      ["deepseek/deepseek-v3.2", /se retira/],
+      ["no-existe/modelo", /no está en la lista/],
+    ] as const;
+    for (const [chatModel, message] of refused) {
+      const error = await saveAiStep(owner, { openrouterKey: "sk-or-v1-typed-9999", chatModel }, { fetchImpl: fake.fetch }).catch((caught: unknown) => caught);
+      expect(error, chatModel).toBeInstanceOf(ValidationError);
+      expect((error as ValidationError).fieldErrors?.chatModel?.[0], chatModel).toMatch(message);
+    }
+    // Checked with the list of the key being typed, which is not saved while the model is wrong.
+    expect(fake.calls[0].headers.get("authorization")).toBe("Bearer sk-or-v1-typed-9999");
+    expect(await getOpenRouterKey()).toBeNull();
+    expect((await loadIntegrationSettings()).defaultModels).toEqual({});
+    expect((await getSetupStatus()).currentStep).toBe(4);
+
+    await saveAiStep(owner, { openrouterKey: "sk-or-v1-typed-9999", chatModel: "anthropic/claude-haiku-4.5" }, { fetchImpl: fake.fetch });
+    expect((await loadIntegrationSettings()).defaultModels).toMatchObject({ chat: "anthropic/claude-haiku-4.5", fallback: DEFAULT_MODELS.fallback });
+  });
+
+  it("without any key the list cannot be had: only the way the model is written is checked [ARR-14]", async () => {
+    const owner = await ownerAtAiStep();
+    const fake = catalogFetch();
+    await saveAiStep(owner, { chatModel: "anthropic/claude-haiku-4.5" }, { fetchImpl: fake.fetch });
+    expect(fake.calls).toHaveLength(0);
+    expect((await loadIntegrationSettings()).defaultModels).toMatchObject({ chat: "anthropic/claude-haiku-4.5" });
   });
 
   it("can be done later: skipping leaves the app without AI and moves on", async () => {
@@ -423,7 +463,7 @@ describe("step 4 · OpenRouter key and model [ASI-07] [ARR-14]", () => {
     const typed = await testSetupOpenRouterKey(owner, { key: "sk-or-v1-typed-0001" }, { fetch: fakeFetch });
     expect(typed).toMatchObject({ valid: true, summary: "Clave válida" });
 
-    await saveAiStep(owner, { openrouterKey: "sk-or-v1-saved-0002", chatModel: DEFAULT_MODELS.chat });
+    await saveAiStep(owner, { openrouterKey: "sk-or-v1-saved-0002", chatModel: DEFAULT_MODELS.chat }, { fetchImpl: catalogFetch().fetch });
     await testSetupOpenRouterKey(owner, {}, { fetch: fakeFetch });
     expect(seen).toEqual(["Bearer sk-or-v1-typed-0001", "Bearer sk-or-v1-saved-0002"]);
   });

@@ -13,6 +13,16 @@ import { removeWithRetry } from "./remove-with-retry";
 for (const [key, value] of Object.entries(TEST_ENV)) process.env[key] = value;
 for (const key of UNSET_IN_TESTS) delete process.env[key];
 
+// Tests never reach a real service (docs/testing.md): code that forgot its fake fetch fails here, loudly, instead of
+// calling OpenRouter or Meta. Only this machine can be reached (tests that start a local server).
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const realFetch = globalThis.fetch;
+globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+  const url = new URL(input instanceof Request ? input.url : String(input));
+  if (!LOCAL_HOSTS.has(url.hostname)) return Promise.reject(new Error(`Prueba sin fetch simulado: se ha intentado llamar a ${url.origin}`));
+  return realFetch(input, init);
+}) as typeof fetch;
+
 const testDbPath = path.join(inject("testRunDir"), `${crypto.randomUUID()}.db`);
 fs.copyFileSync(inject("templateDbPath"), testDbPath);
 process.env.DATABASE_URL = `file:${testDbPath.split(path.sep).join("/")}`;

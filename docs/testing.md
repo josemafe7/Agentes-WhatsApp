@@ -54,13 +54,26 @@ Qué se prueba y cómo, para demostrar que el código funciona.
 - Datos inventados y usuarios de prueba: los del seed (ver `docs/conventions.md`). Las pruebas nunca se
   ejecutan contra una base de datos con datos reales (tampoco la de Turso de producción): si la del
   proyecto ya los tiene, antes se separan desarrollo y producción, como dice `docs/security.md`.
-- Los servicios externos nunca se llaman de verdad: ni los de pago (IA, OCR) ni los demás.
+- Los servicios externos nunca se llaman de verdad: ni los de pago (IA, OCR) ni los demás. En Vitest,
+  `src/test/setup.ts` hace fallar cualquier `fetch` a otra máquina, así que una prueba que olvida su `fetch`
+  falso falla en vez de llamar al servicio real.
   - En Vitest, cada cliente de `src/lib/<servicio>/` recibe un `fetch` falso con la respuesta de la
-    prueba.
+    prueba. Para OpenRouter, `src/test/fake-openrouter.ts` trae ese `fetch` (guarda cada llamada), las
+    respuestas documentadas (chat, catálogo con un ejemplo de cada exclusión) y una clave de prueba; el código
+    del servidor lo recibe con `fetchImpl` (por ejemplo, `runAgent(input, { fetchImpl })`).
   - En Playwright, un servidor simulado (`e2e/mocks/`) responde por Meta, OpenRouter, Google, Microsoft,
     Mistral y Telegram, y la app apunta a él con sus variables de URL base (`OPENROUTER_BASE_URL`,
     `META_GRAPH_BASE_URL`, `GOOGLE_OAUTH_BASE_URL`, `GOOGLE_API_BASE_URL`, `MS_LOGIN_BASE_URL`,
     `MS_GRAPH_BASE_URL`, `MISTRAL_BASE_URL` y `TELEGRAM_API_BASE_URL`).
+  - OpenRouter simulado (`e2e/mocks/routes/openrouter.mjs`): solo responde a las claves de prueba de
+    `e2e/mocks/test-keys.json`; su catálogo tiene modelos de cuatro proveedores y uno de cada exclusión; da los
+    proveedores de cada modelo y la lista sin retención de datos (Whisper está en ella, Voxtral no); el chat
+    contesta de forma fija con el nombre del agente, el canal y lo que escribió el cliente, llama a
+    `transferir_a_humano` cuando el cliente pide «una persona» (argumentos en `e2e/mocks/openrouter-scenarios.json`)
+    y devuelve tokens y coste que crecen con cada mensaje. Cada prueba puede forzar errores con `mock.stub`.
+  - La demo de Playwright arranca sin clave de OpenRouter. Una prueba que necesita IA pide el fixture
+    `openRouterKey` (`e2e/support/test.ts`): guarda la clave como el propietario desde Ajustes › IA y la quita al
+    terminar, aunque la prueba falle, para que las demás sigan viendo la instalación sin IA.
   - Los servidores de correo (IMAP y SMTP) se simulan sustituyendo su conexión.
   - Las respuestas y los avisos simulados copian los reales de `docs/integracion-*.md` (por ejemplo, los
     avisos de WhatsApp de `docs/integracion-whatsapp-mensajes.md`), firmas incluidas.

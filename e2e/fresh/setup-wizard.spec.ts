@@ -2,6 +2,7 @@
 // DEMO_MODE=false), as after `pnpm db:fresh` ([ARR-17], [ASI-01]–[ASI-11]).
 // One test on purpose: the installation can be set up only once, so the steps share that single history.
 import type { Page } from "@playwright/test";
+import { agentCard, AGENTS_PATH } from "../support/agents";
 import { newPersonContext } from "../support/app";
 import { TEST_SECRETS } from "../support/env";
 import { clientIpFor, expect, test } from "../support/test";
@@ -19,6 +20,10 @@ import testKeys from "../mocks/test-keys.json";
 
 const OWNER_STEP_TITLE = "Crea tu cuenta de propietario";
 const HOURS_STEP_TITLE = "Horario, festivos y zona horaria";
+/** Name of the agent template of «Clínica dental» (src/lib/sectors/clinica-dental.ts), the sector chosen in step 2. */
+const DENTAL_TEMPLATE_AGENT = "Recepción de la clínica";
+/** The name the owner gives the first agent in step 5. */
+const FIRST_AGENT_NAME = "Recepción Sonrisa";
 
 type Person = { name: string; email: string; password: string };
 
@@ -35,7 +40,7 @@ function stepUrl(step: number): RegExp {
   return new RegExp(`/setup\\?paso=${step}$`);
 }
 
-test("[ARR-17][ASI-01][ASI-02][ASI-03][ASI-05][ASI-06][ASI-07][ASI-10][ASI-11] the first owner sets up an empty installation", async ({ page, browser, mock }, testInfo) => {
+test("[ARR-17][ASI-01][ASI-02][ASI-03][ASI-05][ASI-06][ASI-07][ASI-08][ASI-10][ASI-11] the first owner sets up an empty installation", async ({ page, browser, mock }, testInfo) => {
   // Seven steps and a second browser: more than the default time.
   test.setTimeout(180_000);
   const owner: Person = { name: "Olga Propietaria", email: "olga@e2e.test", password: "e2e-clave-olga-1" };
@@ -103,7 +108,7 @@ test("[ARR-17][ASI-01][ASI-02][ASI-03][ASI-05][ASI-06][ASI-07][ASI-10][ASI-11] t
     await expect(page).toHaveURL(stepUrl(4));
   });
 
-  await test.step("[ASI-07] «Probar clave» asks OpenRouter (simulated) and the step can be left for later", async () => {
+  await test.step("[ASI-07] «Probar clave» asks OpenRouter (simulated)", async () => {
     const keyField = page.getByLabel("Clave de OpenRouter", { exact: true });
     const testButton = page.getByRole("button", { name: "Probar clave" });
 
@@ -120,15 +125,44 @@ test("[ARR-17][ASI-01][ASI-02][ASI-03][ASI-05][ASI-06][ASI-07][ASI-10][ASI-11] t
     const keysSent = calls.map((call) => call.headers.authorization);
     expect(keysSent).toContain(`Bearer ${testKeys.openrouter.invalid}`);
     expect(keysSent).toContain(`Bearer ${testKeys.openrouter.valid}`);
+  });
 
+  await test.step("[ASI-07][MOD-02][MOD-05] the chat model is checked against OpenRouter's list: free, tool-less or unknown ones are refused", async () => {
+    const modelField = page.getByLabel("Modelo de chat", { exact: true });
+    const refused = [
+      ["qwen/qwen3.8-27b:free", /gratuitos o de pruebas/],
+      ["meta-llama/llama-3.2-3b-instruct", /no admite herramientas/],
+      ["no-existe/modelo", /no está en la lista de OpenRouter/],
+    ] as const;
+    for (const [model, message] of refused) {
+      await modelField.fill(model);
+      await clickAndWaitForPost(page, page.getByRole("button", { name: "Continuar" }));
+      await expect(page.getByText(message).first(), model).toBeVisible();
+      await expect(page).toHaveURL(stepUrl(4));
+    }
+    // The list was asked with the key typed in the step (not saved yet).
+    const lists = await mock.requests({ service: "openrouter", method: "GET", path: "/api/v1/models/user" });
+    expect(lists.at(-1)?.headers.authorization).toBe(`Bearer ${testKeys.openrouter.valid}`);
+    await modelField.fill("openai/gpt-5.6-luna");
+  });
+
+  await test.step("[ASI-07] the AI step can be left for later", async () => {
     // «Hacerlo más tarde» does not keep the key typed in the field.
     await clickAndWaitForPost(page, page.getByRole("button", { name: "Hacerlo más tarde" }));
     await expect(page).toHaveURL(stepUrl(5));
   });
 
-  await test.step("steps still to come (first agent, web chat) can be passed", async () => {
-    await clickAndWaitForPost(page, page.getByRole("button", { name: "Continuar" }));
+  await test.step("[ASI-08] step 5 creates the first agent from the sector template; without a key it says what «Generar desde la web» needs", async () => {
+    await expect(page.getByText(/necesita la clave de OpenRouter/i)).toBeVisible();
+    const agentName = page.getByLabel("Nombre del agente", { exact: true });
+    // Starts with the template of the chosen sector.
+    await expect(agentName).toHaveValue(DENTAL_TEMPLATE_AGENT);
+    await agentName.fill(FIRST_AGENT_NAME);
+    await clickAndWaitForPost(page, page.getByRole("button", { name: "Crear agente y continuar" }));
     await expect(page).toHaveURL(stepUrl(6));
+  });
+
+  await test.step("the step still to come (web chat) can be passed", async () => {
     await clickAndWaitForPost(page, page.getByRole("button", { name: "Continuar" }));
     await expect(page).toHaveURL(stepUrl(7));
   });
@@ -147,6 +181,15 @@ test("[ARR-17][ASI-01][ASI-02][ASI-03][ASI-05][ASI-06][ASI-07][ASI-10][ASI-11] t
     await expect(page).toHaveURL(pathPattern("/bandeja"));
     await expect(page.getByText(OPENROUTER_BANNER)).toBeVisible();
     await expect(page.getByText(DEMO_BANNER, { exact: true })).toHaveCount(0);
+  });
+
+  await test.step("[ASI-08][AGE-01] the first agent is in Agentes, ready to be tested", async () => {
+    await page.goto(AGENTS_PATH);
+    const card = agentCard(page, FIRST_AGENT_NAME);
+    await expect(card).toBeVisible();
+    await card.getByRole("link").first().click();
+    await expect(page).toHaveURL(/\/agentes\/[0-9a-f-]{36}$/);
+    await expect(page.getByRole("heading", { level: 1, name: FIRST_AGENT_NAME })).toBeVisible();
   });
 
   await test.step("[ASI-01][ASI-02] once finished, the wizard cannot be opened again", async () => {

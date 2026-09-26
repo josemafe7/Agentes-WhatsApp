@@ -1,5 +1,6 @@
 // Who may read a stored file and with which headers it is served (docs/security.md «Datos», [SEG-04], [MED-08]).
 import "server-only";
+import { canViewAgentAvatar } from "@/data/agents";
 import { isPublicLogoKey } from "@/data/business";
 import type { StoredFile } from "@/server/adapters/file-storage";
 import type { SessionActor } from "@/server/session";
@@ -18,6 +19,7 @@ export type FileAccess = FileVisibility | "unauthenticated" | "not_found";
 export async function resolveFileAccess(key: string, actor: SessionActor | null): Promise<FileAccess> {
   if (await isPublicLogoKey(key)) return "public";
   if (!actor || actor.twoFactorSetupRequired) return "unauthenticated";
+  if (await canViewAgentAvatar(actor, key)) return "private";
   return "not_found";
 }
 

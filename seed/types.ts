@@ -12,6 +12,8 @@ export type SeedRefs = {
   /** By preset key. */
   serviceIds: Map<string, string>;
   resourceIds: Map<string, string>;
+  /** By demo agent key (recepcion, correo, fuera-de-horario); set by the agents step. */
+  agentIds?: Map<string, string>;
 };
 
 export type SeedContext = {

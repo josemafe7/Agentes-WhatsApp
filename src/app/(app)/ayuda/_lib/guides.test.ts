@@ -60,3 +60,16 @@ describe("the publication guide [ARR-23]", () => {
     expect(text.match(/\[Captura: /g)?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe("the agents and knowledge guide [ARR-23]", () => {
+  const guide = HELP_GUIDES.find((candidate) => candidate.file === "guia-agentes-y-conocimiento.md");
+
+  it("is in Spanish and explains creating, tuning, testing and restoring an agent, and not uploading customer data", async () => {
+    expect(guide).toBeDefined();
+    const text = guide ? await readGuide(guide) : "";
+    for (const topic of ["Nuevo agente", "Plantilla de tu sector", "Generar borrador con IA", "Instrucciones", "Modelo", "Traspaso", "Probar", "Simular canal", "Versiones", "Restaurar esta versión", "clave de OpenRouter", "no subas datos de clientes"]) {
+      expect(text, topic).toContain(topic);
+    }
+    expect(text.match(/\[Captura: /g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+  });
+});

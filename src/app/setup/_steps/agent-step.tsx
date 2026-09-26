@@ -1,25 +1,15 @@
-import { Bot } from "lucide-react";
-import { EmptyState } from "@/components/empty-state";
 import { SETUP_STEP } from "@/data/setup";
+import { getSetupAgentStepData } from "@/data/setup-agent";
 import { skipStepAction } from "../actions";
-import { ContinueForm } from "../_components/continue-form";
 import { setupStepHref } from "../_lib/view";
+import { AgentForm } from "./agent-form";
+import { stepActor, type SetupStepProps } from "./types";
 
 /**
- * Step 5 ([ASI-08]), placeholder until agents exist: the agents feature replaces this entry of the registry with
- * the real step (template of the sector kept by step 2 in getSetupSectorTemplate, «Generar desde la web»).
+ * Step 5 ([ASI-08]): the first agent from the sector template kept by step 2, or from a draft generated from the
+ * business website (with an OpenRouter key). Coming back edits the agent already created; it can be skipped.
  */
-export function AgentStep() {
-  return (
-    <div className="space-y-6">
-      <div className="rounded-xl border">
-        <EmptyState
-          icon={Bot}
-          title="Tu primer agente llegará con la sección Agentes"
-          description="Hemos guardado la plantilla de agente y las preguntas frecuentes de tu sector. Cuando la sección Agentes esté disponible, crearás tu primer agente a partir de ellas."
-        />
-      </div>
-      <ContinueForm action={skipStepAction.bind(null, SETUP_STEP.agent)} backHref={setupStepHref(SETUP_STEP.ai)} />
-    </div>
-  );
+export async function AgentStep({ actor }: SetupStepProps) {
+  const data = await getSetupAgentStepData(stepActor(actor));
+  return <AgentForm data={data} skipAction={skipStepAction.bind(null, SETUP_STEP.agent)} aiStepHref={setupStepHref(SETUP_STEP.ai)} />;
 }

@@ -534,6 +534,10 @@ Se construye después de la fase 7 (ver «Fases»); sus reglas quedan escritas p
   agente; los mensajes antiguos conservan su nombre.
 - [AGE-14] En una conversación se puede elegir otro agente solo para ella; desde entonces responde ese.
 - [AGE-15] Un agente sin nombre o con datos incorrectos no se guarda y se explica el error.
+- [AGE-16] Un agente se puede duplicar: la copia sale con todos sus ajustes, sin canales asignados y con su propia
+  primera versión.
+- [AGE-17] Además de las instrucciones guiadas, un apartado «Otras instrucciones» admite texto libre que va al
+  agente junto con el resto.
 
 ### Modelos de IA
 
@@ -1034,10 +1038,14 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
   Comprobado el 2026-09-26: 978 pruebas de Vitest y 53 de Playwright en verde (inicio de sesión de los cinco roles,
   permisos, invitaciones, recuperación, asistente en instalación vacía); copia limpia con `pnpm install && pnpm dev`
   arranca sola y entran los cinco usuarios; revisión independiente y de seguridad corregidas.
-- [ ] Fase 1 · Agentes y OpenRouter: clave, lista de modelos, editor de agentes (sin herramientas salvo el
+- [x] Fase 1 · Agentes y OpenRouter: clave, lista de modelos, editor de agentes (sin herramientas salvo el
   traspaso), plantillas por sector y «Probar agente» — se comprueba: se conversa con un agente en «Probar» viendo
   coste y tiempo (OpenRouter simulado en las pruebas y una prueba a mano con clave real); sin clave, aparece el
   aviso y el agente no responde.
+  Comprobado el 2026-09-26: 1416 pruebas de Vitest y 78 de Playwright en verde, con lint, tipos y compilación
+  (en «Probar» el agente responde con OpenRouter simulado mostrando tokens, coste y tiempo; sin clave sale el aviso
+  y no se envía nada; modelos, traspaso, asistente y aviso de transcripción sin retención comprobados); revisiones
+  corregidas. La prueba a mano con una clave real queda para el propietario.
 - [ ] Fase 2 · Bandeja, chat web y motor: base común de canales, chat web, bandeja, trabajo en segundo plano (al
   contestar avisos, con el cron y con el lanzador local), agrupación y bloqueo, IA encendida o apagada, pausa y
   traspaso, agente activo por canal y simulador — se comprueba: en `/widget-demo` responde el agente activo; al

@@ -152,6 +152,11 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
 - Si el servidor descarga una URL que da una persona (la web del negocio, URLs del conocimiento,
   herramientas HTTP), solo a direcciones públicas, nunca a la red interna del servidor (también tras cada
   redirección), con tiempo y tamaño máximos. Las herramientas HTTP, además, solo con HTTPS ([HER-14]).
+  Todo pasa por `src/server/web-fetch.ts` (desde la fase 1, para «Generar borrador con IA»): solo `http`/`https`
+  en los puertos 80 y 443, sin usuario ni contraseña en la dirección, cada dirección IP resuelta tiene que ser
+  pública (IPv4 e IPv6, incluidas `169.254.169.254` y las `::ffff:` mapeadas) y se vuelve a comprobar al
+  conectar (contra el cambio de DNS) y en cada una de las 3 redirecciones como máximo; 10 s y 2 MB como
+  máximo, y solo los tipos de contenido esperados.
 - Los cambios de datos van por Server Actions o POST, nunca por GET. Una Server Action se puede llamar
   desde fuera aunque no aparezca en la pantalla. `/api/cron/tick` acepta GET porque Vercel Cron llama así:
   exige el secreto y solo lanza trabajo que se puede repetir sin efecto.
@@ -170,7 +175,8 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
   - inicio de sesión, recuperación, verificación en dos pasos e invitaciones, por IP y por email;
   - avisos de los canales, por IP, con un límite amplio que no frene las ráfagas de Meta;
   - chat web, por IP y por visitante ([WEB-08]);
-  - todo lo que gasta IA.
+  - todo lo que gasta IA, por persona y minuto (`src/server/ai/limits.ts`): 20 mensajes de «Probar agente», 5
+    borradores con IA y 10 veces «Actualizar lista» o comprobaciones de un modelo de embeddings.
 - Better Auth tiene su propio limitador, pero solo cubre las peticiones HTTP a `/api/auth/*` y, por
   defecto, solo en producción y en memoria, que Better Auth desaconseja sin un servidor fijo (como en
   Vercel): va con almacenamiento en la base de datos, para las pocas rutas que siguen abiertas por HTTP. Sus

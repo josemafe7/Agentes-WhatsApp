@@ -126,8 +126,10 @@ lateral: logo, stepper y una columna.
    de agente y preguntas frecuentes).
 3. **Horario, festivos y zona horaria:** tramos por día, cierres y zona horaria (Europe/Madrid por defecto,
    [ASI-06]).
-4. **IA** (fase 1): clave de OpenRouter con «Probar clave» y modelo; «Hacerlo más tarde» deja el aviso.
-5. **Primer agente** (fase 1): plantilla del sector u «Generar desde la web del negocio».
+4. **IA** (fase 1): clave de OpenRouter con «Probar clave» y modelo de chat, comprobado contra la lista de
+   OpenRouter como el de un agente ([MOD-02], [MOD-05]); «Hacerlo más tarde» deja el aviso.
+5. **Primer agente** (fase 1): plantilla del sector u «Generar desde la web del negocio», con las instrucciones
+   y las preguntas frecuentes propuestas editables ([ASI-08]).
 6. **Chat web de prueba** (fase 2): crea el canal y deja probarlo ahí mismo.
 7. **Conectar canales:** enlaces a los asistentes de WhatsApp (fase 3) y correo (fase 6); «Ir a la bandeja».
    Hasta que existan, sus tarjetas dicen «Próximamente» y no enlazan a ninguna página.
@@ -417,7 +419,7 @@ apartado en Ayuda ([AJU-17]).
 | Negocio | `/ajustes/negocio` | 0 | Nombre, sector, logo, color principal con vista previa y resultado de contraste, zona horaria, datos de contacto | Ajustes, Marca |
 | Usuarios | `/ajustes/usuarios` | 0 | Tabla (nombre, email, rol, canales del agente, 2FA, último acceso, insignia «Prueba»); invitar; reenviar o revocar invitaciones; cambiar rol; desactivar y reactivar; borrar; «Borrar usuarios de prueba»; exigir 2FA a propietario y administradores (desactivado por defecto, [USU-12]); «Traspasar la propiedad», solo para el propietario y con su contraseña ([USU-16]) | Roles, Demo, Seguridad |
 | Horario | `/ajustes/horario` | 0 | Tramos por día, festivos y cierres | Agenda, Traspaso |
-| IA | `/ajustes/ia` | 1 (reordenación en 4) | Clave de OpenRouter (enmascarada) con «Probar clave»; modelos por defecto de chat, transcripción (con aviso si algún proveedor no es sin retención de datos), embeddings y descripción de imágenes; recomendados; ZDR; «Reordenar resultados» con su modelo (desactivado por defecto; con ZDR, solo modelos sin retención); clave de Mistral OCR (opcional) ([AJU-04]) | IA, Modelos, Seguridad |
+| IA | `/ajustes/ia` | 1 (reordenación en 4) | Clave de OpenRouter (enmascarada) con «Probar clave»; modelos por defecto de chat y su respaldo (de otro proveedor), transcripción (con aviso si algún proveedor no es sin retención de datos), embeddings (comprobado de verdad al cambiarlo, con aviso de volver a procesar el conocimiento) y descripción de imágenes, con selectores desactivados hasta que hay clave y aviso si un modelo en uso se retira; recomendados; ZDR; «Reordenar resultados» con su modelo (desactivado por defecto; con ZDR, solo modelos sin retención); clave de Mistral OCR (opcional) ([AJU-04]) | IA, Modelos, Seguridad |
 | Correo del sistema | `/ajustes/correo` | 0 | SMTP y «Enviar correo de prueba» (invitaciones, recuperación, avisos) | Ajustes |
 | WhatsApp | `/ajustes/whatsapp` | 3 | Tarifas por mercado y categoría (editables; las de la demo marcadas «ejemplo»), con la nota de que los mensajes gratis los marca Meta en cada estado y no se configuran ([AJU-09]); token de verificación de la instalación | WhatsApp (coste estimado) |
 | Privacidad y legal | `/ajustes/privacidad` | 7 | Datos del responsable, textos de las páginas legales con enlace a cada una, aviso de IA por defecto, conservación (conversaciones, audios, adjuntos, webhooks) | Cumplimiento |

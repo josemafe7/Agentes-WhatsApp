@@ -18,8 +18,9 @@ vi.mock("@/server/adapters/file-storage", async (importOriginal) => {
   };
 });
 
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { businessSettings } from "@/db/schema";
+import { agents, businessSettings } from "@/db/schema";
 import { getFileStorage } from "@/server/adapters/file-storage";
 import { createBusiness, createUser } from "@/test/factories";
 import { GET, runtime } from "./route";
@@ -30,6 +31,7 @@ const PNG = Uint8Array.from(
 const LOGO_KEY = "logos/2026/09/4f1d2c3b-aaaa-4bbb-8ccc-123456789abc.png";
 const PRIVATE_KEY = "media/2026/09/9e8d7c6b-aaaa-4bbb-8ccc-123456789abc.png";
 const HTML_KEY = "media/2026/09/5a5a5a5a-aaaa-4bbb-8ccc-123456789abc.html";
+const AVATAR_KEY = "avatars/2026/09/7b7b7b7b-aaaa-4bbb-8ccc-123456789abc.png";
 
 const call = (key: string) =>
   GET(new Request(`http://localhost:3000/api/files/${key}`), { params: Promise.resolve({ key: key.split("/") }) });
@@ -44,6 +46,7 @@ beforeAll(async () => {
   await storage.put(LOGO_KEY, PNG, "image/png");
   await storage.put(PRIVATE_KEY, PNG, "image/png");
   await storage.put(HTML_KEY, new TextEncoder().encode("<script>alert(1)</script>"), "text/html");
+  await storage.put(AVATAR_KEY, PNG, "image/png");
 });
 
 afterAll(() => fs.rmSync(state.storageDir, { recursive: true, force: true }));
@@ -85,6 +88,21 @@ describe("/api/files [SEG-04] [MED-08]", () => {
     expect(response.status).toBe(404);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(await response.json()).toEqual({ error: "No se ha encontrado." });
+  });
+
+  it("an agent's avatar is served only to people who may see agents", async () => {
+    const [agent] = await db.insert(agents).values({ name: "Recepción", avatarFileKey: AVATAR_KEY }).returning();
+    const viewer = await createUser("viewer");
+    signIn(viewer.userId);
+    const response = await call(AVATAR_KEY);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    const agentUser = await createUser("agent");
+    signIn(agentUser.userId);
+    expect((await call(AVATAR_KEY)).status).toBe(404);
+    signIn(null);
+    expect((await call(AVATAR_KEY)).status).toBe(401);
+    await db.delete(agents).where(eq(agents.id, agent.id));
   });
 
   it("a deactivated user is treated as signed out", async () => {

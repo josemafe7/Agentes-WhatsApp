@@ -119,8 +119,8 @@ export const agentTemplateSchema = z.object({
 export type AgentTemplate = z.infer<typeof agentTemplateSchema>;
 
 export const faqSchema = z.object({
-  question: z.string().trim().min(1).max(300),
-  answer: z.string().trim().min(1).max(2000),
+  question: z.string({ error: "Escribe la pregunta." }).trim().min(1, "Escribe la pregunta.").max(300, "Como mucho 300 caracteres."),
+  answer: z.string({ error: "Escribe la respuesta." }).trim().min(1, "Escribe la respuesta.").max(2000, "Como mucho 2000 caracteres."),
 });
 export type Faq = z.infer<typeof faqSchema>;
 

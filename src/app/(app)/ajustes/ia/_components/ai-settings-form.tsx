@@ -1,29 +1,36 @@
 "use client";
 
 import { CircleAlert, CircleCheck, FlaskConical, LoaderCircle, TriangleAlert } from "lucide-react";
-import { startTransition, useActionState, useRef, useState } from "react";
+import { startTransition, useActionState, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { FormMessage } from "@/components/form-message";
 import { HelpLink } from "@/components/help-link";
+import { OPENROUTER_KEY_ANCHOR, resetModelOptions } from "@/components/model-picker";
 import { SecretField } from "@/components/secret-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import { useFormAction } from "@/hooks/use-form-action";
 import type { ActionResult } from "@/lib/action-result";
 import { removeAiSecretAction, saveAiSettingsAction, testOpenRouterKeyAction, type KeyTestResult } from "../actions";
-import type { AiModels, AiSettingsView } from "../_lib/view";
+import type { AiModels, DefaultModelField } from "../_lib/form";
+import type { AiSettingsView } from "../_lib/view";
+import { DefaultModelsCard } from "./default-models-card";
 
 const OPENROUTER_KEYS_URL = "https://openrouter.ai/settings/keys";
 
-/** Ajustes › IA ([AJU-04]). The form is re-created after each save so secret fields go back to «••••1234». */
+/**
+ * Ajustes › IA ([AJU-04]). The form is re-created after each save so secret fields go back to «••••1234», and the
+ * model lists are asked again (the key may have changed).
+ */
 export function AiSettingsForm({ view }: { view: AiSettingsView }) {
   const [version, setVersion] = useState(0);
-  return <AiForm key={version} view={view} onSaved={() => setVersion((v) => v + 1)} />;
+  function onSaved() {
+    resetModelOptions();
+    setVersion((v) => v + 1);
+  }
+  // Also re-created when the saved settings arrive, which can be after onSaved: the fields then show what was saved.
+  return <AiForm key={`${version}:${JSON.stringify(view)}`} view={view} onSaved={onSaved} />;
 }
 
 function AiForm({ view, onSaved }: { view: AiSettingsView; onSaved: () => void }) {
@@ -38,6 +45,24 @@ function AiForm({ view, onSaved }: { view: AiSettingsView; onSaved: () => void }
   }, null);
   const [test, dispatchTest, testing] = useActionState<ActionResult<KeyTestResult> | null, FormData>(testOpenRouterKeyAction, null);
   const errors = state && !state.ok ? state.fieldErrors : undefined;
+  const [models, setModels] = useState<AiModels>(view.models);
+  const [confirmEmbeddings, setConfirmEmbeddings] = useState(false);
+  const embeddingsConfirmed = useRef(false);
+
+  function setModel(field: DefaultModelField, modelId: string) {
+    setModels((current) => ({ ...current, [field]: modelId }));
+  }
+
+  /** A new embeddings model means processing every knowledge base again: asked before saving ([AJU-05]). */
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    if (models.embeddings !== view.models.embeddings && !embeddingsConfirmed.current) {
+      event.preventDefault();
+      setConfirmEmbeddings(true);
+      return;
+    }
+    embeddingsConfirmed.current = false;
+    onSubmit(event);
+  }
 
   function runTest() {
     if (!formRef.current) return;
@@ -57,8 +82,8 @@ function AiForm({ view, onSaved }: { view: AiSettingsView; onSaved: () => void }
 
   const openrouter = view.openrouterKey;
   return (
-    <form ref={formRef} onSubmit={onSubmit} className="grid max-w-2xl gap-6">
-      <Card>
+    <form ref={formRef} onSubmit={handleSubmit} className="grid max-w-2xl gap-6">
+      <Card id={OPENROUTER_KEY_ANCHOR} className="scroll-mt-20">
         <CardHeader>
           <CardTitle>Clave de OpenRouter</CardTitle>
           <CardDescription>Sin ella la IA está apagada: los agentes no responden y la búsqueda va solo por texto.</CardDescription>
@@ -96,56 +121,7 @@ function AiForm({ view, onSaved }: { view: AiSettingsView; onSaved: () => void }
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Modelos por defecto</CardTitle>
-          <CardDescription>Los que usan los agentes si no eligen otro. Escríbelos como aparecen en OpenRouter.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FieldGroup>
-            <ModelField name="chat" label="Chat" value={view.models} errors={errors} help="Responde a los clientes y usa las herramientas." />
-            <ModelField
-              name="transcription"
-              label="Transcripción de audios"
-              value={view.models}
-              errors={errors}
-              help="El de por defecto solo usa proveedores sin retención de datos. Si eliges otro, comprueba en OpenRouter que todos sus proveedores lo sean."
-            />
-            <ModelField
-              name="embeddings"
-              label="Embeddings (búsqueda por significado)"
-              value={view.models}
-              errors={errors}
-              help="Tiene que dar vectores de 1536 dimensiones. Si lo cambias, habrá que volver a procesar todas las bases de conocimiento."
-            />
-            <ModelField name="imageDescription" label="Descripción de imágenes" value={view.models} errors={errors} help="Describe las fotos que envían los clientes." />
-            <Field data-invalid={errors?.recommendedModels ? true : undefined}>
-              <FieldLabel htmlFor="recommendedModels">Modelos recomendados</FieldLabel>
-              <Textarea
-                id="recommendedModels"
-                name="recommendedModels"
-                rows={4}
-                defaultValue={view.recommendedModels.join("\n")}
-                className="font-mono text-sm"
-                spellCheck={false}
-                aria-invalid={errors?.recommendedModels ? true : undefined}
-              />
-              <FieldDescription>Uno por línea. Salen primero al elegir el modelo de un agente.</FieldDescription>
-              <FieldError>{errors?.recommendedModels?.[0]}</FieldError>
-            </Field>
-            <Field orientation="horizontal">
-              <FieldContent>
-                <FieldLabel htmlFor="zdr">Sin retención de datos (ZDR)</FieldLabel>
-                <FieldDescription>
-                  Solo se usan proveedores que no guardan nada de lo que se les envía (chat, embeddings y reordenación). Puede dejar
-                  menos modelos disponibles.
-                </FieldDescription>
-              </FieldContent>
-              <Switch id="zdr" name="zdr" defaultChecked={view.zdr} />
-            </Field>
-          </FieldGroup>
-        </CardContent>
-      </Card>
+      <DefaultModelsCard view={view} models={models} onModelChange={setModel} errors={errors} />
 
       <Card>
         <CardHeader>
@@ -186,35 +162,18 @@ function AiForm({ view, onSaved }: { view: AiSettingsView; onSaved: () => void }
         </Button>
         <FormMessage result={state && !state.ok ? state : undefined} />
       </div>
-    </form>
-  );
-}
-
-type ModelFieldProps = {
-  name: keyof AiModels;
-  label: string;
-  value: AiModels;
-  help: string;
-  errors?: Record<string, string[]>;
-};
-
-function ModelField({ name, label, value, help, errors }: ModelFieldProps) {
-  const error = errors?.[name]?.[0];
-  return (
-    <Field data-invalid={error ? true : undefined}>
-      <FieldLabel htmlFor={`model-${name}`}>{label}</FieldLabel>
-      <Input
-        id={`model-${name}`}
-        name={name}
-        defaultValue={value[name]}
-        className="font-mono"
-        spellCheck={false}
-        autoComplete="off"
-        aria-invalid={error ? true : undefined}
+      <ConfirmDialog
+        open={confirmEmbeddings}
+        onOpenChange={setConfirmEmbeddings}
+        title="¿Cambiar el modelo de embeddings?"
+        description="Habrá que volver a procesar todas las bases de conocimiento con el modelo nuevo. Antes de guardar se comprueba que da vectores de 1536 dimensiones."
+        confirmLabel="Cambiar y guardar"
+        onConfirm={() => {
+          embeddingsConfirmed.current = true;
+          formRef.current?.requestSubmit();
+        }}
       />
-      <FieldDescription>{help}</FieldDescription>
-      <FieldError>{error}</FieldError>
-    </Field>
+    </form>
   );
 }
 

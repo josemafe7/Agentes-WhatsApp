@@ -24,6 +24,13 @@ type SecretFieldProps = {
 export function SecretField({ name, label, masked, placeholder, help, error }: SecretFieldProps) {
   const [editing, setEditing] = useState(!masked);
   const [visible, setVisible] = useState(false);
+  // A new saved value (the server's answer after saving) shows its mask again, even if the form was not re-created.
+  const [shownMask, setShownMask] = useState(masked);
+  if (masked !== shownMask) {
+    setShownMask(masked);
+    setEditing(!masked);
+    setVisible(false);
+  }
   const inputId = useId();
   const helpId = useId();
   const describedBy = help ? helpId : undefined;
