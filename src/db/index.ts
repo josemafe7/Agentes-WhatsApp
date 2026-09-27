@@ -154,6 +154,15 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+/** An empty or unreadable lock written less than 5 s ago: another process is still writing its PID into it. */
+function isFreshLock(lockFile: string): boolean {
+  try {
+    return Date.now() - fs.statSync(lockFile).mtimeMs < 5_000;
+  } catch {
+    return false;
+  }
+}
+
 function displayPath(dataDir: string): string {
   const relative = path.relative(process.cwd(), dataDir);
   return (relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : dataDir).split(path.sep).join("/");
@@ -161,13 +170,23 @@ function displayPath(dataDir: string): string {
 
 function acquireLock(dataDir: string): void {
   const lockFile = `${dataDir}.lock`;
-  const pid = lockPid(lockFile);
-  if (pid !== null && pid !== process.pid && isProcessAlive(pid)) {
-    throw new Error(
-      `La base local (${displayPath(dataDir)}) está abierta en otro proceso (¿pnpm dev en marcha?). Ciérralo y vuelve a probar.`,
-    );
+  const inUse = () =>
+    new Error(`La base local (${displayPath(dataDir)}) está abierta en otro proceso (¿pnpm dev en marcha?). Ciérralo y vuelve a probar.`);
+  // Created with "wx" (fails if it already exists), so two processes starting at the same instant can't both take it.
+  // A lock left by a process that no longer exists (or an empty one older than a few seconds) is removed and taken again.
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fs.writeFileSync(lockFile, String(process.pid), { flag: "wx" });
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const pid = lockPid(lockFile);
+      if (pid === process.pid) break;
+      if (pid !== null ? isProcessAlive(pid) : isFreshLock(lockFile)) throw inUse();
+      if (attempt > 0) throw inUse();
+      fs.rmSync(lockFile, { force: true });
+    }
   }
-  fs.writeFileSync(lockFile, String(process.pid));
   lockState.held.add(lockFile);
   if (!lockState.exitHook) {
     lockState.exitHook = true;

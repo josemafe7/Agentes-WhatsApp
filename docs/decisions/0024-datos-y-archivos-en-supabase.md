@@ -92,7 +92,8 @@ pruebas y al publicar.
   pantallas y las comprobaciones de la demo. Conservarlo evita reescribir y volver a demostrar todo eso, y para un
   solo negocio las escrituras en fila no se notan. Es de transacción, así que funciona con el pooler en modo
   transacción de Vercel (uno de sesión no serviría). Se quita `src/server/booking/write-queue.ts`, que ya no hace
-  falta.
+  falta. Solo se ponen en fila las transacciones: una escritura suelta no espera al candado, así que lo que suma o
+  resta sobre un valor se calcula en la propia consulta (`unread_count + 1`), no con un valor leído antes.
 - **Cola:** la misma tabla `jobs` (0008); un trabajo se reclama con `FOR UPDATE SKIP LOCKED`.
 - **Tiempo real:** sigue el sondeo (0009). Supabase Realtime no se usa: reparte los cambios según los usuarios de
   Supabase Auth y Row Level Security, y aquí los usuarios son de Better Auth. El número de orden de cada evento
@@ -112,7 +113,10 @@ pruebas y al publicar.
 - **Migraciones:** las seis de SQLite se sustituyen por una base de Postgres: `0000_extensions` (a medida: el
   esquema `extensions`, `vector`, `unaccent` y `es_unaccent`) y `0001_initial` (generada: 54 tablas, Row Level
   Security, índices y la columna del texto). Las aplica el migrador de Drizzle (su tabla es
-  `drizzle.__drizzle_migrations`), nunca `drizzle-kit push`. Desde aquí, solo aditivas. En Supabase se aplican desde el
+  `drizzle.__drizzle_migrations`), nunca `drizzle-kit push`. Desde aquí, solo aditivas. Excepción aprobada:
+  `0002_json_key_order` pasa tres columnas de `jsonb` a `json` (los campos personalizados de los contactos y los
+  parámetros y cabeceras de las herramientas HTTP, que se enseñan en el orden en que se escribieron); se hizo con la
+  `0001` ya aplicada en el Supabase del propietario y sin datos reales, por eso va aparte. En Supabase se aplican desde el
   ordenador de quien publica, con `DATABASE_URL` puesta solo para esa orden en la terminal (`pnpm db:migrate`), o las
   aplica Claude Code con el conector de Supabase (su servidor MCP) dejándolas anotadas en esa misma tabla; nunca en el
   build de Vercel, que también corre para las versiones de prueba.
@@ -129,8 +133,9 @@ pruebas y al publicar.
   (`src/server/storable-text.ts`): ningún mensaje se pierde ni bloquea un buzón por un carácter.
 - **Siguen las reglas de portabilidad de 0003 que aún sirven:** ids UUID en texto; fechas en UTC
   (`timestamp with time zone` con milisegundos); JSON con su tipo (`jsonb`, o `json` donde importa el orden de las
-  claves, que `jsonb` no guarda); SQL propio solo en los adaptadores, la conexión y las migraciones, siempre con
-  parámetros; los hijos se borran a mano, sin `ON DELETE CASCADE`; y transacciones cortas, sin llamar dentro a
+  claves, que `jsonb` no guarda); SQL propio solo en los adaptadores, las migraciones, la conexión (`src/db/`), el
+  vaciado de la demo (`src/server/demo/clear-data.ts`) y los fragmentos de `src/server/sql-helpers.ts`, siempre con
+  parámetros (lo mismo que dice `docs/conventions.md`); los hijos se borran a mano, sin `ON DELETE CASCADE`; y transacciones cortas, sin llamar dentro a
   servicios externos. Donde SQLite y Postgres ordenan o comparan distinto (los vacíos al ordenar, `LIKE` con
   mayúsculas) se escribe explícito para que la app haga lo mismo que antes.
 

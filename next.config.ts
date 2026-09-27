@@ -43,9 +43,10 @@ const nextConfig: NextConfig = {
   // and data files from their own package folders, so they are not bundled either.
   serverExternalPackages: ["ffmpeg-static", "@electric-sql/pglite", "@electric-sql/pglite-pgvector"],
   // The FFmpeg binary is not imported, so file tracing misses it: include it in the API routes that run tick()
-  // (cron, webhooks, widget). Unverified on Vercel with pnpm symlinks: check the .nft.json at the deploy phase.
+  // (cron, webhooks, widget). Through its real folder in node_modules/.pnpm: node_modules/ffmpeg-static is a pnpm
+  // symlink, and Vercel refuses a function with files in symlinked directories («invalid deployment package»).
   outputFileTracingIncludes: {
-    "/api/**": ["./node_modules/ffmpeg-static/ffmpeg*"],
+    "/api/**": ["./node_modules/.pnpm/ffmpeg-static@*/node_modules/ffmpeg-static/ffmpeg*"],
     // The guides of Ayuda are read from docs/ on the server: they go with the compiled app ([AJU-17]).
     "/ayuda": HELP_GUIDE_FILES,
     "/ayuda/*": HELP_GUIDE_FILES,

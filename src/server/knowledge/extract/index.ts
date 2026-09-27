@@ -6,6 +6,7 @@ import { docxTitle, docxToMarkdown } from "./docx";
 import type { KnowledgeFileKind } from "./files";
 import { isScannedPdf, pdfTextToMarkdown, readPdfPages } from "./pdf";
 import { csvToMarkdown, xlsxToMarkdown } from "./spreadsheet";
+import { storableText } from "@/server/storable-text";
 import { decodeTextFile } from "./text";
 
 export { docxTitle } from "./docx";
@@ -44,6 +45,9 @@ export async function extractFileToMarkdown(kind: KnowledgeFileKind, bytes: Uint
       extracted = { markdown: decodeTextFile(bytes), pageCount: null, title: null };
       break;
   }
+  // Text from a file may carry NUL characters, which Postgres refuses ([SEG-05]): cleaned here for knowledge bases and
+  // agent context files alike.
+  extracted = { ...extracted, markdown: storableText(extracted.markdown), title: extracted.title === null ? null : storableText(extracted.title) };
   if (!extracted.markdown.replace(/<!-- página \d+ -->/g, "").trim()) throw new KnowledgeProcessingError(KNOWLEDGE_MESSAGES.noText);
   return extracted;
 }

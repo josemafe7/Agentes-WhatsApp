@@ -3,7 +3,7 @@
 // identity, message stored once, conversation found or created, screens told, and the reply scheduled with grouping.
 // It returns at once and NEVER calls the AI ([CAN-10]): the reply runs later, in the job queue.
 import "server-only";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { after } from "next/server";
 import { db, type Executor } from "@/db";
 import { channels, contacts, conversations, messages, webhookEvents, type MessageReaction } from "@/db/schema";
@@ -157,7 +157,8 @@ async function ingestInbound(channel: ChannelRecord, event: InboundMessageEvent,
     await tx
       .update(conversations)
       .set({
-        unreadCount: conversation.unreadCount + 1,
+        // Added in the database: a «read» set by a person outside this transaction is never overwritten.
+        unreadCount: sql`${conversations.unreadCount} + 1`,
         // What must not be answered (system notices, unsupported types) never opens nor renews WhatsApp's 24 h window
         // ([WA-43], docs/integracion-whatsapp-mensajes.md §13).
         ...(event.noReply ? {} : { lastInboundAt }),
