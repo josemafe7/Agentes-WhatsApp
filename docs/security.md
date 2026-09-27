@@ -157,12 +157,22 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
   pública (IPv4 e IPv6, incluidas `169.254.169.254` y las `::ffff:` mapeadas) y se vuelve a comprobar al
   conectar (contra el cambio de DNS) y en cada una de las 3 redirecciones como máximo; 10 s y 2 MB como
   máximo, y solo los tipos de contenido esperados.
+- Lo que llega de fuera (webs, mapas del sitio, documentos, respuestas del OCR) no puede dejar parado el
+  servidor: se lee sin patrones que puedan retroceder sin límite (los encabezados, los `<loc>` de un mapa del
+  sitio, las frases y enlaces del resumen, los espacios al final de las líneas van con bucles o patrones
+  lineales, con pruebas que miden el tiempo con textos hostiles), del mapa del sitio se leen como mucho cuatro
+  direcciones por página que se añade, y un DOCX o XLSX se descomprime primero con tope (100 MB en total, 10.000
+  entradas) antes de dárselo a su lector, sin fiarse de los tamaños que declara el archivo.
+- Los archivos que llegan por WhatsApp se descargan solo de los servidores de Meta (`src/lib/meta/client.ts`):
+  cada redirección, 3 como máximo, se vuelve a comprobar, y el token solo va a la primera dirección.
 - Los cambios de datos van por Server Actions o POST, nunca por GET. Una Server Action se puede llamar
   desde fuera aunque no aparezca en la pantalla. `/api/cron/tick` acepta GET porque Vercel Cron llama así:
   exige el secreto y solo lanza trabajo que se puede repetir sin efecto.
 - CSRF ([SEG-06]): las Server Actions solo aceptan POST y Next.js rechaza las que traen un `Origin`
   distinto del host; Better Auth comprueba el `Origin` de `/api/auth/*`, y sus cookies son `SameSite=Lax`.
-  Las rutas propias que cambian datos con la cookie de sesión comprueban también el `Origin`. Los avisos,
+  Las rutas propias que cambian datos con la cookie de sesión comprueban también el `Origin` (por ejemplo, la
+  subida de archivos al conocimiento, `/api/knowledge/bases/[id]/files`, que además mira `x-forwarded-host`
+  detrás de un proxy). Los avisos,
   el cron y el chat web no usan cookie: se protegen con su firma, su secreto o el identificador del
   visitante.
 - CORS: sin cabeceras CORS salvo que un dominio concreto necesite llamar a la API, y entonces solo ese. Nunca
@@ -173,10 +183,23 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
 - Los límites de peticiones van en la propia app, con el adaptador `RateLimiter` (hoy, una tabla de
   libSQL), para que funcionen igual en local, en Vercel y en un VPS ([SEG-07]):
   - inicio de sesión, recuperación, verificación en dos pasos e invitaciones, por IP y por email;
-  - avisos de los canales, por IP, con un límite amplio que no frene las ráfagas de Meta;
+  - avisos de los canales, por IP, con un límite amplio que no frene las ráfagas de Meta (1.800 por minuto en
+    WhatsApp) y otro mucho menor para los que acaban rechazados (60 por minuto con 400, 401 o 413): quien no
+    tiene la firma no puede hacer trabajar a la app a voluntad. Antes de mirar la firma, un aviso de WhatsApp con
+    más de 1.000 actualizaciones (el máximo de Meta) o que nombra más de 100 números o cuentas se rechaza con 400
+    sin tocar la base de datos;
+  - WhatsApp, por persona: 30 plantillas por minuto desde la bandeja (Meta puede cobrar cada una), 5 códigos
+    por SMS o llamada por hora, 10 intentos del código cada 15 minutos y 30 «Validar con Meta» o «Conectar»
+    por minuto (`src/data/whatsapp-limits.ts`);
   - chat web, por IP y por visitante ([WEB-08]);
   - todo lo que gasta IA, por persona y minuto (`src/server/ai/limits.ts`): 20 mensajes de «Probar agente», 5
-    borradores con IA y 10 veces «Actualizar lista» o comprobaciones de un modelo de embeddings.
+    borradores con IA y 10 veces «Actualizar lista» o comprobaciones de un modelo de embeddings;
+  - conocimiento (fase 4): 20 búsquedas de «Probar búsqueda» por persona y minuto, 60 altas de contenido
+    (archivos, páginas web y preguntas frecuentes) por persona cada 10 minutos, porque cada documento gasta IA en
+    su resumen y sus embeddings, y 30 veces cada 10 minutos lo que vuelve a procesar (reprocesar, reintentar o
+    refrescar un documento, editar una pregunta frecuente y «Reindexar» una base), que gasta lo mismo. Los
+    archivos de contexto (propietario y administradores) y «Convertir en FAQ» (también el supervisor) no tienen
+    límite propio; cambiar el modelo de una base cuenta en el de comprobaciones de un modelo de embeddings.
 - Better Auth tiene su propio limitador, pero solo cubre las peticiones HTTP a `/api/auth/*` y, por
   defecto, solo en producción y en memoria, que Better Auth desaconseja sin un servidor fijo (como en
   Vercel): va con almacenamiento en la base de datos, para las pocas rutas que siguen abiertas por HTTP. Sus
@@ -194,7 +217,9 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
   de ajustes, conexiones y desconexiones de canales, exportaciones, borrados y usos de herramientas
   ([SEG-10]). Nadie lo edita ni lo borra a mano ([AJU-10]).
 - Los logs de funcionamiento no llevan claves, tokens, contraseñas ni datos personales; el contenido de
-  los mensajes solo está en la base de datos, con su conservación. En desarrollo, Next.js escribiría en la
+  los mensajes solo está en la base de datos, con su conservación. Un fallo de la base de datos se anota solo
+  con su código (`SQLITE_BUSY`…): Drizzle pone en el mensaje la consulta y todos sus valores (teléfonos,
+  identificadores, textos), y `safeErrorMessage` (`src/server/redact.ts`) los quita siempre ([SEG-14]). En desarrollo, Next.js escribiría en la
   terminal los argumentos de cada Server Action (la contraseña al entrar, la clave que se prueba…): va apagado
   con `logging.serverFunctions: false` en `next.config.ts`, y una prueba lo comprueba.
 
@@ -253,7 +278,12 @@ cuenta.
 
 - Lo que la IA lee de fuera puede traer instrucciones escondidas y se trata como datos: mensajes de los
   clientes, correos, transcripciones, documentos, webs y respuestas de las herramientas HTTP. Un «ignora
-  tus instrucciones» no cambia las reglas ni da acceso a otros datos ([HER-09]).
+  tus instrucciones» no cambia las reglas ni da acceso a otros datos ([HER-09]). El conocimiento solo se busca en
+  las bases del agente que responde ([CON-03]), y al modelo le llegan los fragmentos como resultado de una
+  herramienta o en una sección propia al final del mensaje de sistema, citados línea a línea con «>» bajo una
+  nota que dice que son datos (como el resumen de la conversación), con el título y la sección de cada fragmento en
+  una sola línea; nunca los embeddings ni ids internos ([CON-19]). Solo el «SIN_RESULTADOS» de la propia
+  herramienta cuenta como «no lo sé»: un fragmento que contenga esas palabras no decide un traspaso.
 - Las reglas de la plataforma van siempre delante de las instrucciones del agente, y estas no las pueden
   quitar ([MOT-05], [MOT-06]). Lo que viene del cliente y entra en el mensaje de sistema (su nombre, el resumen
   acumulado de la conversación) nunca empieza una línea propia: el nombre va en una sola línea (sin saltos ni

@@ -4,16 +4,18 @@ import { ArrowDown, LoaderCircle, StickyNote } from "lucide-react";
 import { useLayoutEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import type { MessageSource, MessageSourcesByMessage } from "@/data/message-sources";
+import type { MessageSourcesByMessage } from "@/data/message-sources";
 import type { MessageItem } from "@/data/messages";
 import type { NoteItem } from "@/data/notes";
 import type { ChannelType } from "@/lib/enums";
 import { formatDateTime } from "@/lib/format";
+import { ConvertToFaq } from "../[id]/_sources/convert-to-faq";
+import { isConvertibleReply } from "../[id]/_sources/permissions";
+import { WhyAnswerSheet } from "../[id]/_sources/why-answer-sheet";
 import { loadOlderMessagesAction, retryMessageAction } from "../actions";
 import { buildTimeline, mergeMessages } from "../_lib/timeline";
 import { DraftReview } from "./draft-review";
 import { MessageBubble } from "./message-bubble";
-import { SourcesSheet } from "./sources-sheet";
 import { ACTION_FAILED, useInboxAction } from "./use-inbox-action";
 
 /** Close enough to the end to follow new messages. */
@@ -34,6 +36,8 @@ type MessageTimelineProps = {
   /** Approve, edit or discard the AI's drafts ([CAN-07], [MOT-14]). */
   canReviewDrafts: boolean;
   canOpenDocuments: boolean;
+  /** «Convertir en FAQ» on the people's replies ([CON-22]). */
+  canConvertFaq?: boolean;
 };
 
 /**
@@ -41,7 +45,7 @@ type MessageTimelineProps = {
  * what is being read; away from the end, «Nuevos mensajes» takes you there (DESIGN.md «Tiempo real»).
  */
 export function MessageTimeline(props: MessageTimelineProps) {
-  const { conversationId, messages, hasMore, sources, notes, channel, contactName, timezone, now, canRetry, canReviewDrafts, canOpenDocuments } = props;
+  const { conversationId, messages, hasMore, sources, notes, channel, contactName, timezone, now, canRetry, canReviewDrafts, canOpenDocuments, canConvertFaq = false } = props;
   // Every message seen since the conversation opened, so fresh pages never leave a gap with older ones.
   const [known, setKnown] = useState(messages);
   const [latest, setLatest] = useState(messages);
@@ -51,7 +55,8 @@ export function MessageTimeline(props: MessageTimelineProps) {
   }
   const [older, setOlder] = useState<{ items: MessageItem[]; hasMore: boolean; sources: MessageSourcesByMessage } | null>(null);
   const [loadingOlder, startLoadingOlder] = useTransition();
-  const [openSources, setOpenSources] = useState<MessageSource[] | null>(null);
+  // AI answer whose «¿Por qué respondió esto?» is open.
+  const [whyMessageId, setWhyMessageId] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   // Drafts discarded here: gone at once, even before the refreshed page arrives.
   const [discarded, setDiscarded] = useState<ReadonlySet<string>>(() => new Set());
@@ -176,7 +181,8 @@ export function MessageTimeline(props: MessageTimelineProps) {
                 contactName={contactName}
                 timezone={timezone}
                 hasSources={Boolean(messageSources?.length)}
-                onShowSources={() => setOpenSources(messageSources ?? null)}
+                onShowSources={() => setWhyMessageId(message.id)}
+                actions={canConvertFaq && isConvertibleReply(message) ? <ConvertToFaq conversationId={conversationId} messageId={message.id} /> : null}
                 onRetry={canRetry ? () => retryMessage(message.id) : null}
                 retrying={retry.pending && retryingId === message.id}
                 draftReview={
@@ -195,7 +201,7 @@ export function MessageTimeline(props: MessageTimelineProps) {
           {unseen === 1 ? "1 mensaje nuevo" : `${unseen} mensajes nuevos`}
         </Button>
       ) : null}
-      <SourcesSheet sources={openSources} onClose={() => setOpenSources(null)} canOpenDocuments={canOpenDocuments} />
+      <WhyAnswerSheet conversationId={conversationId} messageId={whyMessageId} onClose={() => setWhyMessageId(null)} canOpenDocuments={canOpenDocuments} />
     </div>
   );
 }

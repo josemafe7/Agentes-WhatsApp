@@ -107,7 +107,10 @@ export async function loadDiagnosticsView(actor: Actor) {
         last: relative(channel.lastReceivedAt),
         count: formatNumber(channel.count),
       })),
-      unknown: webhooks.unknown.count > 0 ? { count: formatNumber(webhooks.unknown.count), last: relative(webhooks.unknown.lastReceivedAt) } : null,
+      unknown:
+        webhooks.unknown.count > 0
+          ? { count: formatNumber(webhooks.unknown.count), last: relative(webhooks.unknown.lastReceivedAt), lastNumber: webhooks.unknown.lastNumber }
+          : null,
     },
     aiErrors: aiErrors.map((run) => ({
       id: run.id,

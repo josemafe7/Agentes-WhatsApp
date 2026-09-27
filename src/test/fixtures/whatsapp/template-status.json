@@ -1,0 +1,22 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000001",
+      "time": 1790420500,
+      "changes": [
+        {
+          "value": {
+            "event": "APPROVED",
+            "message_template_id": 300000000000003,
+            "message_template_name": "recordatorio_cita",
+            "message_template_language": "es_ES",
+            "reason": "NONE",
+            "message_template_category": "UTILITY"
+          },
+          "field": "message_template_status_update"
+        }
+      ]
+    }
+  ]
+}

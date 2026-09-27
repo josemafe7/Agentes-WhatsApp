@@ -158,7 +158,9 @@ lateral: logo, stepper y una columna.
 - **Se ve:** cabecera (contacto, canal, estado, asignado, interruptor de IA con motivo, «IA en pausa hasta…»);
   mensajes con su autor (cliente, IA con el nombre del agente, persona, sistema), estados de entrega, audios
   con transcripción, imágenes y documentos, notas internas; en ordenador, la ficha del contacto a la derecha.
-  - WhatsApp (fase 3): ventana de 24 h y, si está cerrada, solo plantillas aprobadas.
+  - WhatsApp (fase 3): ventana de 24 h («Ventana abierta hasta … · quedan …») y, si está cerrada, solo plantillas
+    aprobadas con «Elegir plantilla»: diálogo con idioma y categoría, un campo por variable y vista previa; bajo
+    cada mensaje enviado, su coste estimado («≈ 0,02 US$ estimado · Utilidad», «Gratis · Servicio» o «Sin estimar»).
   - Correo (fase 6): hilo con asunto y borradores para aprobar.
   - Fuentes de la IA (fase 4): «Ver fuentes» / «¿Por qué respondió esto?».
 - **Acciones:** responder (pausa la IA 12 h por defecto), nota interna, adjuntar, enviar plantilla,
@@ -389,14 +391,20 @@ apartado en Ayuda ([AJU-17]).
   calidad, nombre, límite y versión; correo: conexión, permisos, última lectura y, en Outlook, caducidad del
   secreto; web: último mensaje), errores en español, agente activo e IA, modo pruebas y su lista, límites de
   Meta (el de mensajes, del portfolio y compartido con sus otros números), aviso «Puede que falte el método de
-  pago en Meta» si toca ([WA-51]) y recordatorio de volver a registrar tras un cambio de nombre ([WA-20]).
+  pago en Meta» si toca ([WA-51]) y recordatorio de volver a registrar tras un cambio de nombre ([WA-20]). En
+  WhatsApp (fase 3) el panel del número va aquí mismo: además, credenciales enmascaradas (propietario y
+  administrador), versión de la API, «Envíos y comprobaciones» (traspasar si un envío falla, app publicada y
+  método de pago), la lista de plantillas con «Sincronizar», el historial de avisos de Meta y, si el número se dejó
+  a medias o se desconectó, «Continuar configuración» o «Volver a conectar», que abren su asistente.
 - **Configuración** (`/configuracion`): modo de respuesta, aviso de IA del primer mensaje, comportamiento fuera
   de horario y lo propio de cada tipo.
-- **Plantillas** (`/plantillas`, WhatsApp): lista con estado y categoría; «Sincronizar».
+- **Plantillas** (WhatsApp): lista con estado, categoría, idioma, variables y motivo de rechazo; «Sincronizar». En
+  la fase 3 está en el Resumen, no en una pestaña propia.
 - **Apariencia y código** (`/apariencia`, chat web): lo del asistente de chat web.
 - **Acciones:** Revalidar, Cambiar token, «Volver a registrar» (WhatsApp, tras un cambio de nombre), Pausar
   IA, Desconectar (confirmación escribiendo el nombre; en WhatsApp borra credenciales y, si se confirma, da de
-  baja la suscripción y el registro); «Reconectar» si el correo requiere reconexión.
+  baja la suscripción y el registro; un número desconectado no se «Activa»: se vuelve a conectar con su
+  asistente); «Reconectar» si el correo requiere reconexión.
 - **Áreas:** Canales, WhatsApp (panel, revisión cada 6 h), Correo, Chat web.
 
 ## Informes
@@ -419,13 +427,13 @@ apartado en Ayuda ([AJU-17]).
 | Negocio | `/ajustes/negocio` | 0 | Nombre, sector, logo, color principal con vista previa y resultado de contraste, zona horaria, datos de contacto | Ajustes, Marca |
 | Usuarios | `/ajustes/usuarios` | 0 | Tabla (nombre, email, rol, canales del agente, 2FA, último acceso, insignia «Prueba»); invitar; reenviar o revocar invitaciones; cambiar rol; desactivar y reactivar; borrar; «Borrar usuarios de prueba»; exigir 2FA a propietario y administradores (desactivado por defecto, [USU-12]); «Traspasar la propiedad», solo para el propietario y con su contraseña ([USU-16]) | Roles, Demo, Seguridad |
 | Horario | `/ajustes/horario` | 0 | Tramos por día, festivos y cierres | Agenda, Traspaso |
-| IA | `/ajustes/ia` | 1 (reordenación en 4) | Clave de OpenRouter (enmascarada) con «Probar clave»; modelos por defecto de chat y su respaldo (de otro proveedor), transcripción (con aviso si algún proveedor no es sin retención de datos), embeddings (comprobado de verdad al cambiarlo, con aviso de volver a procesar el conocimiento) y descripción de imágenes, con selectores desactivados hasta que hay clave y aviso si un modelo en uso se retira; recomendados; ZDR; «Reordenar resultados» con su modelo (desactivado por defecto; con ZDR, solo modelos sin retención); clave de Mistral OCR (opcional) ([AJU-04]) | IA, Modelos, Seguridad |
+| IA | `/ajustes/ia` | 1 (reordenación, 4) | Clave de OpenRouter (enmascarada) con «Probar clave»; modelos por defecto de chat y su respaldo (de otro proveedor), transcripción (con aviso si algún proveedor no es sin retención de datos), embeddings (comprobado de verdad al cambiarlo, con aviso de volver a procesar el conocimiento) y descripción de imágenes, con selectores desactivados hasta que hay clave y aviso si un modelo en uso se retira; recomendados; ZDR; «Reordenar resultados» con su modelo (desactivado por defecto; con ZDR, solo modelos sin retención); clave de Mistral OCR (opcional) ([AJU-04]) | IA, Modelos, Seguridad |
 | Correo del sistema | `/ajustes/correo` | 0 | SMTP y «Enviar correo de prueba» (invitaciones, recuperación, avisos) | Ajustes |
-| WhatsApp | `/ajustes/whatsapp` | 3 | Tarifas por mercado y categoría (editables; las de la demo marcadas «ejemplo»), con la nota de que los mensajes gratis los marca Meta en cada estado y no se configuran ([AJU-09]); token de verificación de la instalación | WhatsApp (coste estimado) |
+| WhatsApp | `/ajustes/whatsapp` | 3 | Tarifas por mercado y categoría (editables; las de la demo marcadas «ejemplo»), con la nota de que los mensajes gratis los marca Meta en cada estado y no se configuran ([AJU-09]); dirección de avisos y token de verificación de la instalación para copiar, si Meta ya la verificó y el aviso cuando no hay dirección pública con HTTPS | WhatsApp (coste estimado) |
 | Privacidad y legal | `/ajustes/privacidad` | 7 | Datos del responsable, textos de las páginas legales con enlace a cada una, aviso de IA por defecto, conservación (conversaciones, audios, adjuntos, webhooks) | Cumplimiento |
 | Notificaciones | `/ajustes/notificaciones` | 2 | Qué sucesos avisan (traspaso, conversación asignada, canal con error, calidad de WhatsApp, modelo que se retira) y a quién por defecto ([AJU-08]); «Bandeja y traspasos»: horas de pausa de la IA cuando responde una persona ([BAN-11]) y traspasos por turnos o sin asignar ([TRA-04]); cada persona elige después en Mi cuenta por dónde le llegan | Traspaso, PWA |
 | Registro de actividad | `/ajustes/actividad` | 7 | Tabla de acciones de personas e IA con filtros | Seguridad (trazabilidad) |
-| Diagnóstico | `/ajustes/diagnostico` | 2 | Base de datos, cola (pendientes y fallidos con «Reintentar»), errores recientes de la IA (hora, tipo, canal, modelo, error y «Ver la conversación»), último webhook por canal, correos del sistema, pruebas | Ajustes (diagnóstico) |
+| Diagnóstico | `/ajustes/diagnostico` | 2 | Base de datos, cola (pendientes y fallidos con «Reintentar»), errores recientes de la IA (hora, tipo, canal, modelo, error y «Ver la conversación»), último webhook por canal (y, de los avisos para números que no son de ningún canal, cuántos, cuándo y el número del último, [WA-34]), correos del sistema, pruebas | Ajustes (diagnóstico) |
 | Simulador de canales | `/ajustes/diagnostico/simulador` | 2 | Elegir canal, contacto y tipo (texto, audio, imagen o documento), escribir y «Enviar»; «Ver conversación» | Demo, Simulador |
 | Acerca de | `/ajustes/acerca` | 0 | Versión y enlaces a Ayuda | Ajustes |
 

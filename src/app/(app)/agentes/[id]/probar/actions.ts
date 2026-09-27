@@ -4,6 +4,7 @@
 // ai_runs row marked as a test, so nothing reaches the inbox or the reports ([PRU-05], [INF-08]). Owner, admin and
 // supervisor ([PER-01]); every message counts against the per-person AI limit ([SEG-07]).
 import { getAgentForTesting } from "@/data/agents";
+import { listAgentKnowledgeBases } from "@/data/knowledge";
 import { isAiConfigured } from "@/data/settings";
 import { fail, fromZodError, type ActionFailure } from "@/lib/action-result";
 import { manualRetryMessage } from "@/lib/openrouter/errors";
@@ -41,7 +42,9 @@ export async function sendTestMessageAction(input: unknown): Promise<TestChatRes
       mode: "test",
       simulateChannel: channel,
     });
-    return { ok: true, data: toTestReply(result, channel) };
+    // The base of each fragment, by name ([PRU-02]); read only when the reply used any.
+    const bases = result.retrievals.length > 0 ? (await listAgentKnowledgeBases(actor, agentId)).available : [];
+    return { ok: true, data: toTestReply(result, channel, new Map(bases.map((base) => [base.id, base.name]))) };
   } catch (error) {
     // The key was removed while testing.
     if (error instanceof AiNotConfiguredError) return aiNotConfigured();

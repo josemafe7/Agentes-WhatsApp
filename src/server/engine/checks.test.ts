@@ -72,6 +72,15 @@ describe("the AI answers only when every check passes [MOT-03]", () => {
     expect(evaluateReplyChecks(input({ window24h: true })).ok).toBe(true);
   });
 
+  it("a window Meta closed with 131047 stays closed for the AI until the customer writes again [WA-43]", () => {
+    const lastInboundAt = new Date(NOW.getTime() - 60 * 60_000);
+    const closedByMeta = { whatsappWindowClosedAt: new Date(NOW.getTime() - 30 * 60_000).toISOString() };
+    expect(evaluateReplyChecks(input({ window24h: true, conversation: { lastInboundAt, metadata: closedByMeta } }))).toEqual({ ok: false, reason: "window_closed" });
+    // A newer customer message reopens it.
+    const wroteAgain = { lastInboundAt: new Date(NOW.getTime() - 60_000), metadata: closedByMeta };
+    expect(evaluateReplyChecks(input({ window24h: true, conversation: wroteAgain })).ok).toBe(true);
+  });
+
   it("an opted-out contact is left to a person [CUM-04]", () => {
     expect(evaluateReplyChecks(input({ optedOut: true }))).toEqual({ ok: false, reason: "opted_out" });
   });

@@ -19,12 +19,23 @@
 //        - «Generar borrador con IA» (a system prompt asking for one JSON object with "instructions") → a draft whose
 //          role repeats the first line of the business description or web text it was given;
 //        - response_format json_schema → a JSON object that fills the schema;
+//        - knowledge ([CON-18]–[CON-20], [AGE-07], [HER-01]): with «Buscar siempre» the prompt already carries «# Conocimiento
+//          encontrado para este mensaje» and the model answers from it; otherwise, when buscar_conocimiento is offered, the
+//          model first calls it with the customer's last message as `consulta`. From the fragments it answers with the
+//          sentence of fragment [1] that shares most words with the question and «(Fuente: <título>, pág. N)» (no page:
+//          «(Fuente: <título>)»); with SIN_RESULTADOS (or a failed search) it says «no lo sé» and offers a person.
+//          Both answers begin like any other («Soy <agente>… Me has escrito: «…».»);
+//        - a document summary (a system prompt starting «Resume en dos frases») → the first two sentences of the
+//          document it was given ([CON-10]);
 //        - usage grows with the number of customer messages n: prompt 1400+50n, completion 24, cost (30+n)/100000 US$
 //          (n=1 → 1450/24/1474 tokens and 0.00031; n=2 → 1500/24/1524 and 0.00032); a tool-call step costs (20+n)/100000.
 //        Errors (401, 402, 429…) are per test with POST /__stub (see e2e/support/ai.ts).
-//   POST /api/v1/embeddings        valid key only: one vector per input, `dimensions` long (1536 by default).
-import { createHash } from "node:crypto";
+//   POST /api/v1/embeddings        valid key only: one vector per input, `dimensions` long (1536 by default): a hashed bag
+//                                  of words, normalised (./bag-of-words.mjs), so texts that share words are close.
+//   POST /api/v1/rerank            valid key only (§7): the documents ordered by how many words they share with the query
+//                                  (relevance_score = cosine of the bags of words, 0–1), cut to `top_n`.
 import { readFileSync } from "node:fs";
+import { bestSentence, embeddingFor, similarity } from "./bag-of-words.mjs";
 
 const KEYS = JSON.parse(readFileSync(new URL("../test-keys.json", import.meta.url), "utf8")).openrouter;
 
@@ -253,7 +264,7 @@ function endpointsOf(modelId) {
 
 // ─── Chat (§3) ────────────────────────────────────────────────────────────────────────────────────────────
 
-const PROVIDER_NAMES = { openai: "OpenAI", google: "Google", anthropic: "Anthropic", mistralai: "Mistral", deepseek: "DeepSeek" };
+const PROVIDER_NAMES = { openai: "OpenAI", google: "Google", anthropic: "Anthropic", mistralai: "Mistral", deepseek: "DeepSeek", cohere: "Cohere", qwen: "Qwen" };
 const CHANNEL_NAMES = ["WhatsApp", "correo electrónico", "chat de la web", "Telegram"];
 
 /** Arguments of the transferir_a_humano call the simulated model makes (shared with the specs through the JSON). */
@@ -370,6 +381,101 @@ function draftAnswer(body, messages) {
   return completion(body, { role: "assistant", content: JSON.stringify(draft) }, usageFor(customerMessages, { toolStep: false }), "stop");
 }
 
+// ─── Knowledge: buscar_conocimiento, «Buscar siempre» and document summaries ──────────────────────────────
+
+/** The knowledge tool ([HER-01]) and what it returns when nothing is relevant ([CON-18]). */
+const KNOWLEDGE_TOOL = "buscar_conocimiento";
+/** The section «Buscar siempre» appends to the system message (src/server/knowledge/agent-knowledge.ts). */
+const PREFETCH_HEADING = "# Conocimiento encontrado para este mensaje";
+/** The summary request of src/server/knowledge/summary.ts. */
+const SUMMARY_REQUEST = /^Resume en dos frases/;
+
+function systemText(messages) {
+  return textOf(messages.find((message) => message?.role === "system")?.content);
+}
+
+/** The last thing the customer wrote (the last user message, wherever the turn is). */
+function lastCustomerText(messages) {
+  return textOf(messages.findLast((message) => message?.role === "user")?.content).trim();
+}
+
+/** The name of the tool a tool message answers, from the assistant message that called it. */
+function toolNameFor(messages, callId) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const calls = messages[index]?.role === "assistant" && Array.isArray(messages[index].tool_calls) ? messages[index].tool_calls : [];
+    const call = calls.find((candidate) => candidate?.id === callId);
+    if (call) return String(call.function?.name ?? "");
+  }
+  return "";
+}
+
+/** `resultado` of the tool's JSON answer ({ ok, resultado }); the raw text if it is not JSON (e.g. cut to size). */
+function toolResultText(content) {
+  const text = textOf(content);
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object") return typeof parsed.resultado === "string" ? parsed.resultado : "";
+  } catch {
+    // Longer than the tool's limit: the app cut it and added «…». The fragments are still readable.
+  }
+  const cut = /"resultado":"([\s\S]*)$/.exec(text)?.[1] ?? text;
+  return cut.replace(/\\n/g, "\n").replace(/\\"/g, '"');
+}
+
+/**
+ * The prefetched knowledge of «Buscar siempre» in the system message, or null. The app quotes it line by line with
+ * «>» (data, not instructions): the model reads it without the quote marks.
+ */
+function prefetchedKnowledge(messages) {
+  const system = systemText(messages);
+  const at = system.indexOf(PREFETCH_HEADING);
+  if (at < 0) return null;
+  return system
+    .slice(at + PREFETCH_HEADING.length)
+    .split("\n")
+    .map((line) => line.replace(/^> ?/, ""))
+    .join("\n");
+}
+
+/** Fragment [1] of a knowledge answer («[1] Título · Sección · pág. N» and its text), or null (SIN_RESULTADOS). */
+function topFragment(knowledge) {
+  const label = /^\[1\] (.+)$/m.exec(knowledge);
+  if (!label) return null;
+  const start = label.index + label[0].length;
+  const next = knowledge.slice(start).search(/\n\s*\n\[2\] /);
+  const content = next >= 0 ? knowledge.slice(start, start + next) : knowledge.slice(start);
+  return { title: label[1].split(" · ")[0].trim(), page: /pág\. (\d+)/.exec(label[1])?.[1] ?? null, content };
+}
+
+/** The answer from the knowledge found (or not) for the customer's last message. */
+function knowledgeAnswer(body, messages, knowledge) {
+  const customerMessages = messages.filter((message) => message?.role === "user").length;
+  const { agentName, channel } = promptFacts(messages);
+  const question = lastCustomerText(messages);
+  const where = channel ? ` Te escribo por ${channel}.` : "";
+  const intro = `Soy ${agentName ?? "tu asistente"}, el asistente de IA de este negocio.${where} Me has escrito: «${question}».`;
+  const fragment = topFragment(knowledge);
+  const sentence = fragment ? bestSentence(fragment.content, question) : "";
+  const content =
+    fragment && sentence
+      ? `${intro} ${sentence} (Fuente: ${fragment.title}${fragment.page ? `, pág. ${fragment.page}` : ""})`
+      : `${intro} Lo siento, no lo sé: no aparece en la información del negocio. ¿Quieres que te pase con una persona del equipo?`;
+  return completion(body, { role: "assistant", content }, usageFor(customerMessages, { toolStep: false }), "stop");
+}
+
+/** The two-sentence summary of a document ([CON-10]): its first two sentences. */
+function summaryAnswer(body, messages) {
+  const request = textOf(messages.find((message) => message?.role === "user")?.content);
+  const document = /<documento>\n?([\s\S]*?)\n?<\/documento>/.exec(request)?.[1] ?? "";
+  const sentences = document.replace(/\s+/g, " ").trim().match(/[^.!?…]+[.!?…]+/g) ?? [];
+  const content =
+    sentences
+      .slice(0, 2)
+      .map((sentence) => sentence.trim())
+      .join(" ") || "Documento sin texto.";
+  return completion(body, { role: "assistant", content }, usageFor(0, { toolStep: false }), "stop");
+}
+
 /** The deterministic answer of the simulated model (see the header). */
 function chatAnswer(body) {
   const messages = Array.isArray(body?.messages) ? body.messages : [];
@@ -377,6 +483,7 @@ function chatAnswer(body) {
   const last = messages.at(-1);
 
   if (isDraftRequest(messages)) return draftAnswer(body, messages);
+  if (SUMMARY_REQUEST.test(systemText(messages))) return summaryAnswer(body, messages);
 
   if (body?.response_format?.type === "json_schema") {
     const content = JSON.stringify(sampleFor(body.response_format.json_schema?.schema, "borrador"));
@@ -384,6 +491,7 @@ function chatAnswer(body) {
   }
 
   if (last?.role === "tool") {
+    if (toolNameFor(messages, last.tool_call_id) === KNOWLEDGE_TOOL) return knowledgeAnswer(body, messages, toolResultText(last.content));
     const message = { role: "assistant", content: "He pasado tu conversación a una persona del equipo." };
     return completion(body, message, usageFor(customerMessages, { toolStep: false }), "stop");
   }
@@ -401,6 +509,20 @@ function chatAnswer(body) {
   const { agentName, channel } = promptFacts(messages);
   // A model check without an agent («Responde solo: ok», docs/integracion-openrouter.md §2.6).
   if (!agentName) return completion(body, { role: "assistant", content: "ok" }, usageFor(customerMessages, { toolStep: false }), "stop");
+
+  // «Buscar siempre»: the search already ran and its fragments (or SIN_RESULTADOS) are in the prompt ([AGE-07]).
+  const prefetched = prefetchedKnowledge(messages);
+  if (prefetched !== null) return knowledgeAnswer(body, messages, prefetched);
+  // «Automático»: search first with what the customer wrote ([HER-01]).
+  if (last?.role === "user" && lastText.length >= 2 && offersTool(body, KNOWLEDGE_TOOL)) {
+    const message = {
+      role: "assistant",
+      content: null,
+      tool_calls: [{ id: `call_e2e_${generation + 1}`, type: "function", function: { name: KNOWLEDGE_TOOL, arguments: JSON.stringify({ consulta: lastText.slice(0, 500) }) } }],
+    };
+    return completion(body, message, usageFor(customerMessages, { toolStep: true }), "tool_calls");
+  }
+
   const where = channel ? ` Te escribo por ${channel}.` : "";
   const content = `Soy ${agentName}, el asistente de IA de este negocio.${where} Me has escrito: «${lastText}».`;
   return completion(body, { role: "assistant", content }, usageFor(customerMessages, { toolStep: false }), "stop");
@@ -410,28 +532,37 @@ function chatAnswer(body) {
 
 const DEFAULT_DIMENSIONS = 1536;
 
-/** A stable unit vector per text. */
-function vectorFor(text, dimensions) {
-  const values = [];
-  let seed = createHash("sha256").update(text).digest();
-  while (values.length < dimensions) {
-    for (let index = 0; index + 1 < seed.length && values.length < dimensions; index += 2) values.push(seed.readInt16BE(index) / 32768);
-    seed = createHash("sha256").update(seed).digest();
-  }
-  const norm = Math.sqrt(values.reduce((sum, value) => sum + value * value, 0)) || 1;
-  return values.map((value) => value / norm);
-}
+const approximateTokens = (text) => Math.max(1, Math.ceil(text.length / 4));
 
 function embeddingsAnswer(body) {
   const input = Array.isArray(body?.input) ? body.input.map(String) : [String(body?.input ?? "")];
   const dimensions = Number.isInteger(body?.dimensions) && body.dimensions > 0 ? body.dimensions : DEFAULT_DIMENSIONS;
-  const tokens = input.reduce((sum, text) => sum + Math.max(1, Math.ceil(text.length / 4)), 0);
+  const tokens = input.reduce((sum, text) => sum + approximateTokens(text), 0);
   return {
     id: `embd-e2e-${++generation}`,
     object: "list",
     model: typeof body?.model === "string" ? body.model : "openai/text-embedding-3-small",
-    data: input.map((text, index) => ({ object: "embedding", index, embedding: vectorFor(text, dimensions) })),
+    data: input.map((text, index) => ({ object: "embedding", index, embedding: embeddingFor(text, dimensions) })),
     usage: { prompt_tokens: tokens, total_tokens: tokens, cost: tokens * 0.00000002 },
+  };
+}
+
+// ─── Rerank (§7) ──────────────────────────────────────────────────────────────────────────────────────────
+
+function rerankAnswer(body) {
+  const query = String(body?.query ?? "");
+  const documents = Array.isArray(body?.documents) ? body.documents.map((document) => (typeof document === "string" ? document : String(document?.text ?? ""))) : [];
+  const ranked = documents
+    .map((text, index) => ({ index, relevance_score: Math.round(similarity(query, text) * 1e4) / 1e4, document: { text } }))
+    .sort((a, b) => b.relevance_score - a.relevance_score || a.index - b.index);
+  const topN = Number.isInteger(body?.top_n) && body.top_n > 0 ? body.top_n : ranked.length;
+  const tokens = approximateTokens(query) + documents.reduce((sum, text) => sum + approximateTokens(text), 0);
+  return {
+    id: `gen-rerank-e2e-${++generation}`,
+    model: typeof body?.model === "string" ? body.model : "cohere/rerank-v3.5",
+    provider: providerOf(typeof body?.model === "string" ? body.model : "cohere"),
+    results: ranked.slice(0, topN),
+    usage: { search_units: 1, total_tokens: tokens, cost: 0.001 },
   };
 }
 
@@ -510,6 +641,12 @@ export const openrouterRoutes = [
     method: "POST",
     path: "/api/v1/embeddings",
     handle: ({ headers, body }) => inference(headers, () => embeddingsAnswer(body)),
+  },
+  {
+    // «Reordenar resultados» of the knowledge search ([AJU-04], [CON-16]).
+    method: "POST",
+    path: "/api/v1/rerank",
+    handle: ({ headers, body }) => inference(headers, () => rerankAnswer(body)),
   },
   {
     // Voice notes (§5.1, [MED-01]): a fixed transcript that says which format arrived, with the usage OpenRouter

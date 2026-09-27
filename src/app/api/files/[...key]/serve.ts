@@ -2,6 +2,7 @@
 import "server-only";
 import { canViewAgentAvatar } from "@/data/agents";
 import { isPublicLogoKey } from "@/data/business";
+import { canViewKnowledgeFile } from "@/data/knowledge-documents";
 import { canViewMessageMedia } from "@/data/messages";
 import { canViewWebchatLogo } from "@/data/webchat-logo";
 import type { StoredFile } from "@/server/adapters/file-storage";
@@ -15,8 +16,8 @@ export type FileAccess = FileVisibility | "unauthenticated" | "not_found";
  * The business logo is public: the login, the legal pages, the installed app and the web chat show it without a
  * session. Anything else needs a signed-in person with permission on the record that owns the file. Record types
  * that store files add their check here, each through its own src/data function (message media: inbox.view on
- * the conversation's channel; knowledge documents: knowledge.view; agent files: agents.view). Until then, «not
- * found»: a file nobody has a rule for is never served, and the answer does not reveal whether it exists.
+ * the conversation's channel; knowledge documents: knowledge.view; agent avatars and context files: agents.view).
+ * A file nobody has a rule for is «not found»: never served, and the answer does not reveal whether it exists.
  */
 export async function resolveFileAccess(key: string, actor: SessionActor | null): Promise<FileAccess> {
   if (await isPublicLogoKey(key)) return "public";
@@ -25,6 +26,8 @@ export async function resolveFileAccess(key: string, actor: SessionActor | null)
   // A web chat's own logo, for the previews in Canales (the widget serves it through its own route) ([WEB-02]).
   if (await canViewWebchatLogo(actor, key)) return "private";
   if (await canViewMessageMedia(actor, key)) return "private";
+  // Originals of knowledge documents (knowledge.view) and of agents' context files (agents.view).
+  if (await canViewKnowledgeFile(actor, key)) return "private";
   return "not_found";
 }
 

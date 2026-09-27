@@ -8,9 +8,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { DEFAULT_MODELS } from "@/lib/openrouter/default-models";
 import { providerOf } from "@/lib/openrouter/model-id";
+import { rerankModelOptions, rerankZdrWarning } from "@/lib/openrouter/rerank-models";
 import { checkTranscriptionPrivacyAction, type TranscriptionPrivacy } from "../actions";
 import { MAX_RECOMMENDED_MODELS, type AiModels, type DefaultModelField } from "../_lib/form";
 import type { AiSettingsView, ModelUseWarning } from "../_lib/view";
@@ -32,6 +34,7 @@ export function DefaultModelsCard({ view, models, onModelChange, errors }: Defau
     error: errors?.[name]?.[0],
   });
   const embeddingsChanged = models.embeddings !== view.models.embeddings;
+  const [zdr, setZdr] = useState(view.zdr);
 
   return (
     <Card>
@@ -66,7 +69,7 @@ export function DefaultModelsCard({ view, models, onModelChange, errors }: Defau
             {embeddingsChanged ? (
               <p className="flex items-start gap-2 text-sm text-warning">
                 <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
-                Si lo cambias, habrá que volver a procesar todas las bases de conocimiento. Te lo pediremos confirmar al guardar.
+                Si lo cambias, todas las bases de conocimiento se volverán a procesar con él. Te lo pediremos confirmar al guardar.
               </p>
             ) : null}
           </ModelField>
@@ -84,8 +87,9 @@ export function DefaultModelsCard({ view, models, onModelChange, errors }: Defau
                 modelos disponibles.
               </FieldDescription>
             </FieldContent>
-            <Switch id="zdr" name="zdr" defaultChecked={view.zdr} />
+            <Switch id="zdr" name="zdr" checked={zdr} onCheckedChange={setZdr} />
           </Field>
+          <RerankField initial={view.rerank} zdr={zdr} error={errors?.rerank?.[0]} />
         </FieldGroup>
       </CardContent>
     </Card>
@@ -123,6 +127,57 @@ function ModelField({ name, kind, label, help, value, onChange, error, avoidProv
       <FieldDescription id={`${id}-help`}>{help}</FieldDescription>
       <FieldError id={`${id}-error`}>{error}</FieldError>
     </Field>
+  );
+}
+
+/**
+ * «Reordenar resultados» ([AJU-04], [CON-16]): one switch for the whole install, off by default, and its model. With
+ * ZDR only the models without data retention are offered; a chosen one that keeps data is warned about (the search
+ * is then not reordered, the server checks it again).
+ */
+function RerankField({ initial, zdr, error }: { initial: AiSettingsView["rerank"]; zdr: boolean; error?: string }) {
+  const [enabled, setEnabled] = useState(initial.enabled);
+  const [model, setModel] = useState(initial.model);
+  const warning = enabled ? rerankZdrWarning(model, zdr) : null;
+  return (
+    <>
+      <Field orientation="horizontal">
+        <FieldContent>
+          <FieldLabel htmlFor="rerankEnabled">Reordenar resultados</FieldLabel>
+          <FieldDescription>
+            Un modelo más revisa los fragmentos encontrados y deja los 6 más útiles. Mejora las respuestas, pero cada búsqueda cuesta un
+            poco más.
+          </FieldDescription>
+        </FieldContent>
+        <Switch id="rerankEnabled" name="rerankEnabled" checked={enabled} onCheckedChange={setEnabled} />
+      </Field>
+      <Field data-invalid={error ? true : undefined}>
+        <FieldLabel htmlFor="rerank-model">Modelo de reordenación</FieldLabel>
+        <Select name="rerank" value={model} onValueChange={setModel} disabled={!enabled}>
+          <SelectTrigger id="rerank-model" className="w-full font-mono" aria-invalid={error ? true : undefined} aria-describedby="rerank-model-help">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {rerankModelOptions({ zdr, current: model }).map((option) => (
+              <SelectItem key={option} value={option} className="font-mono">
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {warning ? (
+          <p role="status" className="flex items-start gap-2 text-sm text-warning">
+            <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
+            {warning}
+          </p>
+        ) : null}
+        <FieldDescription id="rerank-model-help">
+          Por defecto, <span className="font-mono">{DEFAULT_MODELS.rerank}</span>. Con «Sin retención de datos» solo se ofrecen los que no guardan
+          nada.
+        </FieldDescription>
+        <FieldError>{error}</FieldError>
+      </Field>
+    </>
   );
 }
 

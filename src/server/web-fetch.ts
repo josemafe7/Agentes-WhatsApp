@@ -16,6 +16,7 @@ import zlib from "node:zlib";
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
+import { trimLineEnds } from "@/lib/format";
 import { AppError } from "./errors";
 
 export const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
@@ -459,8 +460,7 @@ export function decodeText(response: Pick<PublicUrlResponse, "body" | "charset" 
 export type ReadablePage = { title: string | null; markdown: string };
 
 function tidyMarkdown(markdown: string): string {
-  return markdown
-    .replace(/[ \t]+\n/g, "\n")
+  return trimLineEnds(markdown)
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

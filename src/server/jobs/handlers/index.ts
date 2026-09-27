@@ -5,3 +5,5 @@ import "./reply";
 import "./demo-status";
 import "./notifications";
 import "./summary";
+import "@/server/knowledge/jobs";
+import "@/server/channels/whatsapp/jobs";

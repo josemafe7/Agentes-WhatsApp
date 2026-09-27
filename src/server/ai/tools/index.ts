@@ -2,6 +2,7 @@
 // its tool module to IMPLEMENTED (buscar_conocimiento in phase 4, the booking tools in phase 5…).
 import "server-only";
 import { ALWAYS_ENABLED_TOOLS, isSystemToolName, type SystemToolName } from "@/lib/agent-tools";
+import { buscarConocimiento } from "./buscar-conocimiento";
 import { toToolDefinition } from "./registry";
 import { transferirAHumano } from "./transferir-a-humano";
 import type { RegisteredTool } from "./types";
@@ -18,7 +19,7 @@ export {
 } from "./registry";
 export type { AgentTool, RegisteredTool, ToolCallRecord, ToolContext, ToolMode, ToolOutput } from "./types";
 
-const IMPLEMENTED: readonly RegisteredTool[] = [transferirAHumano];
+const IMPLEMENTED: readonly RegisteredTool[] = [transferirAHumano, buscarConocimiento];
 
 const BY_NAME: ReadonlyMap<string, RegisteredTool> = new Map(IMPLEMENTED.map((tool) => [tool.name, tool]));
 

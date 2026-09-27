@@ -1,5 +1,6 @@
 // Example legal texts and AI notice of the demo business ([AJU-07], [CUM-01], [CUM-08]). Real businesses write
 // their own in Settings › Privacidad y legal; these say they are examples.
+import { DEFAULT_RETENTION } from "@/db/schema";
 import type { DemoBusiness } from "./businesses";
 
 export function demoLegalTexts(business: DemoBusiness) {
@@ -8,7 +9,7 @@ export function demoLegalTexts(business: DemoBusiness) {
     privacyText: [
       `${name} trata tus datos (nombre, forma de contacto y mensajes) para atender tus consultas y gestionar tus citas.`,
       "Las respuestas automáticas las prepara un asistente de inteligencia artificial; siempre puedes pedir que te atienda una persona.",
-      `Guardamos las conversaciones el tiempo indicado en esta política y puedes pedir ver, corregir o borrar tus datos escribiendo a ${contactEmail}.`,
+      `Guardamos las conversaciones ${DEFAULT_RETENTION.conversationsMonths} meses como máximo y puedes pedir ver, corregir o borrar tus datos escribiendo a ${contactEmail}.`,
       "Texto de ejemplo de la demo: cada negocio debe revisarlo con su asesor.",
     ].join("\n\n"),
     termsText: [

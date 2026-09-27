@@ -20,7 +20,7 @@ vi.mock("@/server/adapters/file-storage", async (importOriginal) => {
 
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { agents, businessSettings, contactIdentities, contacts, conversations, messages } from "@/db/schema";
+import { agentContextFiles, agents, businessSettings, contactIdentities, contacts, conversations, kbDocuments, knowledgeBases, messages } from "@/db/schema";
 import { getFileStorage } from "@/server/adapters/file-storage";
 import { createBusiness, createChannel, createContactWithIdentity, createConversation, createMessage, createUser } from "@/test/factories";
 import { GET, runtime } from "./route";
@@ -35,6 +35,8 @@ const AVATAR_KEY = "avatars/2026/09/7b7b7b7b-aaaa-4bbb-8ccc-123456789abc.png";
 const AUDIO_KEY = "media/2026/09/1c1c1c1c-aaaa-4bbb-8ccc-123456789abc.ogg";
 const PDF_KEY = "media/2026/09/2d2d2d2d-aaaa-4bbb-8ccc-123456789abc.pdf";
 const PDF = new TextEncoder().encode("%PDF-1.4 fake");
+const KNOWLEDGE_KEY = "knowledge/2026/09/3e3e3e3e-aaaa-4bbb-8ccc-123456789abc.pdf";
+const CONTEXT_KEY = "context-files/2026/09/4f4f4f4f-aaaa-4bbb-8ccc-123456789abc.md";
 
 const call = (key: string) =>
   GET(new Request(`http://localhost:3000/api/files/${key}`), { params: Promise.resolve({ key: key.split("/") }) });
@@ -52,6 +54,8 @@ beforeAll(async () => {
   await storage.put(AVATAR_KEY, PNG, "image/png");
   await storage.put(AUDIO_KEY, new TextEncoder().encode("OggS-voice"), "audio/ogg; codecs=opus");
   await storage.put(PDF_KEY, PDF, "application/pdf");
+  await storage.put(KNOWLEDGE_KEY, PDF, "application/pdf");
+  await storage.put(CONTEXT_KEY, new TextEncoder().encode("# Tarifas"), "text/markdown");
 });
 
 afterAll(() => fs.rmSync(state.storageDir, { recursive: true, force: true }));
@@ -213,5 +217,43 @@ describe("response headers of served files", () => {
     expect(disposition).toBe(`attachment; filename="a_b_cX-Evil: 1.pdf"; filename*=UTF-8''a%22b%5CcX-Evil%3A%201.pdf`);
     // Images keep showing in the page, whatever their name.
     expect(fileResponseHeaders({ contentType: "image/png", size: 10 }, "private", "foto.png")["Content-Disposition"]).toBe("inline");
+  });
+});
+
+describe("knowledge originals: documents of a base and an agent's context files [CON-15] [SEG-04]", () => {
+  beforeEach(async () => {
+    for (const table of [kbDocuments, knowledgeBases, agentContextFiles]) await db.delete(table);
+  });
+
+  it("a document's file is downloaded by people who may see Conocimiento, never shown in the page; the Agent role gets «not found»", async () => {
+    const [base] = await db.insert(knowledgeBases).values({ name: "Información del negocio" }).returning();
+    await db.insert(kbDocuments).values({ kbId: base.id, sourceType: "file", title: "Normas", fileKey: KNOWLEDGE_KEY, fileName: "Normas.pdf", status: "ready" });
+    for (const role of ["owner", "supervisor", "viewer"] as const) {
+      signIn((await createUser(role)).userId);
+      const response = await call(KNOWLEDGE_KEY);
+      expect(response.status, role).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(response.headers.get("content-disposition")).toMatch(/^attachment/);
+    }
+    signIn((await createUser("agent")).userId);
+    expect((await call(KNOWLEDGE_KEY)).status).toBe(404);
+    signIn(null);
+    expect((await call(KNOWLEDGE_KEY)).status).toBe(401);
+  });
+
+  it("a key under knowledge/ that no document owns (deleted) is «not found»", async () => {
+    signIn((await createUser("owner")).userId);
+    expect((await call(KNOWLEDGE_KEY)).status).toBe(404);
+  });
+
+  it("an agent's context file goes to people who may see agents", async () => {
+    const [agent] = await db.insert(agents).values({ name: "Recepción" }).returning();
+    await db.insert(agentContextFiles).values({ agentId: agent.id, title: "Tarifas", contentMd: "# Tarifas", sourceFileKey: CONTEXT_KEY });
+    signIn((await createUser("viewer")).userId);
+    expect((await call(CONTEXT_KEY)).status).toBe(200);
+    signIn((await createUser("agent")).userId);
+    expect((await call(CONTEXT_KEY)).status).toBe(404);
+    await db.delete(agentContextFiles);
+    await db.delete(agents).where(eq(agents.id, agent.id));
   });
 });

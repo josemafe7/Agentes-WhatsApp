@@ -2,9 +2,10 @@
 // [BAN-11], [AGE-14]), in the spec's order. Pure: the reply engine loads the data. If any check fails the AI stays
 // quiet and the message waits for a person in the inbox.
 import type { ChannelType } from "@/lib/enums";
+import { WHATSAPP_WINDOW_MS, whatsappWindowState } from "@/lib/meta/window";
 import type { ChannelRecord } from "@/server/channels/types";
 
-export const WINDOW_24H_MS = 24 * 60 * 60_000;
+export const WINDOW_24H_MS = WHATSAPP_WINDOW_MS;
 
 export type ReplySkipReason =
   | "channel_disabled"
@@ -21,7 +22,15 @@ export type ReplySkipReason =
 
 export type ReplyCheckInput = {
   channel: Pick<ChannelRecord, "status" | "activeAgentId" | "aiEnabled" | "testMode" | "testAllowlist" | "offHoursBehavior">;
-  conversation: { status: string; aiMode: string; aiPausedUntil: Date | null; agentOverrideId: string | null; lastInboundAt: Date | null };
+  conversation: {
+    status: string;
+    aiMode: string;
+    aiPausedUntil: Date | null;
+    agentOverrideId: string | null;
+    lastInboundAt: Date | null;
+    /** Where a 131047 from Meta leaves the window closed ([WA-43], src/lib/meta/window.ts). */
+    metadata?: Record<string, unknown> | null;
+  };
   /** The channel keeps the 24 h customer service window ([WA-43]). */
   window24h: boolean;
   /** What the channel vouches for about the sender, for the test-mode list ([CAN-06]): see testModeIdentifiers. */
@@ -71,9 +80,8 @@ export function evaluateReplyChecks(input: ReplyCheckInput): ReplyCheckResult {
   const pauseExpired = conversation.aiPausedUntil !== null && conversation.aiPausedUntil.getTime() <= now.getTime();
   if (conversation.aiPausedUntil !== null && !pauseExpired) return { ok: false, reason: "paused" };
   if (channel.testMode && !isAllowlisted(channel.testAllowlist, input.identifiers)) return { ok: false, reason: "test_mode" };
-  if (input.window24h && (!conversation.lastInboundAt || now.getTime() - conversation.lastInboundAt.getTime() > WINDOW_24H_MS)) {
-    return { ok: false, reason: "window_closed" };
-  }
+  // Counted from the customer's last message; if Meta answered 131047 meanwhile, Meta wins ([WA-43]).
+  if (input.window24h && !whatsappWindowState(conversation.lastInboundAt, now, conversation.metadata).open) return { ok: false, reason: "window_closed" };
   if (input.optedOut) return { ok: false, reason: "opted_out" };
   if (!input.withinBusinessHours && channel.offHoursBehavior === "no_reply") return { ok: false, reason: "off_hours" };
   return { ok: true, agentId, pauseExpired };

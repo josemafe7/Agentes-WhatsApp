@@ -1,0 +1,20 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000001",
+      "time": 1790420600,
+      "changes": [
+        {
+          "value": {
+            "display_phone_number": "15550001111",
+            "decision": "APPROVED",
+            "requested_verified_name": "Peluquería Ejemplo",
+            "rejection_reason": null
+          },
+          "field": "phone_number_name_update"
+        }
+      ]
+    }
+  ]
+}

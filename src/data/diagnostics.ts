@@ -78,7 +78,8 @@ export type Diagnostics = {
   database: DatabaseDiagnostics;
   queue: QueueDiagnostics;
   realtime: { count: number; lastAt: Date | null };
-  webhooks: { channels: ChannelWebhooks[]; unknown: { count: number; lastReceivedAt: Date | null } };
+  /** Webhooks for no channel: only their time and the number or account they named ([WA-34]). */
+  webhooks: { channels: ChannelWebhooks[]; unknown: { count: number; lastReceivedAt: Date | null; lastNumber: string | null } };
   /** «Errores recientes»: a failed AI reply ends well for the queue (it hands off), so it is read from ai_runs. */
   aiErrors: AiRunError[];
 };
@@ -152,7 +153,7 @@ async function realtimeDiagnostics(): Promise<Diagnostics["realtime"]> {
 }
 
 async function webhookDiagnostics(): Promise<Diagnostics["webhooks"]> {
-  const [channelRows, perChannel, [unknown]] = await Promise.all([
+  const [channelRows, perChannel, [unknown], [latestUnknown]] = await Promise.all([
     db
       .select({ id: channels.id, name: channels.name, type: channels.type, isDemo: channels.isDemo })
       .from(channels)
@@ -164,6 +165,12 @@ async function webhookDiagnostics(): Promise<Diagnostics["webhooks"]> {
       .where(isNotNull(webhookEvents.channelId))
       .groupBy(webhookEvents.channelId),
     db.select({ n: count(), lastAt: max(webhookEvents.receivedAt) }).from(webhookEvents).where(isNull(webhookEvents.channelId)),
+    db
+      .select({ number: webhookEvents.externalAccountId })
+      .from(webhookEvents)
+      .where(isNull(webhookEvents.channelId))
+      .orderBy(desc(webhookEvents.receivedAt))
+      .limit(1),
   ]);
   const byChannel = new Map(perChannel.map((row) => [row.channelId, row]));
   return {
@@ -175,7 +182,7 @@ async function webhookDiagnostics(): Promise<Diagnostics["webhooks"]> {
       lastReceivedAt: byChannel.get(channel.id)?.lastAt ?? null,
       count: byChannel.get(channel.id)?.n ?? 0,
     })),
-    unknown: { count: unknown?.n ?? 0, lastReceivedAt: unknown?.lastAt ?? null },
+    unknown: { count: unknown?.n ?? 0, lastReceivedAt: unknown?.lastAt ?? null, lastNumber: latestUnknown?.number ?? null },
   };
 }
 
@@ -209,7 +216,7 @@ export async function getDiagnostics(actor: Actor): Promise<Diagnostics> {
       database,
       queue: { stats: { pending: 0, running: 0, done: 0, failed: 0, cancelled: 0, due: 0, oldestDueAt: null }, lastTick: null, jobsWithErrors: [] },
       realtime: { count: 0, lastAt: null },
-      webhooks: { channels: [], unknown: { count: 0, lastReceivedAt: null } },
+      webhooks: { channels: [], unknown: { count: 0, lastReceivedAt: null, lastNumber: null } },
       aiErrors: [],
     };
   }

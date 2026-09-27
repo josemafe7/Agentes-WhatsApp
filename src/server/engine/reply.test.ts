@@ -5,6 +5,7 @@ import { DEFAULT_AI_DISCLOSURE_TEXT } from "@/data/legal-texts";
 import { ensureSettingsRows } from "@/data/settings";
 import { db } from "@/db";
 import {
+  agentKnowledgeBases,
   agents,
   aiRuns,
   appKv,
@@ -18,6 +19,10 @@ import {
   handoffEvents,
   integrationSettings,
   jobs,
+  kbChunks,
+  kbDocuments,
+  knowledgeBases,
+  messageRetrievals,
   messages,
   notifications,
   realtimeEvents,
@@ -51,6 +56,8 @@ const chatCalls = (fake: Fake) => fake.calls.filter((call) => call.path === "/ch
 const promptOf = (call: FakeCall) => (call.body as { messages: { role: string; content: string }[] }).messages;
 
 async function clear() {
+  // Children first (foreign keys are on): the knowledge fragments kept with a message, then the knowledge itself.
+  for (const table of [messageRetrievals, agentKnowledgeBases, kbChunks, kbDocuments, knowledgeBases]) await db.delete(table);
   for (const table of [notifications, handoffEvents, aiRuns, messages, conversations, consents, contactIdentities, contacts, jobs, realtimeEvents, appKv, auditLog]) {
     await db.delete(table);
   }
@@ -343,6 +350,36 @@ describe("never two replies at once for a conversation [MOT-02]", () => {
     expect(chatCalls(fake)).toHaveLength(0);
   });
 
+  it("a customer's file still downloading makes the reply wait for it, never for long [WA-41] [MED-04]", async () => {
+    await setup();
+    const received = await ingestEvents(
+      channel,
+      [
+        {
+          kind: "inbound_message",
+          externalId: crypto.randomUUID(),
+          sender: { externalIds: ["visitor-1"] },
+          contentType: "audio",
+          text: null,
+          media: { mimeType: "audio/ogg", externalMediaId: "900000000000001", downloadStatus: "pending" },
+          sentAt: at(-5_000),
+        },
+      ],
+      { now: at(-5_000) },
+    );
+    const conversationId = received.messages[0].conversationId ?? "";
+    const fake = openRouter(reply("Te he escuchado."));
+    // The download job has not stored the voice note yet: answering now would miss its transcript.
+    const waiting = await runReply(conversationId, fake);
+    expect(waiting.outcome).toEqual({ kind: "waiting" });
+    expect(waiting.rescheduledAt?.getTime()).toBeGreaterThan(NOW.getTime());
+    expect(chatCalls(fake)).toHaveLength(0);
+    // A download that never ends does not keep the customer without an answer.
+    const later = await runReply(conversationId, fake, { now: at(5 * 60_000) });
+    expect(later.outcome.kind).toBe("replied");
+    expect(chatCalls(fake)).toHaveLength(1);
+  });
+
   it("a message arriving while the reply is prepared throws that reply away; the next one includes it", async () => {
     await setup();
     const conversationId = await receive("Hola");
@@ -396,6 +433,73 @@ describe("never two replies at once for a conversation [MOT-02]", () => {
     const { outcome } = await runReply(conversationId, fake);
     expect(outcome).toEqual({ kind: "skipped", reason: "paused" });
     expect(await outbound(conversationId)).toHaveLength(0);
+  });
+});
+
+describe("what the AI does not answer never holds a reply back [MOT-01] [MOT-02] [WA-36] [WA-50]", () => {
+  const NOTICES = {
+    unsupported: { contentType: "unsupported", text: "Tipo de mensaje no admitido" },
+    system: { contentType: "system", text: "El identificador de WhatsApp del cliente ha cambiado." },
+  } as const;
+
+  /** A WhatsApp notice the AI must not answer (as normalize.ts gives it), through the real ingest pipeline. */
+  async function receiveNotice(kind: keyof typeof NOTICES, when: Date) {
+    await ingestEvents(
+      channel,
+      [{ kind: "inbound_message", externalId: crypto.randomUUID(), sender: { externalIds: ["ES.bsuid-1"] }, ...NOTICES[kind], sentAt: when, noReply: true }],
+      { now: when },
+    );
+  }
+
+  const userTurnsOf = (fake: Fake, index = 0) =>
+    promptOf(chatCalls(fake)[index])
+      .filter((message) => message.role === "user")
+      .map((message) => message.content);
+
+  it.each(["unsupported", "system"] as const)("a text and then a %s notice before the reply runs: one reply to the text, at once", async (kind) => {
+    await setup({ type: "whatsapp", isDemo: true });
+    const conversationId = await receive("¿Tenéis hueco mañana?", at(-30_000), "ES.bsuid-1");
+    await receiveNotice(kind, at(-29_000));
+    const fake = openRouter(reply("Sí, mañana a las 10."));
+    const { outcome, rescheduledAt } = await runReply(conversationId, fake);
+    expect(outcome.kind).toBe("replied");
+    expect(rescheduledAt).toBeNull();
+    // The notice is the system's, never the customer's words.
+    expect(userTurnsOf(fake)).toEqual(["¿Tenéis hueco mañana?"]);
+    expect(await outbound(conversationId)).toHaveLength(1);
+  });
+
+  it("the queue runs that reply once and stops, instead of taking it again and again", async () => {
+    await setup({ type: "whatsapp", isDemo: true });
+    const conversationId = await receive("¿Tenéis hueco mañana?", at(-30_000), "ES.bsuid-1");
+    await receiveNotice("system", at(-29_000));
+    const fake = openRouter(reply("Sí, mañana a las 10."));
+    registerJobHandler(REPLY_JOB, (payload, ctx) => processReplyJob(payload, ctx, { fetchImpl: fake.fetch, now: NOW, retryDelayMs: 0 }).then(() => undefined), {
+      payload: replyJobPayload,
+    });
+    const started = Date.now();
+    const summary = await tick({ budgetMs: 20_000, maxJobs: 5, queue: new LibsqlJobQueue({ now: () => NOW }) });
+    expect(summary.rescheduled).toBe(0);
+    expect(summary.stoppedBy).toBe("idle");
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(chatCalls(fake)).toHaveLength(1);
+    const [job] = await db.select().from(jobs).where(and(eq(jobs.type, REPLY_JOB), eq(jobs.dedupeKey, `reply:${conversationId}`)));
+    expect(job.status).toBe("done");
+  });
+
+  it("a newer customer message whose wait is already over is answered now, never rescheduled into the past", async () => {
+    await setup();
+    const conversationId = await receive("Hola", at(-30_000));
+    const job = await pendingJob(conversationId);
+    // The second message arrives while this job runs (the pipeline makes another pending job); both waits are over.
+    await db.update(jobs).set({ status: "running" }).where(eq(jobs.id, job.id));
+    await receive("¿Me oyes?", at(-20_000));
+    const { ctx, state } = context(job);
+    const fake = openRouter(reply("Sí, te leo."));
+    const outcome = await processReplyJob(replyJobPayload.parse(job.payload), ctx, { fetchImpl: fake.fetch, now: NOW, retryDelayMs: 0 });
+    expect(outcome.kind).toBe("replied");
+    expect(state.rescheduledAt).toBeNull();
+    expect(userTurnsOf(fake)).toEqual(["Hola", "¿Me oyes?"]);
   });
 });
 
@@ -469,6 +573,83 @@ describe("hand-off rules of the agent [TRA-01] [TRA-02] [TRA-03]", () => {
     // The team hears about it ([TRA-05]).
     const [notice] = await db.select().from(notifications).where(eq(notifications.userId, admin.userId)).limit(1);
     expect(notice).toMatchObject({ event: "handoff", title: "Traspaso urgente: Ana", link: `/bandeja/${conversationId}` });
+  });
+});
+
+describe("the knowledge in a live reply [CON-20] [CON-18] [HER-01] [AGE-07]", () => {
+  const SEARCH_TOOLS = ["buscar_conocimiento", "transferir_a_humano"];
+  const QUESTION = "¿Qué señal hay que pagar para reservar un recogido?";
+
+  /** A base of the agent with one fragment, processed without a key (no vector yet: found by its words). */
+  async function agentBase() {
+    const [kb] = await db.insert(knowledgeBases).values({ name: "Normas" }).returning();
+    const [doc] = await db.insert(kbDocuments).values({ kbId: kb.id, sourceType: "text", title: "Normas del salón", status: "ready" }).returning();
+    await db.insert(kbChunks).values({
+      kbId: kb.id,
+      documentId: doc.id,
+      indexVersion: 1,
+      ord: 0,
+      title: "Normas del salón",
+      section: "Reservas",
+      page: 2,
+      content: "La señal para reservar un recogido de fiesta es de 30 euros.",
+      tokenCount: 15,
+    });
+    await db.insert(agentKnowledgeBases).values({ agentId: agent.id, knowledgeBaseId: kb.id });
+    return { kb, doc };
+  }
+
+  /** The model searches first, then answers; the query embedding is answered too (1536 numbers). */
+  function searchingModel(answer: string): Fake {
+    return fakeFetch(
+      routes({
+        "GET /models/user": () => jsonResponse({ data: sampleCatalog() }),
+        "POST /embeddings": () => jsonResponse({ data: [{ index: 0, embedding: Array.from({ length: 1536 }, () => 0.01) }], usage: { prompt_tokens: 5, cost: 0 } }),
+        "POST /chat/completions": sequence(
+          () => jsonResponse(chatCompletion({ toolCalls: [{ name: "buscar_conocimiento", arguments: { consulta: QUESTION } }] })),
+          reply(answer),
+        ),
+      }),
+    );
+  }
+
+  it("the fragments the agent read are kept with the message it sent, with a copy of their source; the model got them numbered", async () => {
+    await setup({ agent: { systemTools: SEARCH_TOOLS } });
+    const { kb, doc } = await agentBase();
+    const conversationId = await receive(QUESTION);
+    const fake = searchingModel("Son 30 euros de señal (Fuente: Normas del salón, pág. 2).");
+    const { outcome } = await runReply(conversationId, fake);
+    expect(outcome.kind).toBe("replied");
+    const [message] = await outbound(conversationId);
+    expect(message.metadata.unknownAnswer).toBeUndefined();
+    const kept = await db.select().from(messageRetrievals).where(eq(messageRetrievals.messageId, message.id));
+    expect(kept).toEqual([expect.objectContaining({ rank: 1, kbId: kb.id, documentId: doc.id, title: "Normas del salón", section: "Reservas", page: 2 })]);
+    const toolMessage = promptOf(chatCalls(fake)[1]).find((entry) => entry.role === "tool");
+    expect(toolMessage?.content).toContain("[1] Normas del salón · Reservas · pág. 2");
+    expect(toolMessage?.content).toContain("30 euros");
+    const [run] = await db.select().from(aiRuns).where(eq(aiRuns.kind, "chat"));
+    expect(run.toolsUsed).toEqual([{ name: "buscar_conocimiento", ok: true }]);
+  });
+
+  it("with nothing relevant the tool says SIN_RESULTADOS: nothing is kept and the answer counts as «no lo sé» [CON-18] [TRA-01]", async () => {
+    await setup({ agent: { systemTools: SEARCH_TOOLS } });
+    await agentBase();
+    const conversationId = await receive("¿Vendéis bicicletas de montaña?");
+    const fake = fakeFetch(
+      routes({
+        "GET /models/user": () => jsonResponse({ data: sampleCatalog() }),
+        "POST /embeddings": () => jsonResponse({ data: [{ index: 0, embedding: Array.from({ length: 1536 }, () => 0.01) }], usage: { prompt_tokens: 5, cost: 0 } }),
+        "POST /chat/completions": sequence(
+          () => jsonResponse(chatCompletion({ toolCalls: [{ name: "buscar_conocimiento", arguments: { consulta: "bicicletas de montaña" } }] })),
+          reply("Eso no lo sé. ¿Quieres que te pase con una persona del equipo?"),
+        ),
+      }),
+    );
+    expect((await runReply(conversationId, fake)).outcome.kind).toBe("replied");
+    const [message] = await outbound(conversationId);
+    expect(promptOf(chatCalls(fake)[1]).find((entry) => entry.role === "tool")?.content).toContain("SIN_RESULTADOS");
+    expect(message.metadata.unknownAnswer).toBe(true);
+    expect(await db.select().from(messageRetrievals)).toEqual([]);
   });
 });
 

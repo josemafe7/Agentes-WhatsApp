@@ -166,7 +166,7 @@ function AiForm({ view, onSaved }: { view: AiSettingsView; onSaved: () => void }
         open={confirmEmbeddings}
         onOpenChange={setConfirmEmbeddings}
         title="¿Cambiar el modelo de embeddings?"
-        description="Habrá que volver a procesar todas las bases de conocimiento con el modelo nuevo. Antes de guardar se comprueba que da vectores de 1536 dimensiones."
+        description="Al guardar, todas las bases de conocimiento se vuelven a procesar con el modelo nuevo; mientras tanto, se sigue buscando con el anterior. Antes se comprueba que da vectores de 1536 dimensiones."
         confirmLabel="Cambiar y guardar"
         onConfirm={() => {
           embeddingsConfirmed.current = true;

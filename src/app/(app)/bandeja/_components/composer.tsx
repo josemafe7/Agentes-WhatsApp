@@ -1,7 +1,7 @@
 "use client";
 
-import { Clock, Eye, FileText, ImageIcon, LoaderCircle, MessageSquareText, Paperclip, SendHorizontal, StickyNote, X } from "lucide-react";
-import { useId, useRef, useState, useTransition, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { Eye, FileText, ImageIcon, LoaderCircle, MessageSquareText, Paperclip, SendHorizontal, StickyNote, X } from "lucide-react";
+import { useId, useRef, useState, useTransition, type ChangeEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -10,7 +10,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { requestRealtimePoll } from "@/hooks/use-realtime";
 import { cn } from "@/lib/utils";
 import { addNoteAction, sendAttachmentAction, sendMessageAction } from "../actions";
-import { aiStateOf, formatFileSize, formatUntil, windowRemaining } from "../_lib/presentation";
+import { aiStateOf, formatFileSize, formatUntil } from "../_lib/presentation";
 import { ACTION_FAILED } from "./use-inbox-action";
 import { useNow } from "./use-now";
 
@@ -29,8 +29,10 @@ type Mode = "reply" | "note";
 type ComposerProps = {
   conversationId: string;
   channelDisabled: boolean;
-  /** WhatsApp 24 h window ([BAN-08]); null when the channel has none. */
+  /** WhatsApp 24 h window ([BAN-08]); null when the channel has none. Closed = no free text, only templates. */
   window: { open: boolean; closesAt: Date | null } | null;
+  /** WhatsApp: the window notice and, when closed, «Elegir plantilla» (from ../[id]/_whatsapp, [WA-43]). */
+  whatsapp?: ReactNode;
   ai: { aiMode: "ai" | "human"; aiPausedUntil: Date | null };
   aiPauseHours: number;
   timezone: string;
@@ -47,7 +49,7 @@ type ComposerProps = {
  * composer ([PER-03]).
  */
 export function Composer(props: ComposerProps) {
-  const { conversationId, channelDisabled, window: serviceWindow, ai, aiPauseHours, timezone, initialNow, canReply, canNote, attachments } = props;
+  const { conversationId, channelDisabled, window: serviceWindow, whatsapp, ai, aiPauseHours, timezone, initialNow, canReply, canNote, attachments } = props;
   const id = useId();
   const now = useNow(initialNow);
   const windowClosed = serviceWindow !== null && !serviceWindow.open;
@@ -140,16 +142,7 @@ export function Composer(props: ComposerProps) {
 
   return (
     <div className="flex flex-col gap-2 border-t px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3">
-      {serviceWindow?.open && serviceWindow.closesAt ? (
-        <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-info-soft px-2 py-0.5 text-xs font-medium text-info">
-          <Clock aria-hidden className="size-3.5" />
-          Ventana abierta · quedan {windowRemaining(serviceWindow.closesAt, now)}
-        </p>
-      ) : null}
-      {canReply && windowClosed ? (
-        // Extension point: the WhatsApp phase adds «Elegir plantilla» here ([WA-42], [WA-43]).
-        <p className="rounded-lg bg-muted px-3 py-2 text-sm">La ventana de 24 h está cerrada: solo puedes enviar una plantilla aprobada.</p>
-      ) : null}
+      {whatsapp}
       {canReply && channelDisabled ? <p className="rounded-lg bg-muted px-3 py-2 text-sm">El canal está desactivado: no se pueden enviar mensajes.</p> : null}
 
       {replyAvailable || canNote ? (

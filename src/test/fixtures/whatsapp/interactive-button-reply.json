@@ -1,0 +1,49 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000001",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15550001111",
+              "phone_number_id": "200000000000002"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Ana Pruebas"
+                },
+                "wa_id": "15550002222",
+                "user_id": "US.10000000000000000001"
+              }
+            ],
+            "messages": [
+              {
+                "context": {
+                  "from": "15550001111",
+                  "id": "wamid.TEST_OUT_0003"
+                },
+                "from": "15550002222",
+                "from_user_id": "US.10000000000000000001",
+                "id": "wamid.TEST_IN_BUTTON_0001",
+                "timestamp": "1790417200",
+                "type": "interactive",
+                "interactive": {
+                  "type": "button_reply",
+                  "button_reply": {
+                    "id": "slot-2026-09-27T16:00",
+                    "title": "Sáb 16:00"
+                  }
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

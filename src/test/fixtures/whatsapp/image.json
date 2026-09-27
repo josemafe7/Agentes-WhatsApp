@@ -1,0 +1,45 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000001",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15550001111",
+              "phone_number_id": "200000000000002"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Ana Pruebas"
+                },
+                "wa_id": "15550002222",
+                "user_id": "US.10000000000000000001"
+              }
+            ],
+            "messages": [
+              {
+                "from": "15550002222",
+                "from_user_id": "US.10000000000000000001",
+                "id": "wamid.TEST_IN_IMAGE_0001",
+                "timestamp": "1790416920",
+                "type": "image",
+                "image": {
+                  "caption": "Quiero este color de pelo",
+                  "mime_type": "image/jpeg",
+                  "sha256": "dGVzdC1pbWFnZS1zaGEyNTYtZmFrZQ==",
+                  "id": "900000000000002",
+                  "url": "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=TEST900000000000002"
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

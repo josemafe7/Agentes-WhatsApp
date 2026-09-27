@@ -8,11 +8,11 @@ import { z } from "zod";
 import { db } from "@/db";
 import { agents, channels, contacts, conversations, handoffEvents, messages, user } from "@/db/schema";
 import { CONVERSATION_STATUSES, type ChannelType, type ConversationStatus, type HandoffTrigger, type MessageContentType, type SenderType, type Urgency } from "@/lib/enums";
+import { whatsappWindowState } from "@/lib/meta/window";
 import { channelFilter, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema, labelSchema, MAX_LABELS } from "@/lib/validation";
 import { defaultCapabilitiesOf } from "@/server/channels/capabilities";
 import type { ChannelCapabilities } from "@/server/channels/types";
-import { WINDOW_24H_MS } from "@/server/engine/checks";
 import { parseInput } from "@/server/errors";
 import { listActiveTeam } from "@/server/team";
 import { eligibleAssignees, openHandoffOf } from "@/server/handoff/service";
@@ -274,7 +274,8 @@ export async function getConversation(actor: Actor, conversationId: string): Pro
 
   const now = new Date();
   const capabilities = defaultCapabilitiesOf(channel);
-  const closesAt = conversation.lastInboundAt ? new Date(conversation.lastInboundAt.getTime() + WINDOW_24H_MS) : null;
+  // A 131047 from Meta closes the window until the customer writes again ([WA-43]).
+  const window = whatsappWindowState(conversation.lastInboundAt, now, conversation.metadata);
   const paused = conversation.aiPausedUntil && conversation.aiPausedUntil > now ? conversation.aiPausedUntil : null;
   const human = conversation.aiMode === "human" || conversation.status === "pending_human";
   return {
@@ -292,7 +293,7 @@ export async function getConversation(actor: Actor, conversationId: string): Pro
     agent: agentRows.find((row) => row.id === effectiveAgentId) ?? null,
     agentOverride: conversation.agentOverrideId ? (agentRows.find((row) => row.id === conversation.agentOverrideId) ?? null) : null,
     openHandoff: openHandoff ?? null,
-    window: capabilities.window24h ? { open: closesAt !== null && closesAt > now, closesAt } : null,
+    window: capabilities.window24h ? { open: window.open, closesAt: window.closesAt } : null,
     summary: conversation.summary,
     lastInboundAt: conversation.lastInboundAt,
     createdAt: conversation.createdAt,

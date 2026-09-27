@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "model": "openai/text-embedding-3-small",
+  "dimensions": 1536,
+  "encoding": "f32le-base64",
+  "generatedAt": null,
+  "items": {}
+}

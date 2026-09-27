@@ -1,5 +1,6 @@
-// Keeps secrets out of logs, stored errors and the audit log ([SEG-02], [SEG-14]).
+// Keeps secrets and personal data out of logs, stored errors and the audit log ([SEG-02], [SEG-14]).
 import "server-only";
+import { DrizzleQueryError } from "drizzle-orm";
 
 export const REDACTED = "[redactado]";
 const MAX_DEPTH = 6;
@@ -32,9 +33,25 @@ export function stripSecrets(value: unknown, depth = 0): unknown {
   return result;
 }
 
+/** What Drizzle puts in front of a failed query: the SQL and then EVERY parameter (phones, identifiers, texts…). */
+const FAILED_QUERY = "Failed query:";
+const DATABASE_CODE = /^[A-Z][A-Z0-9_]{0,59}$/;
+
+/** The database's own code of a failed query (SQLITE_BUSY, SQLITE_CONSTRAINT_UNIQUE…), never its values. */
+function databaseCode(error: unknown): string | null {
+  const cause = error instanceof DrizzleQueryError ? (error.cause as { code?: unknown; extendedCode?: unknown } | undefined) : undefined;
+  const code = [cause?.extendedCode, cause?.code].find((value): value is string => typeof value === "string" && DATABASE_CODE.test(value));
+  return code ?? null;
+}
+
 /** Safe, short message of an unknown error for logs and stored errors. */
 export function safeErrorMessage(error: unknown, maxLength = 500): string {
-  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "Error desconocido";
+  let message = error instanceof Error ? error.message : typeof error === "string" ? error : "Error desconocido";
+  const failedQuery = message.indexOf(FAILED_QUERY);
+  if (error instanceof DrizzleQueryError || failedQuery >= 0) {
+    const code = databaseCode(error);
+    message = `${failedQuery > 0 ? message.slice(0, failedQuery) : ""}Error de la base de datos${code ? ` (${code})` : ""}.`;
+  }
   const redacted = redactSecrets(message);
   return redacted.length > maxLength ? `${redacted.slice(0, maxLength)}…` : redacted;
 }

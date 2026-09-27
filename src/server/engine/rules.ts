@@ -1,6 +1,7 @@
 // The agent's hand-off rules ([TRA-01], [AGE-09]): phrases of the customer that hand the conversation to a person
 // before answering (keywords and sensitive topics), and «no lo sé» answers counted until the configured number.
 // Pure functions: matching ignores case and accents and only takes whole words («persona» never matches «personas»).
+import type { SystemToolName } from "@/lib/agent-tools";
 import type { ToolCallRecord } from "@/server/ai/tools";
 
 /** What the knowledge tool returns when nothing is relevant ([CON-18]). */
@@ -46,9 +47,19 @@ export const UNCERTAINTY_PATTERNS: readonly RegExp[] = [
   /\bdesconozco\b/,
 ];
 
-/** An answer that does not know: the knowledge search found nothing, or the text says so ([CON-18]). */
+const KNOWLEDGE_TOOL: SystemToolName = "buscar_conocimiento";
+
+/**
+ * An answer that does not know ([CON-18], [AGE-09]): the knowledge was searched and no search of the turn found
+ * anything (a first search without results and a second one that found the fact is an answer that knows), or the
+ * text says so. Only the tool's own «SIN_RESULTADOS» counts, compared exactly: a fragment that merely contains those
+ * words (a web page, a document) is data and never steers the hand-off ([HER-09]).
+ */
 export function isUnknownAnswer(text: string, toolCalls: readonly ToolCallRecord[] = []): boolean {
-  if (toolCalls.some((call) => JSON.stringify(call.result).includes(KNOWLEDGE_NO_RESULTS))) return true;
+  const searches = toolCalls.filter((call) => call.name === KNOWLEDGE_TOOL && call.ok).map((call) => call.result.resultado);
+  const foundNothing = searches.some((result) => result === KNOWLEDGE_NO_RESULTS);
+  const foundSomething = searches.some((result) => typeof result === "string" && result !== KNOWLEDGE_NO_RESULTS);
+  if (foundNothing && !foundSomething) return true;
   const normalized = normalizeForMatch(text);
   return UNCERTAINTY_PATTERNS.some((pattern) => pattern.test(normalized));
 }

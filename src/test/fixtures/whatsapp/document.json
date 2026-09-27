@@ -1,0 +1,46 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000001",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15550001111",
+              "phone_number_id": "200000000000002"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Ana Pruebas"
+                },
+                "wa_id": "15550002222",
+                "user_id": "US.10000000000000000001"
+              }
+            ],
+            "messages": [
+              {
+                "from": "15550002222",
+                "from_user_id": "US.10000000000000000001",
+                "id": "wamid.TEST_IN_DOC_0001",
+                "timestamp": "1790417000",
+                "type": "document",
+                "document": {
+                  "caption": "Mi presupuesto",
+                  "filename": "presupuesto-prueba.pdf",
+                  "mime_type": "application/pdf",
+                  "sha256": "dGVzdC1kb2Mtc2hhMjU2LWZha2U=",
+                  "id": "900000000000003",
+                  "url": "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=TEST900000000000003"
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

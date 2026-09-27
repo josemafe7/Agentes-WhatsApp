@@ -14,6 +14,10 @@ export interface TextSearch {
 
 const MIN_TERM_LENGTH = 2;
 const MAX_TERMS = 12;
+/** Words from this long are searched as prefixes when `prefix` is on. */
+const MIN_PREFIX_TERM_LENGTH = 4;
+/** A final «s» is dropped (Spanish plural) from words at least this long before the prefix search. */
+const MIN_PLURAL_TERM_LENGTH = 5;
 
 // Spanish stop words (compared without accents). FTS5 has no stop-word list, and in an OR query «de» or «la»
 // would match almost everything and fill the 40 results with noise.
@@ -29,15 +33,31 @@ const STOP_WORDS = new Set(
   ).split(" "),
 );
 
+/** Accents off for comparing with the stop words, but «ñ» kept: «uña» is not «una». */
 function withoutAccents(text: string): string {
-  return text.normalize("NFD").replace(/\p{M}+/gu, "");
+  return text
+    .normalize("NFC")
+    .replaceAll("ñ", "\u0000")
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .replaceAll("\u0000", "ñ");
+}
+
+const quoted = (term: string) => `"${term.replaceAll('"', '""')}"`;
+
+/** `"tinte"*` for «tintes» (the plural's «s» dropped), `"corte"*` for «corte»; short words stay exact. */
+function prefixTerm(term: string): string {
+  if (term.length < MIN_PREFIX_TERM_LENGTH) return quoted(term);
+  const stem = term.length >= MIN_PLURAL_TERM_LENGTH && term.endsWith("s") ? term.slice(0, -1) : term;
+  return `${quoted(stem)}*`;
 }
 
 /**
  * FTS5 MATCH expression for what a customer or agent wrote: `"precio" OR "tinte"`, or null when nothing is
- * left to search. Each term is quoted (quotes doubled), so FTS5 operators in the input are plain text.
+ * left to search. Each term is quoted (quotes doubled), so FTS5 operators in the input are plain text. With
+ * `prefix`, longer terms become prefix queries (`"tinte"*`).
  */
-export function buildFtsQuery(text: string): string | null {
+export function buildFtsQuery(text: string, options: { prefix?: boolean } = {}): string | null {
   const words = text.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   const terms: string[] = [];
   for (const word of words) {
@@ -46,7 +66,7 @@ export function buildFtsQuery(text: string): string | null {
     if (terms.length === MAX_TERMS) break;
   }
   if (terms.length === 0) return null;
-  return terms.map((term) => `"${term.replaceAll('"', '""')}"`).join(" OR ");
+  return terms.map(options.prefix ? prefixTerm : quoted).join(" OR ");
 }
 
 /** `(c.kb_id = ? AND c.index_version = ?) OR …`: only current chunks of the allowed bases. */
@@ -65,7 +85,7 @@ export class LibsqlTextSearch implements TextSearch {
   }
 
   async search(query: string, options: SearchOptions): Promise<SearchHit[]> {
-    const match = buildFtsQuery(query);
+    const match = buildFtsQuery(query, { prefix: options.prefix });
     if (!match || options.kbs.length === 0) return [];
     const limit = options.limit ?? DEFAULT_SEARCH_LIMIT;
     // bm25() is lower for better matches; the filter applies before LIMIT, so it is exact.

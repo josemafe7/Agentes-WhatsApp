@@ -283,6 +283,22 @@ describe("duplicate", () => {
 });
 
 describe("delete [AGE-13]", () => {
+  it("deletes the originals of its context files, except one a duplicated copy still uses [CON-01] [AGE-16]", async () => {
+    const { storage, files } = memoryStorage();
+    const own = "context-files/2026/09/1a1a1a1a-aaaa-4bbb-8ccc-123456789abc.md";
+    const shared = "context-files/2026/09/2b2b2b2b-aaaa-4bbb-8ccc-123456789abc.docx";
+    for (const key of [own, shared]) await storage.put(key, PNG, "text/markdown");
+    const agent = await createAgent(owner, { name: "Recepción" });
+    const copy = await createAgent(owner, { name: "Copia de Recepción" });
+    await db.insert(agentContextFiles).values([
+      { agentId: agent.id, title: "Notas", contentMd: "Notas", tokenCount: 2, sourceFileKey: own },
+      { agentId: agent.id, title: "Tarifas", contentMd: "Tarifas", tokenCount: 2, sourceFileKey: shared },
+      { agentId: copy.id, title: "Tarifas", contentMd: "Tarifas", tokenCount: 2, sourceFileKey: shared },
+    ]);
+    await deleteAgent(owner, agent.id, { storage });
+    expect([...files.keys()]).toEqual([shared]);
+  });
+
   it("is refused while the agent is active in a channel, unless the person confirms; then those channels stay without agent", async () => {
     const agent = await createAgent(owner, { name: "Recepción" });
     const channel = await createChannel({ name: "Web principal", activeAgentId: agent.id });

@@ -1,5 +1,6 @@
 // Which customer messages still wait for a reply: those after the last message the business sent (by the AI or a
-// person; drafts and failed sends do not count, the customer never got them). System reads (no actor).
+// person; drafts and failed sends do not count, the customer never got them). Only the customer's own words count: a
+// channel's notice or a type it cannot show (sender «system», [WA-36], [WA-50]) is never a turn. System reads.
 import "server-only";
 import { and, asc, desc, eq, gt, inArray, max, notInArray } from "drizzle-orm";
 import { db, type Executor } from "@/db";
@@ -23,6 +24,10 @@ export async function lastReplyAt(conversationId: string, executor: Executor = d
   return row?.at ?? null;
 }
 
+/** What the customer wrote in the conversation (never the channel's notices). */
+const customerMessages = (conversationId: string) =>
+  and(eq(messages.conversationId, conversationId), eq(messages.direction, "inbound"), eq(messages.senderType, "contact"));
+
 export type PendingInbound = { id: string; createdAt: Date; simulated: boolean; externalId: string | null };
 
 /** Customer messages after the last reply, oldest first. */
@@ -31,7 +36,7 @@ export async function pendingInbound(conversationId: string, executor: Executor 
   return executor
     .select({ id: messages.id, createdAt: messages.createdAt, simulated: messages.simulated, externalId: messages.externalId })
     .from(messages)
-    .where(and(eq(messages.conversationId, conversationId), eq(messages.direction, "inbound"), ...(since ? [gt(messages.createdAt, since)] : [])))
+    .where(and(customerMessages(conversationId), ...(since ? [gt(messages.createdAt, since)] : [])))
     .orderBy(asc(messages.createdAt), asc(messages.id));
 }
 
@@ -40,7 +45,7 @@ export async function newestInbound(conversationId: string, executor: Executor =
   const [row] = await executor
     .select({ id: messages.id, createdAt: messages.createdAt, simulated: messages.simulated, externalId: messages.externalId })
     .from(messages)
-    .where(and(eq(messages.conversationId, conversationId), eq(messages.direction, "inbound")))
+    .where(customerMessages(conversationId))
     .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(1);
   return row ?? null;

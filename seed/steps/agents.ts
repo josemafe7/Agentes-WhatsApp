@@ -3,12 +3,14 @@
 // - email: the same business knowledge, written as emails (for the demo email channel);
 // - off-hours: prepared for when the business is closed, not active in any channel (spec: «queda preparado»).
 // Models are the defaults of Settings › IA with a fallback of another provider ([MOD-05]); each agent has one or two
-// saved versions with their author and date. Later steps (channels) find them in ctx.refs.agentIds by key.
+// saved versions with their author and date. Later steps (channels, knowledge) find them in ctx.refs.agentIds by key.
+// Every demo agent searches the demo knowledge base in «Automático» ([AGE-07], [HER-01]): the knowledge step gives
+// them the base, and here they get buscar_conocimiento on top of the tools of a new agent.
 import type { AgentConfig } from "@/data/agents";
 import { loadIntegrationSettings } from "@/data/settings";
 import { agents, agentVersions, type AgentHandoffConfig, type DefaultModels } from "@/db/schema";
 import { agentCreateSchema } from "@/lib/agent-input";
-import { DEFAULT_SYSTEM_TOOLS } from "@/lib/agent-tools";
+import { DEFAULT_SYSTEM_TOOLS, type SystemToolName } from "@/lib/agent-tools";
 import type { Role } from "@/lib/enums";
 import { DEFAULT_MODELS, defaultFallbackFor } from "@/lib/openrouter/default-models";
 import { TERMINOLOGY_OPTIONS, type SectorPreset } from "@/lib/sectors";
@@ -34,6 +36,9 @@ export type DemoAgentsInput = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** The tools of a new agent plus the knowledge search: the demo agents have a base to search ([AGE-07], [HER-01]). */
+export const DEMO_AGENT_TOOLS: readonly SystemToolName[] = ["buscar_conocimiento", ...DEFAULT_SYSTEM_TOOLS];
+
 /** Default models of Settings › IA (or the recommended ones), never two of the same provider ([MOD-05]). */
 export function demoAgentModels(defaults: DefaultModels): { model: string; fallbackModel: string } {
   const model = defaults.chat || DEFAULT_MODELS.chat;
@@ -57,7 +62,7 @@ function agentConfig(
     reasoningEffort: null,
     maxOutputTokens: null,
     knowledgeMode: "auto",
-    systemTools: [...DEFAULT_SYSTEM_TOOLS],
+    systemTools: [...DEMO_AGENT_TOOLS],
     ...models,
     ...fields,
   };

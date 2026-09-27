@@ -89,7 +89,8 @@ describe("getDiagnostics [AJU-11]", () => {
       ]),
     );
     expect(webhooks.channels.map((c) => c.type)).not.toContain("webchat");
-    expect(webhooks.unknown).toEqual({ count: 1, lastReceivedAt: older });
+    // [WA-34] Only the time and the number (or account) of the latest one.
+    expect(webhooks.unknown).toEqual({ count: 1, lastReceivedAt: older, lastNumber: "123" });
   });
 
   it("recent errors: the failed AI calls of real conversations, newest first and without secrets [MOT-12] [AJU-11]", async () => {

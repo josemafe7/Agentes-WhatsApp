@@ -25,6 +25,7 @@ import { readWebchatConfig, webchatConfigSchema, type WebchatConfig } from "@/li
 import { isValidFileKey } from "@/server/adapters/file-storage";
 import { defaultCapabilitiesOf } from "@/server/channels/capabilities";
 import type { ChannelCapabilities } from "@/server/channels/types";
+import { requestHealthCheckSoon } from "@/server/channels/whatsapp/schedule";
 import { ConflictError, NotFoundError, parseInput, ValidationError } from "@/server/errors";
 import { writeAudit } from "./audit";
 import { assertCan } from "./guard";
@@ -217,6 +218,11 @@ export async function updateChannel(actor: Actor, channelId: string, input: unkn
   const { enabled, testAllowlist, ...data } = parseInput(channelUpdateSchema, input);
   const status: ChannelStatus | undefined =
     enabled === undefined ? undefined : !enabled ? "disabled" : channel.status !== "disabled" ? channel.status : channel.type === "webchat" || channel.isDemo ? "connected" : "connecting";
+  // A WhatsApp number whose credentials were erased («Desconectar», [WA-28]) is connected again with its wizard.
+  const whatsappNumber = channel.type === "whatsapp" && !channel.isDemo;
+  if (status === "connecting" && whatsappNumber && !channel.secretsEnc) {
+    throw new ConflictError("Este número está desconectado: vuelve a conectarlo con el asistente de WhatsApp.");
+  }
   const values = {
     ...data,
     ...(testAllowlist !== undefined ? { testAllowlist: [...new Set(testAllowlist)] } : {}),
@@ -224,6 +230,8 @@ export async function updateChannel(actor: Actor, channelId: string, input: unkn
   };
   if (Object.keys(values).length === 0) return;
   await db.update(channels).set({ ...values, updatedAt: new Date() }).where(eq(channels.id, channel.id));
+  // Back to «conectado» (or «error») as soon as Meta is checked again ([CAN-15]).
+  if (status === "connecting" && channel.status === "disabled" && whatsappNumber) await requestHealthCheckSoon(channel.id);
   await writeAudit({ actor, action: "channel.updated", targetType: "channel", targetId: channel.id, metadata: { fields: Object.keys(values) } });
 }
 

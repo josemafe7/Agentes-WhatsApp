@@ -37,8 +37,8 @@ export default async function HelpPage() {
         ))}
       </ul>
       <p className="mt-4 max-w-[640px] text-sm text-muted-foreground">
-        Las guías para conectar WhatsApp y el correo, crear agentes, cargar el conocimiento, configurar la agenda y la
-        lista de puesta en marcha llegarán con esas partes de la app.
+        Las guías para conectar el correo, configurar la agenda y la lista de puesta en marcha llegarán con esas partes
+        de la app.
       </p>
     </>
   );

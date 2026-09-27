@@ -109,13 +109,16 @@ async function ingestInbound(channel: ChannelRecord, event: InboundMessageEvent,
 
     const { contactId } = await upsertContactForSender(tx, channel.type, event.sender, now);
     const { conversation, created } = await findOrCreateConversation(tx, channel, contactId, event, now);
+    // What must not be answered (a channel's notice, a type it cannot show) is the system's, never the customer's words:
+    // the Bandeja shows it as a system message and the AI never reads it as a turn ([WA-36], [WA-50], [BAN-05]).
+    const senderType = event.noReply ? "system" : "contact";
     const [message] = await tx
       .insert(messages)
       .values({
         conversationId: conversation.id,
         channelId: channel.id,
         direction: "inbound",
-        senderType: "contact",
+        senderType,
         externalId: event.externalId,
         contentType: event.contentType,
         text: event.text ?? null,
@@ -137,7 +140,9 @@ async function ingestInbound(channel: ChannelRecord, event: InboundMessageEvent,
       .update(conversations)
       .set({
         unreadCount: conversation.unreadCount + 1,
-        lastInboundAt,
+        // What must not be answered (system notices, unsupported types) never opens nor renews WhatsApp's 24 h window
+        // ([WA-43], docs/integracion-whatsapp-mensajes.md §13).
+        ...(event.noReply ? {} : { lastInboundAt }),
         lastMessageAt: now,
         // A resolved conversation reopens and goes back to the AI for this message ([CAN-12], [TRA-08]).
         ...(reopened ? { status: "open" as const, aiMode: "ai" as const, aiPausedUntil: null, pauseReason: null } : {}),
@@ -147,7 +152,7 @@ async function ingestInbound(channel: ChannelRecord, event: InboundMessageEvent,
     await tx.update(channels).set({ lastInboundAt: now, updatedAt: now }).where(eq(channels.id, channel.id));
 
     await publishConversationEvent(
-      { type: "message.created", conversationId: conversation.id, channelId: channel.id, messageId: message.id, direction: "inbound", senderType: "contact" },
+      { type: "message.created", conversationId: conversation.id, channelId: channel.id, messageId: message.id, direction: "inbound", senderType },
       { channelType: channel.type, executor: tx },
     );
     await publishConversationEvent(

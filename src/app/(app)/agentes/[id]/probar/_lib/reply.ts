@@ -24,6 +24,8 @@ export type TestRetrieval = {
   title: string | null;
   section: string | null;
   page: number | null;
+  /** Name of the base the fragment comes from; null when it cannot be named (e.g. deleted meanwhile). */
+  knowledgeBase: string | null;
 };
 
 export type TestReply = {
@@ -51,7 +53,8 @@ function detailText(value: unknown): string {
   return text.length > MAX_DETAIL_CHARS ? `${text.slice(0, MAX_DETAIL_CHARS)}…` : text;
 }
 
-export function toTestReply(result: RunAgentResult, channel: SimulatedChannel): TestReply {
+/** `knowledgeBaseNames`: base id → name, so each fragment shows its source without sending ids to the browser. */
+export function toTestReply(result: RunAgentResult, channel: SimulatedChannel, knowledgeBaseNames: ReadonlyMap<string, string> = new Map()): TestReply {
   return {
     text: result.text,
     channel,
@@ -78,6 +81,13 @@ export function toTestReply(result: RunAgentResult, channel: SimulatedChannel): 
       resultText: detailText(call.result),
     })),
     handedOff: result.handedOff,
-    retrievals: result.retrievals.map(({ rank, score, title, section, page }) => ({ rank, score, title, section, page })),
+    retrievals: result.retrievals.map(({ rank, score, title, section, page, kbId }) => ({
+      rank,
+      score,
+      title,
+      section,
+      page,
+      knowledgeBase: kbId ? (knowledgeBaseNames.get(kbId) ?? null) : null,
+    })),
   };
 }

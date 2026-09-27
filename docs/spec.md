@@ -334,7 +334,7 @@ del sistema. Detalles en `docs/integracion-whatsapp.md` (conexión) y `docs/inte
 - [WA-27] Botones del panel: Revalidar, Cambiar token (el nuevo solo sustituye al anterior si se valida), Pausar
   IA y Desconectar.
 - [WA-28] «Desconectar» borra las credenciales y, si se confirma, también quita la suscripción de la app y da de
-  baja el número en Meta.
+  baja el número en Meta. Para volver a usarlo se conecta otra vez con el asistente, no con «Activar».
 - [WA-29] La app revisa cada número cada 6 horas y con los avisos de cuenta, calidad y nombre que envía Meta; si
   algo empeora, lo muestra en el panel y avisa al propietario y a los administradores.
 - [WA-30] El panel y la guía muestran los límites de Meta:
@@ -355,7 +355,8 @@ del sistema. Detalles en `docs/integracion-whatsapp.md` (conexión) y `docs/inte
 - [WA-34] Un aviso para un número que no es de ningún canal se contesta como recibido y no se guarda su contenido;
   Diagnóstico anota solo la hora y el número.
 - [WA-35] Con la firma correcta, la app guarda el aviso, descarta los mensajes repetidos (Meta reintenta durante
-  días y a veces duplica) y contesta al momento. Acepta avisos de hasta 3 MB.
+  días y a veces duplica) y contesta al momento. Acepta avisos de hasta 3 MB y 1.000 actualizaciones, lo máximo
+  que Meta pone en uno.
 - [WA-36] Se muestran en la bandeja: texto, audio y notas de voz, imagen, documento, vídeo, sticker, ubicación,
   contactos, respuestas a botones y listas, y reacciones. Cualquier otro tipo aparece como mensaje del sistema
   «Tipo de mensaje no admitido».
@@ -409,6 +410,8 @@ del sistema. Detalles en `docs/integracion-whatsapp.md` (conexión) y `docs/inte
   Meta), el panel avisa «Puede que falte el método de pago en Meta», con enlace al Centro de facturación, y
   avisa al propietario y a los administradores. Esa cuenta de mensajes gratis solo sirve para este aviso,
   nunca para el coste ([WA-47]).
+- [WA-52] El panel también permite «Cambiar App Secret» (si Meta lo rota): el nuevo solo sustituye al anterior si
+  la firma de un aviso o la validación con Meta lo confirma, y se guarda cifrado.
 
 ### Correo
 
@@ -565,7 +568,8 @@ Detalles en `docs/integracion-openrouter.md`.
 
 - [MOT-01] Cuando llega un mensaje que la IA debe atender, la respuesta se programa para unos segundos después
   (4–8 s); si llegan más mensajes en ese tiempo, espera de nuevo, hasta 20 s desde el primero, y contesta a todos
-  con una sola respuesta.
+  con una sola respuesta. Los avisos del sistema y los tipos no admitidos ([WA-36], [WA-50]) no son mensajes del
+  cliente: ni retrasan la respuesta ni la IA los lee.
 - [MOT-02] Nunca se preparan dos respuestas a la vez para la misma conversación. Si llega un mensaje nuevo antes
   de enviar la respuesta en preparación, esa respuesta se descarta y se prepara otra que lo incluye.
 - [MOT-03] Antes de responder, la app comprueba que el canal tiene agente activo y la IA encendida, que la
@@ -643,7 +647,8 @@ Detalles en `docs/integracion-openrouter.md`.
 - [HER-08] `transferir_a_humano` hace el traspaso de [TRA-01] con su motivo, resumen y urgencia.
 - [HER-09] Lo que escriben los clientes, sus archivos y las webs son datos, no órdenes: un mensaje que diga
   «ignora tus instrucciones» no cambia las reglas ni da acceso a otros datos.
-- [HER-10] En la fase 1 el agente solo tiene la herramienta de traspaso; las demás llegan con su fase.
+- [HER-10] En la fase 1 el agente solo tiene la herramienta de traspaso; las demás llegan con su fase. Desde la
+  fase 4 se puede encender `buscar_conocimiento`: un agente nuevo la trae apagada y los de la demo, encendida.
 - [HER-11] Herramientas HTTP personalizadas (para n8n, un CRM, etc.): se definen en la pantalla con nombre,
   descripción, parámetros, método, dirección, cabeceras secretas y tiempo máximo.
 - [HER-12] Las cabeceras secretas se guardan cifradas y nunca se muestran enteras; los errores de la herramienta
@@ -1061,17 +1066,27 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
   también se pide con «Hablar con una persona»; tres mensajes seguidos, una sola respuesta; si la IA falla dos
   veces, pasa a una persona y el error sale en Diagnóstico); revisiones de especificación, seguridad y aceptación
   corregidas (lo que queda para decidir, en el informe de cierre).
-- [ ] Fase 3 · WhatsApp: asistente, avisos con firma, recepción y envío, archivos y audios, estados, ventana de
+- [x] Fase 3 · WhatsApp: asistente, avisos con firma, recepción y envío, archivos y audios, estados, ventana de
   24 h y plantillas, varios números, panel y modo pruebas, y las tres páginas legales en versión básica que
   Meta pide para publicar la app ([CUM-08]) — se comprueba: pruebas con avisos realistas de Meta (texto, audio,
   imagen, estado, contacto solo con BSUID, cambio de BSUID, duplicado y firma inválida) contra Meta simulado; el
   simulador recorre el flujo completo en la demo; las páginas legales se ven sin iniciar sesión; la prueba con
   el número de prueba de Meta queda escrita paso a paso en `docs/guia-whatsapp.md` para hacerla cuando la app se
   publique.
-- [ ] Fase 4 · Conocimiento: archivos de contexto y bases, procesado por pasos, búsqueda híbrida, herramienta de
+  Comprobado el 2026-09-27: 2714 pruebas de Vitest y 115 de Playwright en verde, con lint, tipos y compilación
+  (avisos firmados de Meta simulado con texto, nota de voz, imagen, estados con coste, solo BSUID, cambio de BSUID,
+  duplicado y firma falsa; un texto seguido de un tipo no admitido recibe una sola respuesta; páginas legales sin
+  sesión); revisiones de especificación, seguridad y aceptación corregidas (lo pendiente, en el informe de cierre).
+- [x] Fase 4 · Conocimiento: archivos de contexto y bases, procesado por pasos, búsqueda híbrida, herramienta de
   búsqueda, fuentes en la bandeja y demo con embeddings precalculados — se comprueba: un PDF de más de 100 páginas
   responde un dato citando la fuente; si el dato no está, el agente dice que no lo sabe y ofrece una persona; sin
   clave, la búsqueda de la demo funciona por texto.
+  Comprobado el 2026-09-27: 2746 pruebas de Vitest y 116 de Playwright en verde, con lint, tipos y compilación (el
+  PDF de 120 páginas responde el dato de la pág. 112 citando documento y página; lo que no está da «no lo sé» y una
+  persona; sin clave, la demo se busca por palabras; con clave, «autobus» y «¿Cómo llego en autobús?» encuentran la
+  pág. 2 y el agente la cita); revisiones de especificación, seguridad y aceptación corregidas. Falta que el
+  propietario ejecute una vez `pnpm seed:embeddings` con su clave para guardar en el repositorio los embeddings de la
+  demo ([ARR-12]); hasta entonces se calculan en segundo plano al poner la clave.
 - [ ] Fase 5 · Agenda: datos de la agenda, motor de disponibilidad con pruebas exhaustivas (cambios de hora y
   aforo), pantalla, datos por sector, herramientas de citas, confirmaciones y recordatorios — se comprueba: con
   peluquería, el agente ofrece huecos reales y reserva; dos reservas a la vez del último hueco dejan una sola cita;

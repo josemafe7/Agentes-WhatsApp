@@ -74,6 +74,7 @@ export const SETTINGS_PATHS = {
   notificaciones: "/ajustes/notificaciones",
   actividad: "/ajustes/actividad",
   diagnostico: "/ajustes/diagnostico",
+  whatsapp: "/ajustes/whatsapp",
   acerca: "/ajustes/acerca",
 } as const;
 
@@ -84,7 +85,7 @@ export const SETTINGS_PATHS = {
 export const FORBIDDEN_PAGES: Record<RoleKey, readonly string[]> = {
   owner: [],
   admin: [],
-  supervisor: [SECTIONS.canales.href, SETTINGS_PATHS.ia, SETTINGS_PATHS.correo, SETTINGS_PATHS.usuarios, SETTINGS_PATHS.negocio],
+  supervisor: [SECTIONS.canales.href, SETTINGS_PATHS.ia, SETTINGS_PATHS.correo, SETTINGS_PATHS.usuarios, SETTINGS_PATHS.negocio, SETTINGS_PATHS.whatsapp],
   agent: [
     SETTINGS_PATHS.negocio,
     SECTIONS.agentes.href,
@@ -92,6 +93,7 @@ export const FORBIDDEN_PAGES: Record<RoleKey, readonly string[]> = {
     SECTIONS.canales.href,
     SECTIONS.informes.href,
     SETTINGS_PATHS.diagnostico,
+    SETTINGS_PATHS.whatsapp,
   ],
-  viewer: [SETTINGS_PATHS.usuarios, SETTINGS_PATHS.ia, SETTINGS_PATHS.actividad, SETTINGS_PATHS.diagnostico, SETTINGS_PATHS.negocio],
+  viewer: [SETTINGS_PATHS.usuarios, SETTINGS_PATHS.ia, SETTINGS_PATHS.actividad, SETTINGS_PATHS.diagnostico, SETTINGS_PATHS.negocio, SETTINGS_PATHS.whatsapp],
 };

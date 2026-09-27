@@ -7,6 +7,7 @@ import {
   formatRelative,
   isValidTimeZone,
   toSingleLine,
+  trimLineEnds,
 } from "./format";
 
 // Intl uses non-breaking spaces before "%" and "US$": compare with plain spaces.
@@ -138,5 +139,17 @@ describe("text from outside on one line [HER-09]", () => {
 
   it("cuts to the length asked", () => {
     expect(toSingleLine(`Ana María${NL}López`, 9)).toBe("Ana María");
+  });
+});
+
+describe("spaces at line ends", () => {
+  it("go, and only them: spaces and tabs at the end of each line", () => {
+    expect(trimLineEnds("uno  \ndos\t \n  tres\n\ncuatro ")).toBe("uno\ndos\n  tres\n\ncuatro");
+  });
+
+  it("take a time that grows with the text, not faster (text from outside must not block the server)", () => {
+    const started = performance.now();
+    trimLineEnds(`a${" ".repeat(2_000_000)}b`);
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 });

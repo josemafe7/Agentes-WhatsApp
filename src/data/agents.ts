@@ -35,6 +35,7 @@ import { ConflictError, NotFoundError, ValidationError } from "@/server/errors";
 import { safeErrorMessage } from "@/server/redact";
 import { writeAudit } from "./audit";
 import { detectLogoFormat, MAX_LOGO_BYTES } from "./business";
+import { deleteUnusedContextOriginals } from "./knowledge-context-files";
 import { assertCan } from "./guard";
 import { loadBusinessSettings } from "./settings";
 
@@ -447,6 +448,7 @@ export async function deleteAgent(
 ): Promise<{ detachedChannelIds: string[] }> {
   assertCan(actor, PERMISSIONS.agents.manage);
   const agent = await loadAgent(db, agentId);
+  const contextOriginals = await db.select({ key: agentContextFiles.sourceFileKey }).from(agentContextFiles).where(eq(agentContextFiles.agentId, agent.id));
   const detached = await db.transaction(async (tx) => {
     const activeIn = await tx.select({ id: channels.id, name: channels.name }).from(channels).where(eq(channels.activeAgentId, agent.id));
     if (activeIn.length > 0 && !options.confirmActiveChannels) {
@@ -470,7 +472,10 @@ export async function deleteAgent(
     );
     return activeIn.map((channel) => channel.id);
   });
-  if (agent.avatarFileKey) await deleteQuietly(options.storage ?? getFileStorage(), agent.avatarFileKey);
+  const storage = options.storage ?? getFileStorage();
+  if (agent.avatarFileKey) await deleteQuietly(storage, agent.avatarFileKey);
+  // Originals of its context files, unless a duplicated copy still uses them.
+  await deleteUnusedContextOriginals(contextOriginals.map((row) => row.key), storage);
   return { detachedChannelIds: detached };
 }
 

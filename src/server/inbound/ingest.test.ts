@@ -230,6 +230,24 @@ describe("grouping of the reply [MOT-01]", () => {
     expect(result.replyRunAt).toBeNull();
     expect(await pendingReplyJobs()).toHaveLength(0);
   });
+
+  it("messages that must not be answered (system, unsupported) never open nor renew the 24 h window [WA-43]", async () => {
+    // docs/integracion-whatsapp-mensajes.md §13: `system` and `unsupported` do not count for last_inbound_at.
+    const first = await ingestEvents(channel, [inbound({ sender: { externalIds: ["visitor-2"] }, noReply: true, contentType: "unsupported", text: "Tipo de mensaje no admitido" })], {
+      now: T0,
+    });
+    let [conversation] = await db.select().from(conversations).where(eq(conversations.id, first.messages[0].conversationId ?? ""));
+    expect(conversation.lastInboundAt).toBeNull();
+
+    await ingestEvents(channel, [inbound({ sender: { externalIds: ["visitor-2"] } })], { now: T0 });
+    const later = new Date(T0.getTime() + 60 * 60_000);
+    await ingestEvents(channel, [inbound({ sender: { externalIds: ["visitor-2"] }, noReply: true, contentType: "system", text: "El cliente ha cambiado de número", sentAt: later })], {
+      now: later,
+    });
+    [conversation] = await db.select().from(conversations).where(eq(conversations.id, conversation.id));
+    expect(conversation.lastInboundAt).toEqual(T0);
+    expect(conversation.unreadCount).toBe(3);
+  });
 });
 
 describe("reactions and statuses [WA-37] [WA-38]", () => {

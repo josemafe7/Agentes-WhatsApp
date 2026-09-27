@@ -1,4 +1,4 @@
-import { BookOpen, CircleCheck, CircleX, Wrench } from "lucide-react";
+import { BookOpen, CircleCheck, CircleX, Library, Wrench } from "lucide-react";
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrencyUSD, formatNumber } from "@/lib/format";
@@ -69,21 +69,38 @@ function ToolCallItem({ call }: { call: TestToolCall }) {
   );
 }
 
-function retrievalSource(retrieval: TestRetrieval): string {
-  const parts = [retrieval.title ?? "Sin título", retrieval.section, retrieval.page !== null ? `pág. ${retrieval.page}` : null];
-  return parts.filter((part): part is string => Boolean(part)).join(" · ");
+/** «Cortes · pág. 3», or null when the fragment has neither. A FAQ's section is its question, its title too: not repeated. */
+function retrievalPlace(retrieval: TestRetrieval): string | null {
+  const section = retrieval.section !== retrieval.title ? retrieval.section : null;
+  const parts = [section, retrieval.page !== null ? `pág. ${retrieval.page}` : null].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
+/** One fragment with its source (document, section, page and base) and its score ([PRU-02]). */
 function RetrievalItem({ retrieval }: { retrieval: TestRetrieval }) {
+  const place = retrievalPlace(retrieval);
   return (
-    <li className="flex items-start justify-between gap-3 py-1">
-      <span className="min-w-0">
-        <span className="mr-1 text-muted-foreground tabular-nums">{retrieval.rank}.</span>
-        {retrievalSource(retrieval)}
+    <li className="flex items-start gap-3 py-2">
+      <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium tabular-nums">
+        {retrieval.rank}
       </span>
-      <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
-        {retrieval.score !== null ? formatNumber(retrieval.score, { maximumFractionDigits: 3 }) : "—"}
-      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="flex items-start justify-between gap-3">
+          <span className="min-w-0 font-medium break-words">
+            <span className="sr-only">Fragmento {retrieval.rank}: </span>
+            {retrieval.title ?? "Sin título"}
+          </span>
+          <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
+            <span className="sr-only">Puntuación </span>
+            {retrieval.score !== null ? formatNumber(retrieval.score, { maximumSignificantDigits: 2 }) : "—"}
+          </span>
+        </div>
+        {place ? <span className="text-xs text-muted-foreground">{place}</span> : null}
+        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <Library aria-hidden className="size-3 shrink-0" />
+          {retrieval.knowledgeBase ? `Base «${retrieval.knowledgeBase}»` : "Base de conocimiento borrada"}
+        </span>
+      </div>
     </li>
   );
 }
@@ -148,11 +165,14 @@ export function ReplyDetails({ reply }: { reply: TestReply }) {
 
       <Block title="Fragmentos de conocimiento">
         {reply.retrievals.length > 0 ? (
-          <ul className="divide-y">
-            {reply.retrievals.map((retrieval) => (
-              <RetrievalItem key={retrieval.rank} retrieval={retrieval} />
-            ))}
-          </ul>
+          <>
+            <ol className="divide-y">
+              {reply.retrievals.map((retrieval) => (
+                <RetrievalItem key={retrieval.rank} retrieval={retrieval} />
+              ))}
+            </ol>
+            <p className="text-xs text-muted-foreground">Del más al menos relevante. La cifra de la derecha es su puntuación: cuanto más alta, más se parece a lo preguntado.</p>
+          </>
         ) : (
           <p className="flex items-center gap-2 text-muted-foreground">
             <BookOpen aria-hidden className="size-4 shrink-0" />

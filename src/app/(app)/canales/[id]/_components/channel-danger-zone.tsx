@@ -1,6 +1,7 @@
 "use client";
 
-import { Power, PowerOff, Trash2 } from "lucide-react";
+import { Plug, Power, PowerOff, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
@@ -8,13 +9,19 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { deleteChannelAction, setChannelEnabledAction } from "../../actions";
 
-type ChannelDangerZoneProps = { channelId: string; channelName: string; enabled: boolean };
+type ChannelDangerZoneProps = {
+  channelId: string;
+  channelName: string;
+  enabled: boolean;
+  /** A disconnected WhatsApp number is connected again with its wizard instead of «Activar» ([WA-28]). */
+  reconnectHref?: string | null;
+};
 
 /**
  * Desactivar / Activar and Borrar ([CAN-16]): a disabled channel neither answers nor sends and keeps its history; only a
  * channel without conversations can be deleted, confirming by typing its name (DESIGN.md «Diálogos y confirmaciones»).
  */
-export function ChannelDangerZone({ channelId, channelName, enabled }: ChannelDangerZoneProps) {
+export function ChannelDangerZone({ channelId, channelName, enabled, reconnectHref = null }: ChannelDangerZoneProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
@@ -59,6 +66,13 @@ export function ChannelDangerZone({ channelId, channelName, enabled }: ChannelDa
             destructive
             onConfirm={() => setEnabled(false)}
           />
+        ) : reconnectHref ? (
+          <Button asChild variant="outline">
+            <Link href={reconnectHref}>
+              <Plug aria-hidden />
+              Volver a conectar
+            </Link>
+          </Button>
         ) : (
           <Button type="button" variant="outline" disabled={pending} onClick={() => startTransition(() => setEnabled(true))}>
             <Power aria-hidden />

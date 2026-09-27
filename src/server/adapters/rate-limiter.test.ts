@@ -35,6 +35,20 @@ describe("RateLimiter [SEG-07] [USU-13]", () => {
     expect(results.filter((r) => r.allowed)).toHaveLength(5);
   });
 
+  it("isLimited says whether a key already used its limit, without counting a request", async () => {
+    const key = "rejected:ip:5.6.7.8";
+    expect(await limiter.isLimited(key, 2, MINUTE)).toBe(false);
+    await limiter.hit(key, 2, MINUTE);
+    expect(await limiter.isLimited(key, 2, MINUTE)).toBe(false);
+    await limiter.hit(key, 2, MINUTE);
+    expect(await limiter.isLimited(key, 2, MINUTE)).toBe(true);
+    expect(await limiter.isLimited(key, 2, MINUTE)).toBe(true);
+    // Asking does not count: the next hit is the third one.
+    expect((await limiter.hit(key, 3, MINUTE)).remaining).toBe(0);
+    nowMs += MINUTE;
+    expect(await limiter.isLimited(key, 2, MINUTE)).toBe(false);
+  });
+
   it("reset forgets a key and deleteBefore removes old windows", async () => {
     await limiter.hit("r", 1, MINUTE);
     await limiter.reset("r");

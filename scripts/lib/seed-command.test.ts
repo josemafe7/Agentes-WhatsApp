@@ -76,7 +76,8 @@ describe("pnpm seed", () => {
     expect(settings).toMatchObject({ name: "Peluquería Aurora", sector: "peluqueria", timezone: "Europe/Madrid" });
     expect(settings.setupCompletedAt).not.toBeNull();
     expect(settings.aiDisclosureText).toContain("inteligencia artificial");
-    expect(settings.privacyText).toBeTruthy();
+    // [CUM-08] The example privacy text says how long conversations are kept: the demo's own retention.
+    expect(settings.privacyText).toContain(`${DEFAULT_RETENTION.conversationsMonths} meses`);
     expect(settings.termsText).toBeTruthy();
     expect(settings.dataDeletionText).toBeTruthy();
     expect(settings.retention).toEqual(DEFAULT_RETENTION);

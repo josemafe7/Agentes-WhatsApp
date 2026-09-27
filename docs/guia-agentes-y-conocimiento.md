@@ -1,8 +1,8 @@
 # Crear agentes y darles el conocimiento del negocio
 
-Esta guía explica cómo crear un agente de IA que atienda a tus clientes, cómo ajustarlo, cómo probarlo y cómo
-ponerlo a responder en un canal. La parte de conocimiento (documentos, webs y preguntas frecuentes) se completará
-cuando esa sección de la app esté lista.
+Esta guía explica cómo crear un agente de IA que atienda a tus clientes, cómo ajustarlo, cómo probarlo, cómo
+ponerlo a responder en un canal y cómo darle el conocimiento del negocio (documentos, páginas web y preguntas
+frecuentes) para que responda con tus datos y diga de dónde los saca.
 
 ## Antes de empezar
 
@@ -12,7 +12,9 @@ cuando esa sección de la app esté lista.
 - **Revisa la privacidad de tu cuenta de OpenRouter** antes de usar datos reales: que los proveedores no
   guarden ni entrenen con lo que se les envía. La app, además, lo pide en cada mensaje.
 - **Quién puede hacer qué:** el propietario y los administradores crean, editan, borran y prueban agentes; el
-  supervisor los ve y los prueba; «Solo lectura» solo los ve; el rol Agente no entra en esta sección.
+  supervisor los ve y los prueba; «Solo lectura» solo los ve; el rol Agente no entra en esta sección. En
+  **Conocimiento**, el propietario, los administradores y el supervisor crean bases, añaden y borran documentos y
+  usan «Probar búsqueda»; «Solo lectura» lo ve sin cambiar nada; el rol Agente no entra.
 
 [Captura: la lista de Agentes con la tarjeta de cada agente, su modelo y sus canales]
 
@@ -50,10 +52,10 @@ ejemplo, el nombre vacío), no se guarda y el error aparece junto al campo.
   que admiten herramientas, con su precio por millón de tokens en dólares, su contexto y si aceptan imagen, PDF
   o audio. El de respaldo tiene que ser de otro proveedor. También puedes ajustar la temperatura (si el modelo lo
   permite), el razonamiento (bajo por defecto, para que responda rápido) y la longitud máxima de la respuesta.
-- **Conocimiento:** «Automático» (busca en el conocimiento cuando lo necesita) o «Buscar siempre» (busca antes
-  de cada respuesta).
-- **Herramientas:** de momento el agente solo tiene «Pasar a una persona», siempre activa. Las demás (agenda,
-  conocimiento, datos del contacto) aparecen como «Próximamente».
+- **Conocimiento:** sus archivos de contexto, las bases de conocimiento que usa y cuándo busca en ellas:
+  «Automático» (busca cuando lo necesita) o «Buscar siempre» (busca antes de cada respuesta). Ver el apartado 7.
+- **Herramientas:** «Pasar a una persona», siempre activa, y «Buscar en el conocimiento», que se enciende aquí (un
+  agente nuevo la tiene apagada). Las demás (agenda, datos del contacto) aparecen como «Próximamente».
 - **Traspaso:** cuándo pasa la conversación a una persona (palabras clave, temas sensibles y número de «no lo
   sé»), el mensaje que recibe el cliente dentro y fuera de horario, y a quién avisar.
 - **Canales:** en qué canales responde este agente, con el interruptor «Activo aquí». Si el canal ya tenía otro
@@ -88,7 +90,8 @@ Nada sale por los canales reales y estas conversaciones no aparecen en la Bandej
   (breve en WhatsApp y en el chat web, con saludo y firma en el correo).
 - Debajo de cada respuesta ves los **tokens, el coste en dólares y el tiempo**. **«Ver detalles»** enseña el
   modelo que respondió (y si fue el de respaldo), los tokens por tipo, las herramientas que usó con sus datos y
-  su resultado, y los fragmentos de conocimiento.
+  su resultado, y los **fragmentos de conocimiento** que leyó: su número, título, sección y página, su puntuación
+  y la base de la que salen.
 - Si pides «hablar con una persona», verás el **traspaso simulado** con el mensaje que recibiría el cliente.
 - **«Empezar de nuevo»** borra la conversación de prueba.
 - Sin clave de OpenRouter no se puede enviar: el aviso explica cómo añadirla.
@@ -155,12 +158,120 @@ responder» o si el cliente se ha dado de baja.
 
 ## 7. El conocimiento del negocio
 
-El conocimiento (documentos, páginas web y preguntas frecuentes que el agente consulta para responder) llega
-en una próxima versión de la app, y esta guía se completará entonces con cómo cargarlo.
+El agente ya sabe lo que pones en Ajustes (datos del negocio, horario y servicios). El conocimiento es todo lo
+demás que quieres que consulte: tarifas, normas, la carta, preguntas frecuentes, tu web… Hay dos formas de
+dárselo:
 
-Desde ya, una norma importante: **no subas datos de clientes** (listas de contactos, historiales, facturas…) al
-conocimiento ni a las instrucciones. El agente solo necesita información del negocio: servicios, políticas,
-preguntas frecuentes y cómo trabajáis.
+- **Archivos de contexto** (pestaña Conocimiento del agente): textos cortos que el agente lee **enteros en cada
+  mensaje**. Sirven para lo imprescindible y breve, como una hoja de tarifas.
+- **Bases de conocimiento** (sección **Conocimiento** del menú): documentos largos o numerosos. El agente no los lee
+  enteros: **busca** los trozos que necesita para cada pregunta y cita de dónde salen. Una misma base sirve para
+  varios agentes.
+
+**Una norma importante: no subas datos de clientes** (listas de contactos, historiales, facturas…) al conocimiento
+ni a las instrucciones. El agente solo necesita información del negocio: servicios, políticas, preguntas
+frecuentes y cómo trabajáis.
+
+### Archivos de contexto
+
+En el agente, pestaña **Conocimiento** › «Archivos de contexto»:
+
+1. **«Subir archivo»** (PDF, Word `.docx`, TXT o Markdown, hasta 3,5 MB) o **«Pegar texto»** (un título y el
+   texto). La app lo convierte en texto que puedes **editar** después pulsando su título.
+2. La barra enseña cuántos **tokens** (trozos de palabra con los que la IA mide el texto) suman los archivos del
+   agente. El tope es **30.000**: por encima no se guarda. Desde 20.000 la app avisa de lo que cuesta de más cada
+   mensaje, porque todo ese texto va en cada respuesta.
+3. Si un archivo es largo, su menú tiene **«Pasar a una base de conocimiento»**: lo mueve a una base (una que ya
+   exista o una nueva), hace que el agente use esa base y solo entonces lo quita de los archivos de contexto.
+
+[Captura: la pestaña Conocimiento del agente con la barra de tokens y los archivos de contexto]
+
+### Crear una base y añadirle contenido
+
+1. Entra en **Conocimiento** y pulsa **«Nueva base»**. Ponle un nombre (por ejemplo, «Información del negocio») y,
+   si quieres, una descripción que solo ve tu equipo.
+2. En la base, pulsa **«Añadir contenido»**:
+   - **Archivos:** PDF, Word (`.docx`), Excel (`.xlsx`), CSV, TXT o Markdown, de hasta 25 MB cada uno. Puedes
+     elegir o arrastrar varios a la vez y cada uno dice cómo ha ido. Los formatos antiguos `.xls` y `.doc` no se
+     admiten: guárdalos como `.xlsx`, `.csv` o `.docx`. Un archivo idéntico a otro que ya está en la base se
+     rechaza con «Este archivo ya está en la base».
+   - **Página web:** la dirección de una página pública de tu web (se guarda su texto, sin menús ni pies). Marca
+     «Añadir también las páginas de su mapa del sitio» para traer hasta 50 páginas de tu web de una vez, y «Volver
+     a leerla de vez en cuando» (cada día, semana o mes) si cambia a menudo: si ha cambiado, se procesa de nuevo;
+     si no, se deja como está.
+   - **Pregunta frecuente:** una pregunta y su respuesta. También están en la pestaña **«Preguntas frecuentes»**,
+     donde se editan y se borran.
+3. Cada documento pasa por sus pasos en segundo plano y la lista se actualiza sola: **En cola → Extrayendo →
+   Troceando → Embeddings → Listo**. Si algo falla verás **Error** con el motivo y el botón **«Reintentar»**.
+   - **«Listo (solo texto)»:** ya se encuentra buscando por palabras, pero le falta la búsqueda por significado
+     porque no hay clave de OpenRouter. Se completa sola cuando la pones en Ajustes › IA (o, si la pones en
+     `.env.local`, al reiniciar la app).
+   - **PDF escaneado** (una foto de papel, sin texto): para leerlo hace falta la clave de **Mistral OCR** en Ajustes ›
+     IA. Sin ella queda en error con el aviso «PDF escaneado: añade la clave de Mistral OCR…». Con la clave, pulsa
+     «Reintentar».
+   - Las hojas de cálculo se trocean en bloques de unas 20 filas, cada uno con la fila de cabecera, para que cada
+     trozo se entienda solo. Los PDF guardan su número de página, que el agente cita.
+4. Pulsa el título de un documento para ver su resumen y sus **fragmentos** (los trozos en que se ha partido, con
+   su sección y su página). Desde su menú puedes **Reprocesar** un archivo, **Refrescar** una página web o
+   **Borrar** el documento (se borran su archivo y sus fragmentos).
+
+[Captura: una base con documentos en distintos estados y el diálogo «Añadir contenido»]
+
+### Probar la búsqueda
+
+En la base, la pestaña **«Probar búsqueda»** busca como lo hará el agente, sin gastar en el modelo de chat:
+escribe una pregunta y verás los fragmentos numerados que encontraría (título, sección y página), con su
+puntuación, o **«Nada relevante»** si no hay nada que responda a eso (entonces el agente diría que no lo sabe). No
+distingue mayúsculas ni tildes: «depilacion» encuentra «depilación». Si la búsqueda ha ido solo por palabras (sin
+clave, o con documentos sin embeddings todavía), lo dice.
+
+[Captura: «Probar búsqueda» con los resultados numerados y sus puntuaciones]
+
+### Que un agente use la base
+
+1. En el agente, pestaña **Conocimiento** › «Bases de conocimiento», enciende **«Usar»** en cada base que deba
+   consultar. Solo busca en las que tenga encendidas.
+2. En «Cuándo busca en el conocimiento» elige:
+   - **Automático:** el agente busca cuando lo necesita. Para eso tiene que tener encendida **«Buscar en el
+     conocimiento»** en la pestaña **Herramientas**; si no, la pestaña Conocimiento te avisa con un enlace.
+   - **Buscar siempre:** busca antes de cada respuesta con lo que ha escrito el cliente. Gasta un poco más, pero
+     nunca se le olvida mirar.
+3. Guarda y pruébalo en **Probar**: en «Ver detalles» verás qué fragmentos leyó.
+
+Cuando responde con algo del conocimiento, el agente dice de dónde lo ha sacado (el documento y, si la tiene, la
+página). **Si la respuesta no está en sus bases, dice que no lo sabe y ofrece pasar con una persona**; esas
+respuestas cuentan para el número de «no lo sé» de la pestaña Traspaso.
+
+Los agentes de la demo ya usan la base «Información del negocio» en modo «Automático».
+
+### En la bandeja: de dónde sale cada respuesta
+
+- **«Ver fuentes»**, bajo una respuesta de la IA, abre **«¿Por qué respondió esto?»**: los fragmentos que usó, del
+  más al menos relevante, con su puntuación, sección, página y base, «Abrir el documento» y las herramientas que
+  usó. Lo ven todos los que pueden ver esa conversación.
+- **«Convertir en FAQ»**, bajo una respuesta de una persona de tu equipo, crea una pregunta frecuente con la
+  pregunta del cliente y esa respuesta. Puedes editar las dos (quita cualquier dato personal) y elegir la base
+  antes de pulsar «Guardar FAQ». Lo pueden hacer el propietario, los administradores y el supervisor.
+
+[Captura: el panel «¿Por qué respondió esto?» con sus fragmentos]
+
+### Modelo de embeddings y reindexar
+
+Un **embedding** es la versión en números de un trozo de texto que permite buscar por significado y no solo por
+palabras. Cada base guarda el modelo con que los calculó (por defecto `openai/text-embedding-3-small`).
+
+- En la pestaña **Ajustes** de una base puedes cambiar su nombre y descripción, **cambiar el modelo** (la app lo
+  prueba antes: tiene que dar vectores de 1536 números), **«Reindexar»** (volver a procesarla entera) y **«Borrar
+  base»** escribiendo su nombre.
+- En **Ajustes › IA**, cambiar el modelo de embeddings por defecto pide confirmación y, al guardar, **todas las
+  bases se vuelven a procesar** con el nuevo.
+- Mientras una base se reprocesa, los agentes siguen buscando con el índice anterior hasta que el nuevo está
+  completo: no hay un momento en que se queden sin conocimiento. Si editas un documento mientras tanto, el índice
+  nuevo ya lleva el texto nuevo.
+- **«Reordenar resultados»** (Ajustes › IA, desactivado por defecto): un modelo más revisa los fragmentos que
+  encuentra la búsqueda y se queda con los 6 más útiles. Mejora las respuestas y cada búsqueda cuesta un poco más.
+  Con «Sin retención de datos» solo se puede usar `qwen/qwen3-reranker-8b`; con otro modelo, la pantalla lo avisa y
+  no se reordena.
 
 ## Problemas frecuentes
 
@@ -177,3 +288,13 @@ preguntas frecuentes y cómo trabajáis.
   principal es de OpenAI, uno de Google o Anthropic).
 - **Un aviso dice que un modelo se retira o ya no está en la lista:** cambia el modelo del agente en su pestaña
   Modelo antes de esa fecha.
+- **El agente no usa el conocimiento:** mira en su pestaña Conocimiento que la base tenga «Usar» encendido y, en modo
+  «Automático», que «Buscar en el conocimiento» esté encendida en Herramientas. Comprueba con «Probar búsqueda» que
+  la base encuentra la respuesta con las palabras del cliente.
+- **Un documento se queda en «Listo (solo texto)»:** falta la clave de OpenRouter; al guardarla en Ajustes › IA se
+  calculan los embeddings que faltan. Si la pusiste en `.env.local`, se calculan al reiniciar la app.
+- **Un documento acaba en «Error»:** el motivo sale en la lista. Un PDF escaneado necesita la clave de Mistral OCR;
+  un archivo protegido con contraseña o dañado hay que volver a guardarlo; después, «Reintentar».
+- **«Este archivo ya está en la base»:** ese mismo archivo ya se subió. Si lo has cambiado, bórralo y sube el nuevo.
+- **Un archivo de contexto no se guarda:** los archivos de contexto del agente no pueden pasar de 30.000 tokens en
+  total. Pasa el más largo a una base de conocimiento.

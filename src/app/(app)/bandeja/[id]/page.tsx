@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { NoPermission } from "@/components/no-permission";
+import { getWhatsAppInboxState } from "@/data/whatsapp-send";
 import { can, PERMISSIONS } from "@/lib/permissions";
 import { requirePageActor } from "@/server/session";
 import { Composer } from "../_components/composer";
@@ -10,6 +11,8 @@ import { ConversationLive } from "../_components/conversation-live";
 import { HandoffNotice } from "../_components/handoff-notice";
 import { MessageTimeline } from "../_components/message-timeline";
 import { loadConversationScreen } from "./_lib/load";
+import { canConvertToFaq } from "./_sources/permissions";
+import { WindowNotice } from "./_whatsapp/window-notice";
 
 export const metadata: Metadata = { title: "Conversación" };
 
@@ -31,6 +34,8 @@ export default async function ConversationPage({ params }: PageProps) {
   }
 
   const { conversation, permissions, timezone, now } = screen;
+  // WhatsApp: the 24 h window (also closed after Meta's 131047) and the approved templates ([BAN-08], [WA-43]).
+  const whatsapp = conversation.channel.type === "whatsapp" ? await getWhatsAppInboxState(actor, conversation.id, { now }) : null;
   return (
     <ContactPanelProvider>
       <div className="flex min-h-0 flex-1">
@@ -62,12 +67,25 @@ export default async function ConversationPage({ params }: PageProps) {
             canRetry={permissions.reply}
             canReviewDrafts={permissions.drafts}
             canOpenDocuments={permissions.viewKnowledge}
+            canConvertFaq={canConvertToFaq(actor, conversation.channel.id)}
           />
           <Composer
             key={`composer-${conversation.id}`}
             conversationId={conversation.id}
             channelDisabled={conversation.channel.status === "disabled"}
-            window={conversation.window}
+            window={whatsapp?.window ?? conversation.window}
+            whatsapp={
+              whatsapp ? (
+                <WindowNotice
+                  conversationId={conversation.id}
+                  state={whatsapp}
+                  canReply={permissions.reply}
+                  channelDisabled={conversation.channel.status === "disabled"}
+                  timezone={timezone}
+                  initialNow={now}
+                />
+              ) : null
+            }
             ai={{ aiMode: conversation.aiMode, aiPausedUntil: conversation.aiPausedUntil }}
             aiPauseHours={screen.aiPauseHours}
             timezone={timezone}

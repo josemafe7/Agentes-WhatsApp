@@ -109,6 +109,22 @@ export function toSingleLine(value: string, maxLength?: number): string {
   return maxLength !== undefined && flat.length > maxLength ? flat.slice(0, maxLength).trimEnd() : flat;
 }
 
+/**
+ * The text with the spaces and tabs at the end of each line removed. A loop, not `/[ \t]+\n/g`: that pattern starts
+ * again at every space of a long run and its time grows with the square of the run, so a file or web page (text from
+ * outside) could block the server with a few megabytes of spaces.
+ */
+export function trimLineEnds(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => {
+      let end = line.length;
+      while (end > 0 && (line[end - 1] === " " || line[end - 1] === "\t")) end -= 1;
+      return end === line.length ? line : line.slice(0, end);
+    })
+    .join("\n");
+}
+
 /** Amount in US dollars («12,34 US$»); amounts below one cent keep two significant digits («0,0023 US$»). */
 export function formatCurrencyUSD(amount: number): string {
   if (!Number.isFinite(amount)) return "";

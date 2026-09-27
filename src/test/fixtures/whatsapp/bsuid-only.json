@@ -1,0 +1,40 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000001",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15550001111",
+              "phone_number_id": "200000000000002"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Lucía Test",
+                  "username": "lucia_prueba"
+                },
+                "user_id": "ES.20000000000000000002"
+              }
+            ],
+            "messages": [
+              {
+                "from_user_id": "ES.20000000000000000002",
+                "id": "wamid.TEST_IN_BSUID_0001",
+                "timestamp": "1790417100",
+                "type": "text",
+                "text": {
+                  "body": "Buenas, ¿cuánto cuesta un tinte?"
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

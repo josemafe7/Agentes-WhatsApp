@@ -321,6 +321,14 @@ describe("the conversation's screen [BAN-08] [TRA-07]", () => {
     const detail = await getConversation(users.owner.actor, conversation.id);
     expect(detail.window?.open).toBe(false);
     expect(detail.channel.capabilities.templates).toBe(true);
+    // Meta closed it (131047) although our count said «open»: Meta wins until the customer writes again ([WA-43]).
+    await db
+      .update(conversations)
+      .set({ lastInboundAt: new Date(Date.now() - 3_600_000), metadata: { whatsappWindowClosedAt: new Date(Date.now() - 60_000).toISOString() } })
+      .where(eq(conversations.id, conversation.id));
+    expect((await getConversation(users.owner.actor, conversation.id)).window?.open).toBe(false);
+    await db.update(conversations).set({ metadata: {} }).where(eq(conversations.id, conversation.id));
+    expect((await getConversation(users.owner.actor, conversation.id)).window?.open).toBe(true);
     await db.delete(conversations).where(eq(conversations.id, conversation.id));
     await db.delete(channelMembers).where(eq(channelMembers.channelId, wa.id));
     await db.delete(channels).where(eq(channels.id, wa.id));

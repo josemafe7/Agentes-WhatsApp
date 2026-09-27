@@ -68,7 +68,12 @@ Lo propio de cada tipo:
   no). También los intentos de registro con su hora ([WA-18]), la fecha de aprobación de un cambio de nombre
   ([WA-20]) y si la persona confirmó el método de pago ([WA-21]). Secretos: `access_token`, `app_secret` y
   `two_step_pin`. `phone_number_id` y `waba_id` van en columnas con índice, porque el aviso de Meta busca el
-  canal por ellos ([WA-33]); `phone_number_id` no se repite entre canales ([WA-11]).
+  canal por ellos ([WA-33]); `phone_number_id` no se repite entre canales ([WA-11]). En `config` (fase 3,
+  `src/server/channels/whatsapp/config.ts`): `appLiveConfirmed` (la persona confirmó la app publicada, [WA-21]),
+  `lastPaymentErrorAt` y `serviceFailedAfterFreeAt` (cuándo se avisó «Puede que falte el método de pago»), y
+  `freeServiceDelivered` (`month` y `count`: mensajes de servicio que Meta marcó gratis ese mes; solo para ese aviso,
+  nunca para el coste, [WA-51]). El token de verificación de los avisos es de la instalación: va cifrado en
+  `integration_settings.whatsapp_verify_token_enc`, con `whatsapp_verified_at` ([WA-12], [WA-31]).
 - **Correo.** En `config`, lo de `docs/integracion-correo.md` §6 (dirección, punto de sincronización de cada
   proveedor, carpetas, permisos concedidos), la fecha de caducidad del secreto de cliente de Outlook
   ([COR-07]), los topes diarios ([COR-17]) y la firma ([COR-21]). Secretos: secreto de cliente, tokens de
@@ -77,8 +82,9 @@ Lo propio de cada tipo:
   `legalText`, `allowedDomains` y si admite voz e imágenes (`voiceEnabled`, `imagesEnabled`) ([WEB-02], [WEB-07],
   [WEB-10]). El logo solo se cambia subiendo un archivo (clave bajo `webchat-logos/`). Sin secretos: los tokens de
   los visitantes se firman con una clave derivada de `APP_ENCRYPTION_KEY` y no se guardan.
-- **Común.** `config.handoffOnSendFailure` (opcional, sin pantalla todavía): si la respuesta de la IA no se puede
-  enviar, la conversación pasa a una persona en vez de solo avisar.
+- **Común.** `config.handoffOnSendFailure` (en WhatsApp, el interruptor «Traspasar a una persona si un envío falla»
+  del panel): si la respuesta de la IA no se puede enviar, la conversación pasa a una persona en vez de solo avisar
+  ([WA-46]).
 - **Telegram** (después de la v1). Secretos: token del bot y secreto de los avisos ([TG-01], [TG-02]).
 
 `whatsapp_templates` guarda las plantillas sincronizadas de cada número: nombre, idioma, categoría, estado,
@@ -91,14 +97,29 @@ variables y el id de Meta. Único por canal + nombre + idioma. Sirve a [WA-22], 
 |---|---|---|
 | `agents` | Nombre, descripción, avatar, idioma, tono, instrucciones guiadas (rol, negocio, qué puede y qué no, estilo, cuándo pasar a una persona y «Otras instrucciones»), número de la versión actual, modelo y respaldo, temperatura, razonamiento, longitud máxima, modo de conocimiento (`auto` o `always`), configuración de traspaso (palabras clave, número de «no lo sé», temas sensibles, mensajes dentro y fuera de horario, a quién avisar) y herramientas del sistema activas. | [AGE-03]–[AGE-09], [MOD-05], [MOD-07] |
 | `agent_versions` | Copia completa del agente en cada guardado, con número de versión, autor y fecha. Único agente + número. Recuperar una crea otra nueva. | [AGE-12] |
-| `agent_context_files` | Archivos de contexto del nivel 1: título, Markdown editable, tamaño en tokens y archivo de origen. | [CON-01], [CON-02] |
+| `agent_context_files` | Archivos de contexto del nivel 1: título, Markdown editable, tamaño en tokens y archivo de origen (clave `context-files/…` en el almacén de archivos). | [CON-01], [CON-02] |
 | `custom_tools` | Herramientas HTTP: nombre (único), descripción, parámetros, método, URL, tiempo máximo y cabeceras secretas cifradas. | [HER-11]–[HER-14] |
 | `agent_custom_tools` | Qué herramientas HTTP usa cada agente. Único agente + herramienta. | [AGE-08] |
 | `knowledge_bases` | Nombre, descripción, modelo y dimensiones de los embeddings (1536) y versión del índice en uso y en construcción. | [CON-03], [CON-11], [CON-13], [AJU-05] |
 | `agent_knowledge_bases` | Qué bases usa cada agente. Único agente + base. | [CON-03] |
 | `kb_documents` | Documento de una base: tipo (archivo, página web o pregunta frecuente), título, origen (archivo, URL o sitemap), estado `queued`, `extracting`, `chunking`, `embedding`, `ready` o `error` con su motivo, huella del contenido (no se repite dentro de la base), páginas, resumen, fecha de lectura y refresco de las URL. | [CON-04]–[CON-09], [CON-14], [CON-15], [CON-22] |
 | `kb_chunks` | Fragmentos: documento, base, versión del índice, título, sección, página, texto, tokens y embedding (`F32_BLOB(1536)`, vacío hasta que hay clave). Su tabla FTS5 y su índice vectorial están en `docs/busqueda-hibrida.md`. | [CON-10]–[CON-13], [CON-16]–[CON-19] |
-| `message_retrievals` | Fragmentos usados en cada respuesta, con su posición y puntuación. | [CON-20], [PRU-02] |
+| `message_retrievals` | Fragmentos usados en cada respuesta, con su posición y puntuación y una copia del título, la sección y la página: si se borra el fragmento, el documento o la base, su enlace queda vacío y la fuente se sigue viendo. | [CON-20], [PRU-02] |
+
+Detalles del conocimiento que salieron al construirlo (fase 4, sin cambiar el esquema):
+
+- **El Markdown de un PDF** (`kb_documents.content_md`) lleva la línea `<!-- página N -->` delante de cada página:
+  de ahí sale la página de cada fragmento, y un OCR largo sigue desde la última página marcada.
+- **«Listo (solo texto)» no es un estado guardado:** es un documento `ready` con fragmentos del índice en uso sin
+  embedding. El modelo que se está estrenando en un reindexado viaja en los datos del trabajo `knowledge.reindex`;
+  la base solo guarda `building_index_version`.
+- **`kb_chunks.content_hash`** es la huella SHA-256 del modelo, las dimensiones y el texto exacto que se embebe
+  (prefijo «Documento: título > sección», resumen y contenido): la clave con la que la demo encuentra su embedding
+  en `seed/fixtures/embeddings.json`. `kb_documents.checksum` es la huella del archivo (un archivo idéntico no se
+  repite en la base) y `content_hash`, la del texto extraído (una página web que no ha cambiado al refrescarla no se
+  vuelve a procesar).
+- **Archivos:** los originales de los documentos se guardan con claves `knowledge/…` y se sirven por `/api/files` a
+  quien puede ver Conocimiento; al borrar el documento se borra también el archivo.
 
 ## Contactos
 
@@ -130,13 +151,17 @@ variables y el id de Meta. Único por canal + nombre + idioma. Sirve a [WA-22], 
 - `last_inbound_at` (abre la ventana de 24 h de WhatsApp, con la hora del mensaje y no la de llegada),
   `last_outbound_at`, `unread_count`, `labels` y `summary` ([WA-43], [BAN-03], [MOT-13]).
 - `is_test` para «Probar agente», que no tiene canal real ([PRU-05]).
-- `metadata` (JSON): `simulated` (la empezó el simulador: sus respuestas nunca salen, [AJU-13]) y
-  `summaryUntil` (hasta qué mensaje llega `summary`, [MOT-13]).
+- `metadata` (JSON): `simulated` (la empezó el simulador: sus respuestas nunca salen, [AJU-13]),
+  `summaryUntil` (hasta qué mensaje llega `summary`, [MOT-13]) y `whatsappWindowClosedAt` (Meta respondió 131047:
+  la ventana queda cerrada hasta el siguiente mensaje del cliente, [WA-43]). Los avisos del sistema y los tipos no
+  admitidos no cambian `last_inbound_at`.
 
 `messages`:
 
 - `direction` (entrante o saliente), `sender_type` `contact`, `ai`, `human` o `system`, `sender_user_id` con
-  la copia del nombre, y `agent_id`: qué agente respondió ([CAN-05], [BAN-05]).
+  la copia del nombre, y `agent_id`: qué agente respondió ([CAN-05], [BAN-05]). Lo que llega del canal y no es del
+  cliente (un cambio de identidad, un tipo no admitido) es entrante con `sender_type` `system`: la bandeja lo
+  muestra como mensaje del sistema y nunca cuenta como un turno del cliente para la IA ([WA-36], [WA-50]).
 - `external_id`, **único junto con `channel_id`**: un mensaje repetido por el canal no se guarda dos veces
   ([CAN-11], [WA-35]).
 - `content_type`, `text`, `media` (JSON: `fileKey`, `mimeType`, `size`, `fileName`, `sha256`, `durationSec` y
@@ -151,7 +176,8 @@ variables y el id de Meta. Único por canal + nombre + idioma. Sirve a [WA-22], 
 - `metadata`: lo propio de cada canal (cabeceras del correo, mensaje citado…) y lo que añade la app:
   `aiRunId` (el uso de la IA que lo escribió), `handoff` y `unknownAnswer` (mensaje de traspaso, respuesta «no lo
   sé»), `transcriptionFailed` («No se pudo transcribir», [MED-03]), `imageDescription` o `imageDescriptionFailed`
-  ([MED-05]) y, en un borrador aprobado, `approvedByUserId`, `approvedByName`, `approvedAt` y
+  ([MED-05]), en una plantilla de WhatsApp `whatsappTemplate` (lo que se envía a Meta tal cual) y `templateId`
+  ([WA-42]), y, en un borrador aprobado, `approvedByUserId`, `approvedByName`, `approvedAt` y
   `editedBeforeSending` ([CAN-07]). Un borrador descartado se borra. `simulated` es una columna aparte. Las
   reacciones se guardan en el mensaje al que reaccionan, no como mensaje nuevo ([WA-37]).
 

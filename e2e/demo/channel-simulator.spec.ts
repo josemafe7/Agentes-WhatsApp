@@ -43,9 +43,13 @@ test("[AJU-12][AJU-13][CAN-09][CAN-13][BAN-05][MOT-11] the simulator's WhatsApp 
   await expect(log).toContainText(DELIVERY_STATE);
   await expect(log).toContainText("Simulado");
 
+  // One turn of the demo agent, which searches its knowledge base first («Automático» with buscar_conocimiento since
+  // fase 4, [AGE-07], [HER-01]): the call that asks for the search and the call that answers with its result.
   const calls = await chatRequestsFor(mock, conversationId);
-  expect(calls).toHaveLength(1);
-  expect(messageText(calls[0].body.messages[0])).toContain("Canal: WhatsApp");
+  expect(calls).toHaveLength(2);
+  for (const call of calls) expect(messageText(call.body.messages[0])).toContain("Canal: WhatsApp");
+  expect(calls[0].body.tools?.map((tool) => tool.function?.name)).toContain("buscar_conocimiento");
+  expect(calls[1].body.messages.at(-1)?.role).toBe("tool");
   // [AJU-13] Nothing reached Meta: the reply to a simulated message never leaves the app.
   expect(await mock.requests({ service: "meta" })).toHaveLength(0);
 });

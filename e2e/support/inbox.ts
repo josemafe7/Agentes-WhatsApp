@@ -79,6 +79,14 @@ export function customerMessage(page: Page, text: string): Locator {
 }
 
 /**
+ * A system message of the open conversation ([BAN-05], DESIGN.md «Autores de los mensajes»): centred, without bubble,
+ * its author «Sistema» for screen readers — never a message of the customer.
+ */
+export function systemMessage(page: Page, text: RegExp): Locator {
+  return conversationLog(page).locator("p").filter({ hasText: /^Sistema: / }).filter({ hasText: text });
+}
+
+/**
  * Finds the one conversation with `text` (a unique customer message) through the search, opens it and returns its id.
  */
 export async function openConversationWith(page: Page, text: string): Promise<string> {

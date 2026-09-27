@@ -1,0 +1,45 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000001",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15550001111",
+              "phone_number_id": "200000000000002"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Ana Pruebas"
+                },
+                "wa_id": "15550002222",
+                "user_id": "US.10000000000000000001"
+              }
+            ],
+            "messages": [
+              {
+                "from": "15550002222",
+                "from_user_id": "US.10000000000000000001",
+                "id": "wamid.TEST_IN_LOCATION_0001",
+                "timestamp": "1790417400",
+                "location": {
+                  "address": "Calle de Prueba 1, 28000 Madrid",
+                  "latitude": 40.4168,
+                  "longitude": -3.7038,
+                  "name": "Peluquería Demo",
+                  "url": "https://example.com/"
+                },
+                "type": "location"
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

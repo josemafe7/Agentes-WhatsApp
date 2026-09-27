@@ -21,12 +21,17 @@ export const HELP_GUIDES: readonly HelpGuide[] = [
   {
     slug: "agentes-y-conocimiento",
     file: "guia-agentes-y-conocimiento.md",
-    description: "Crear un agente desde la plantilla de tu sector, ajustar sus instrucciones y su modelo, y probarlo.",
+    description: "Crear un agente desde la plantilla de tu sector, darle el conocimiento del negocio (archivos y bases), probarlo y ver de dónde saca cada respuesta.",
   },
   {
     slug: "despliegue",
     file: "guia-despliegue.md",
     description: "Publicar la app en Vercel con Turso, Vercel Blob y el cron, y más adelante en un servidor propio.",
+  },
+  {
+    slug: "whatsapp",
+    file: "guia-whatsapp.md",
+    description: "Conectar el número del negocio con la API oficial de Meta: portfolio, app, token, publicación, pago, prueba y problemas.",
   },
 ];
 

@@ -6,6 +6,7 @@
 import "server-only";
 import { and, asc, desc, eq, gt, gte, inArray, ne, notInArray } from "drizzle-orm";
 import { loadAgentForRun } from "@/data/agents";
+import { recordMessageRetrievals } from "@/data/knowledge-retrievals";
 import { resolveOpenRouterKey } from "@/data/settings";
 import { db } from "@/db";
 import { aiRuns, channels, consents, contactIdentities, contacts, conversations, handoffEvents, messages } from "@/db/schema";
@@ -43,6 +44,11 @@ export const MIN_REPLY_BUDGET_MS = 15_000;
 export const MODEL_RESERVE_MS = 25_000;
 /** Media work always gets at least this long (one short voice note), even with a tight budget. */
 export const MIN_MEDIA_MS = 20_000;
+/**
+ * A customer's file still downloading from the channel (WhatsApp, [WA-41]) holds the reply back, so a voice note is
+ * answered with its transcript ([MED-04]); after this long the reply goes on without it.
+ */
+export const MEDIA_DOWNLOAD_WAIT_MS = 2 * 60_000;
 /** Shown to the team when the AI could not answer ([MOT-12]). */
 export const AI_FAILED_REASON = "La IA no ha podido responder";
 const SEND_FAILED_REASON = "No se ha podido enviar la respuesta de la IA";
@@ -120,11 +126,20 @@ async function runTurn(
   const pending = await pendingInbound(conversation.id);
   if (pending.length === 0) return resumeStuckReply(conversation.id, deps);
 
-  // A newer message than the one this job was scheduled for: wait for it too, never beyond the cap ([MOT-01]).
+  // A newer message than the one this job was scheduled for: wait for it too, never beyond the cap ([MOT-01]). A wait
+  // that is already over is never rescheduled (a time in the past would hand the job back at once, again and again).
   const newest = pending[pending.length - 1];
   if (payload.lastInboundMessageId && newest.id !== payload.lastInboundMessageId) {
     const cap = pending[0].createdAt.getTime() + REPLY_MAX_WAIT_MS;
-    context.rescheduleAt(new Date(Math.min(newest.createdAt.getTime() + replyDebounceMs(), Math.max(cap, now.getTime()))));
+    const waitUntil = Math.min(newest.createdAt.getTime() + replyDebounceMs(), cap);
+    if (waitUntil > now.getTime()) {
+      context.rescheduleAt(new Date(waitUntil));
+      return { kind: "waiting" };
+    }
+  }
+
+  if (await mediaStillDownloading(pending, now)) {
+    context.rescheduleAt(new Date(now.getTime() + REPLY_LEASE_RETRY_MS));
     return { kind: "waiting" };
   }
 
@@ -198,7 +213,10 @@ async function runTurn(
     if (unknown && threshold > 0 && (await unknownAnswersSinceHandoff(conversation.id)) + 1 >= threshold) {
       return handOff(turn, { rule: "unknown_answers", reason: "La IA no sabe responder", summary: customerText, urgency: "normal" }, deps, result.runId);
     }
-    return deliverReply(turn, result.text, { aiRunId: result.runId, ...(unknown ? { unknownAnswer: true } : {}) }, deps);
+    const delivered = await deliverReply(turn, result.text, { aiRunId: result.runId, ...(unknown ? { unknownAnswer: true } : {}) }, deps);
+    // The knowledge fragments of this answer, for «¿Por qué respondió esto?» ([CON-20]).
+    if (delivered.kind === "replied") await recordMessageRetrievals(delivered.messageId, result.retrievals);
+    return delivered;
   }
   // transferir_a_humano already handed it off: its message is the reply of the turn ([HER-08], [TRA-03]).
   const sent = await deliverReply(turn, result.text, { aiRunId: result.runId, handoff: true }, deps);
@@ -256,6 +274,15 @@ async function checkTurn(conversation: Conversation, channel: ChannelRecord, now
     await publishConversationEvent({ type: "conversation.updated", conversationId: conversation.id, channelId: channel.id, change: "ai" });
   }
   return { ok: true, agentId: result.agentId, withinBusinessHours };
+}
+
+/** Whether a file of the turn is still being downloaded, and recently enough to wait for it. */
+async function mediaStillDownloading(pending: readonly PendingInbound[], now: Date): Promise<boolean> {
+  const rows = await db
+    .select({ media: messages.media, createdAt: messages.createdAt })
+    .from(messages)
+    .where(inArray(messages.id, pending.map((message) => message.id)));
+  return rows.some((row) => row.media?.downloadStatus === "pending" && now.getTime() - row.createdAt.getTime() < MEDIA_DOWNLOAD_WAIT_MS);
 }
 
 /** Transcribes the turn's voice notes that have no transcript yet, within the job's budget. */

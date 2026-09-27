@@ -17,6 +17,8 @@ const ADMIN_SETTINGS = [
   SETTINGS_PATHS.notificaciones,
   SETTINGS_PATHS.actividad,
   SETTINGS_PATHS.diagnostico,
+  // Tarifas de WhatsApp ([AJU-09]).
+  SETTINGS_PATHS.whatsapp,
 ];
 
 for (const role of ROLE_KEYS) {

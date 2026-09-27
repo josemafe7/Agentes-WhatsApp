@@ -192,6 +192,7 @@ export function WebhooksSection({ webhooks }: { webhooks: DiagnosticsView["webho
             <span className="font-medium">Números que no son de ningún canal</span>
             <span className="text-muted-foreground tabular-nums">
               {webhooks.unknown.last} · {webhooks.unknown.count}
+              {webhooks.unknown.lastNumber ? ` · último: ${webhooks.unknown.lastNumber}` : null}
             </span>
           </li>
         ) : null}

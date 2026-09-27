@@ -52,7 +52,7 @@ Qué se prueba y cómo, para demostrar que el código funciona.
   respuesta llega sola ([MOT-15]). Cada prueba crea sus propios agentes, chats web y textos únicos
   (`e2e/support/names.ts`), y cada visitante del chat es un navegador nuevo con su propia IP. La forma de las
   pantallas que usan (textos, roles y nombres accesibles) está en los ayudantes de `e2e/support/` (`channels.ts`,
-  `widget.ts`, `inbox.ts`, `simulator.ts`, `team.ts`), para cambiarla en un solo sitio.
+  `widget.ts`, `inbox.ts`, `simulator.ts`, `team.ts`, `whatsapp.ts` y `knowledge.ts`), para cambiarla en un solo sitio.
 - En Vitest, los tiempos de la IA (pausas, esperas, resúmenes) se prueban con la hora fijada: el motor recibe
   `now`, y cuando una función de `src/data/` usa la hora real solo se falsea `Date`
   (`vi.useFakeTimers({ toFake: ["Date"] })`), nunca los temporizadores, que usa la base de datos.
@@ -82,6 +82,45 @@ Qué se prueba y cómo, para demostrar que el código funciona.
     contesta de forma fija con el nombre del agente, el canal y lo que escribió el cliente, llama a
     `transferir_a_humano` cuando el cliente pide «una persona» (argumentos en `e2e/mocks/openrouter-scenarios.json`)
     y devuelve tokens y coste que crecen con cada mensaje; las notas de voz reciben una transcripción fija. Cada prueba puede forzar errores con `mock.stub`.
+  - Conocimiento en el OpenRouter simulado (fase 4): los embeddings son una «bolsa de palabras» fija
+    (`e2e/mocks/routes/bag-of-words.mjs`: sin tildes ni palabras vacías, cada palabra repartida en las 1536
+    posiciones con sha256), así un texto se parece a otro en la medida en que comparten palabras. `POST /rerank`
+    ordena por palabras compartidas. En el chat, si el prompt ya trae «# Conocimiento encontrado para este mensaje»
+    («Buscar siempre») responde con él; si se le ofrece `buscar_conocimiento`, la llama con lo último que escribió el
+    cliente y después responde con la frase del fragmento [1] que más palabras comparte y «(Fuente: título, pág.
+    N)»; con `SIN_RESULTADOS` dice que no lo sabe y ofrece una persona. Un resumen de documento son sus dos primeras
+    frases. Todas las respuestas empiezan igual que las demás («Soy … Me has escrito: «…»»). Como el modelo simulado
+    siempre busca cuando tiene la herramienta, un agente con `buscar_conocimiento` hace dos llamadas por respuesta
+    (los de la demo la tienen).
+  - Documentos del conocimiento hechos en código, sin binarios en el repositorio: en Playwright,
+    `e2e/support/knowledge-files.ts` (un PDF de texto de 120 páginas con un dato solo en la 112 y un Markdown con
+    encabezados; las preguntas evitan las palabras clave de traspaso de la plantilla, como «novia»); en Vitest,
+    `src/test/fixtures/knowledge/long-pdf.ts` (120 páginas, dato solo en la 87) y los ayudantes de
+    `src/server/knowledge/test-helpers.ts` (OpenRouter falso con la misma bolsa de palabras, DOCX, XLSX, PDF y ZIP
+    de prueba). Mistral OCR solo se prueba en Vitest, con su `fetch` falso.
+  - Meta en Vitest (fase 3): `src/test/fixtures/whatsapp/` guarda los avisos reales de
+    `docs/integracion-whatsapp-mensajes.md` §16 (texto, nota de voz, imagen, documento, estados enviado, entregado,
+    leído y fallido 131047, contacto solo con BSUID, duplicado, avisos de cuenta y de plantillas, reacción y su
+    retirada, ubicación, tipo no admitido y los dos cambios de identidad) con `signWebhook()` para firmarlos con el
+    App Secret de prueba; `fake-meta.ts` es la Graph API falsa (`fakeMetaFetch`, `connectedNumberRoutes`,
+    `metaError(código)` y las respuestas documentadas) y `memory-storage.ts`, un almacén de archivos en memoria. Las
+    funciones de `src/data/whatsapp*.ts` reciben `{ fetchImpl, baseUrl: FAKE_META_BASE_URL }` como último argumento.
+  - Meta simulado en Playwright (`e2e/mocks/routes/meta.mjs`, datos en `meta-data.json`): responde a todo lo que la
+    app pide a la Graph API con cualquier versión (`/v26.0/…`): `debug_token` y `/{APP_ID}/subscriptions` solo con el
+    token de app, el resto con `Bearer`; números, WABA, `subscribed_apps` (rechaza `override_callback_uri`, [WA-15]),
+    registro, códigos de verificación, plantillas paginadas, envío (texto de hasta 4.096 caracteres y plantillas
+    aprobadas con todas sus variables, si no 132000/132001), leídos y «escribiendo…», subida y descarga de archivos.
+    Regla de números: cualquier id de 15 cifras que empieza por 2 es un número, su WABA es el mismo con un 1 delante
+    y se muestra como +1 555-XXX-XXXX; está PENDING hasta registrarlo. `POST /meta/dashboard/apps/:appId/webhooks`
+    hace de la persona que pulsa «Verificar y guardar» en el panel de Meta (Meta llama a la app con el token). Cada
+    prueba conecta su propio número (`e2e/support/whatsapp-meta.ts` genera números, clientes, wamids y avisos firmados
+    a partir de los mismos archivos de `src/test/fixtures/whatsapp/`) y deja su canal desactivado o desconectado al
+    terminar. Las pantallas de WhatsApp se recorren con los ayudantes de `e2e/support/whatsapp.ts`.
+  - El `request` de Playwright lleva la sesión del `storageState` del archivo: para comprobar que algo no se sirve
+    sin sesión, la prueba crea un contexto sin cookies (`playwright.request.newContext({ storageState: { cookies: [],
+    origins: [] } })`).
+  - En e2e la app corre en `http://localhost`: sin dirección pública con HTTPS, el asistente no intenta suscribir la
+    app de Meta sola y va por el camino manual ([WA-16]); ese intento automático solo se prueba en Vitest.
   - La demo de Playwright arranca sin clave de OpenRouter. Una prueba que necesita IA pide el fixture
     `openRouterKey` (`e2e/support/test.ts`): guarda la clave como el propietario desde Ajustes › IA y la quita al
     terminar, aunque la prueba falle, para que las demás sigan viendo la instalación sin IA.

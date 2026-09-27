@@ -1,0 +1,74 @@
+{
+  "comment": "Test data of the simulated Meta Graph API (meta.mjs) shared with the Playwright specs (e2e/support/whatsapp*.ts). Invented values only: never real tokens or ids. Numbers are not listed here: any 15-digit Phone Number ID that starts with 2 is a number of the app, and its WABA is the same digits starting with 1 (see meta.mjs).",
+  "appId": "300000000000003",
+  "appSecret": "test_app_secret",
+  "otherAppSecret": "otro_secreto",
+  "appName": "DominIA Peluquería Ejemplo",
+  "businessId": "400000000000004",
+  "systemUserId": "500000000000005",
+  "verifiedName": "Peluquería Ejemplo",
+  "wabaName": "Peluquería Ejemplo",
+  "tokens": {
+    "valid": "EAAE2EVALIDSYSTEMUSERTOKEN0000000000000000000000",
+    "expiring": "EAAE2EEXPIRINGUSERTOKEN000000000000000000000000",
+    "missingMessaging": "EAAE2ENOMESSAGINGPERMISSION00000000000000000000",
+    "invalid": "EAAE2EINVALIDTOKEN00000000000000000000000000000"
+  },
+  "templates": [
+    {
+      "id": "600000000000006",
+      "name": "recordatorio_cita",
+      "language": "es",
+      "status": "APPROVED",
+      "category": "UTILITY",
+      "parameter_format": "NAMED",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hola {{nombre}}, te recordamos tu cita el {{fecha}} a las {{hora}}.",
+          "example": {
+            "body_text_named_params": [
+              { "param_name": "nombre", "example": "Ana" },
+              { "param_name": "fecha", "example": "3 de octubre" },
+              { "param_name": "hora", "example": "10:30" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "600000000000007",
+      "name": "retomar_conversacion",
+      "language": "es",
+      "status": "APPROVED",
+      "category": "UTILITY",
+      "parameter_format": "POSITIONAL",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hola {{1}}, te escribimos por tu consulta. ¿Seguimos por aquí?",
+          "example": { "body_text": [["Ana"]] }
+        }
+      ]
+    },
+    {
+      "id": "600000000000008",
+      "name": "oferta_otono",
+      "language": "es",
+      "status": "PENDING",
+      "category": "MARKETING",
+      "parameter_format": "POSITIONAL",
+      "components": [{ "type": "BODY", "text": "¡Este otoño, un 10 % en tintes!" }]
+    },
+    {
+      "id": "600000000000009",
+      "name": "aviso_rechazado",
+      "language": "es",
+      "status": "REJECTED",
+      "category": "MARKETING",
+      "parameter_format": "POSITIONAL",
+      "rejected_reason": "PROMOTIONAL",
+      "components": [{ "type": "BODY", "text": "Oferta que Meta no ha aprobado." }]
+    }
+  ]
+}

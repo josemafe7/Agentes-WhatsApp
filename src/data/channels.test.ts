@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
-import { agents, auditLog, channelMembers, channels, contactIdentities, contacts, conversations, userRoles } from "@/db/schema";
+import { agents, auditLog, channelMembers, channels, contactIdentities, contacts, conversations, jobs, userRoles } from "@/db/schema";
+import { HEALTH_CHECK_JOB } from "@/server/channels/whatsapp/schedule";
 import { encryptChannelSecrets } from "@/server/channels/secrets";
 import { AuthError, ConflictError, ValidationError } from "@/server/errors";
 import { createAgentRow, createBusiness, createChannel, createContactWithIdentity, createConversation, createUser, type TestUser } from "@/test/factories";
@@ -155,6 +156,19 @@ describe("common settings [CAN-04] [CAN-06] [CAN-07] [CAN-08] [CAN-16]", () => {
     expect((await channelRow(channel.id)).status).toBe("disabled");
     await updateChannel(users.owner.actor, channel.id, { enabled: true });
     expect((await channelRow(channel.id)).status).toBe("connected");
+  });
+
+  it("a disconnected WhatsApp number goes back through its wizard; one with credentials returns to «conectando» and is checked at once [WA-28] [CAN-15] [CAN-16]", async () => {
+    const disconnected = await createChannel({ name: "WA desconectado", type: "whatsapp", status: "disabled" });
+    expect(await errorOf(updateChannel(users.owner.actor, disconnected.id, { enabled: true }))).toBeInstanceOf(ConflictError);
+    expect((await channelRow(disconnected.id)).status).toBe("disabled");
+
+    await db.delete(jobs);
+    const paused = await createChannel({ name: "WA pausado", type: "whatsapp", status: "disabled", secretsEnc: encryptChannelSecrets({ access_token: "EAAG-secreto" }) });
+    await updateChannel(users.owner.actor, paused.id, { enabled: true });
+    expect((await channelRow(paused.id)).status).toBe("connecting");
+    const checks = await db.select().from(jobs).where(eq(jobs.type, HEALTH_CHECK_JOB));
+    expect(checks.map((job) => job.payload)).toEqual([{ channelId: paused.id }]);
   });
 
   it("only a channel without conversations can be deleted", async () => {

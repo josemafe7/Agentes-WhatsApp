@@ -10,7 +10,9 @@ import { can, PERMISSIONS } from "@/lib/permissions";
 import { ActiveAgentControl } from "../_components/active-agent-control";
 import { CHANNEL_STATUS_LABELS } from "../_lib/labels";
 import { widgetDemoHref } from "../_lib/webchat";
+import { wizardHref } from "../nuevo/whatsapp/_lib/steps";
 import { ChannelDangerZone } from "./_components/channel-danger-zone";
+import { WhatsAppPanel } from "./_whatsapp/whatsapp-panel";
 import { loadChannelPage } from "./_lib/load";
 
 export const metadata: Metadata = { title: "Canal" };
@@ -97,6 +99,8 @@ export default async function ChannelSummaryPage({ params }: PageProps) {
         </div>
       </section>
 
+      {channel.type === "whatsapp" ? <WhatsAppPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} /> : null}
+
       <section aria-labelledby="channel-agent" className="grid gap-3 rounded-xl border p-4">
         <div className="grid gap-1">
           <h2 id="channel-agent" className="text-base font-semibold">
@@ -134,7 +138,14 @@ export default async function ChannelSummaryPage({ params }: PageProps) {
         </section>
       ) : null}
 
-      {canManage ? <ChannelDangerZone channelId={channel.id} channelName={channel.name} enabled={channel.status !== "disabled"} /> : null}
+      {canManage ? (
+        <ChannelDangerZone
+          channelId={channel.id}
+          channelName={channel.name}
+          enabled={channel.status !== "disabled"}
+          reconnectHref={channel.type === "whatsapp" && !channel.isDemo && !channel.hasSecrets ? wizardHref(channel.id) : null}
+        />
+      ) : null}
     </div>
   );
 }

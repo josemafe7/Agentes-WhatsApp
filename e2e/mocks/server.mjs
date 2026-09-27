@@ -11,12 +11,13 @@
 //        { headers?: {name: value}, query?: {name: value}, bodyIncludes?: string }. `times` limits its uses.
 // Service paths are relative to the service prefix: OpenRouter's /openrouter/api/v1/key is "/api/v1/key".
 import { createServer } from "node:http";
+import { metaRoutes } from "./routes/meta.mjs";
 import { openrouterRoutes } from "./routes/openrouter.mjs";
 
 /**
  * @typedef {{ method: string, path: string, query: Record<string, string>, headers: Record<string, string>, body: unknown }} MockRequest
  * @typedef {{ status?: number, headers?: Record<string, string>, body?: unknown }} MockResponse
- * @typedef {{ method: string, path: string, handle: (request: MockRequest) => MockResponse }} MockRoute
+ * @typedef {{ method: string, path: string, handle: (request: MockRequest) => MockResponse | Promise<MockResponse> }} MockRoute
  */
 
 const DEFAULT_PORT = 3101;
@@ -27,7 +28,7 @@ const MAX_RECORDED_REQUESTS = 2000;
 /** Default answers per service prefix. Later phases add their routes here (one module per service). */
 const DEFAULT_ROUTES = /** @type {Record<string, MockRoute[]>} */ ({
   openrouter: openrouterRoutes,
-  meta: [],
+  meta: metaRoutes,
   "google-oauth": [],
   google: [],
   "ms-login": [],
@@ -94,8 +95,11 @@ async function readBody(request) {
 
 function send(response, status, body, headers = {}) {
   const isText = typeof body === "string";
-  const payload = body === undefined || body === null ? "" : isText ? body : JSON.stringify(body);
-  const contentType = headers["content-type"] ?? headers["Content-Type"] ?? (isText ? "text/plain; charset=utf-8" : "application/json");
+  // Files (a Buffer) go as they are: Meta's media downloads.
+  const isBinary = body instanceof Uint8Array;
+  const payload = body === undefined || body === null ? "" : isText || isBinary ? body : JSON.stringify(body);
+  const contentType =
+    headers["content-type"] ?? headers["Content-Type"] ?? (isText ? "text/plain; charset=utf-8" : isBinary ? "application/octet-stream" : "application/json");
   response.writeHead(status, { ...headers, "content-type": contentType });
   response.end(payload);
 }
@@ -151,7 +155,8 @@ async function handleService(request, response, service, path, query) {
 
   const route = DEFAULT_ROUTES[service].find((candidate) => candidate.method === method && pathMatches(candidate.path, path));
   if (route) {
-    const answer = route.handle({ method, path, query, headers, body });
+    // A route may answer later (Meta's webhook verification calls the app during the request).
+    const answer = await route.handle({ method, path, query, headers, body });
     entry.answeredBy = "default";
     entry.status = answer.status ?? 200;
     send(response, entry.status, answer.body, answer.headers);

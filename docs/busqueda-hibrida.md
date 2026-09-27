@@ -221,8 +221,10 @@ CREATE VIRTUAL TABLE kb_chunks_fts USING fts5(
   defecto) quedan casos raros sin quitar. Existe desde SQLite 3.27.0; libSQL va muy por delante.
 - Con esto, «médico», «MEDICO» y «medico» son el mismo término, y la consulta pasa por el mismo analizador.
 - FTS5 **no hace raíces en español**: el analizador `porter` es para inglés. «tinte» no encuentra «tintes».
-  Mejora opcional: en términos largos, buscar también por prefijo (`"tinte"*`); un prefijo exige recorrer
-  un rango de términos y es algo más lento.
+  Hecho en la fase 4: la búsqueda del conocimiento pide los términos de 4 letras o más por prefijo (`"tinte"*`), y a
+  los de 5 o más que acaban en «s» les quita esa «s» antes («tintes» → `"tinte"*`), así el plural encuentra el
+  singular y al revés. Un prefijo recorre un rango de términos y es algo más lento; con los tamaños de un negocio no
+  se nota.
 
 Por qué contenido externo y no las otras dos opciones:
 
@@ -284,12 +286,16 @@ cualquier texto:
 1. Normalizar (NFKC y minúsculas) y extraer palabras con una expresión Unicode de letras y números.
 2. Quitar palabras vacías del español (una lista en el código: «de», «la», «que», «el», «en», «y»…). FTS5 no
    tiene lista de palabras vacías, y en un OR «de» coincide con casi todo y llena los 40 resultados de ruido.
-3. Quitar las de menos de 2 caracteres, quitar repetidas y quedarse con un máximo razonable (unas 12).
+3. Quitar las de menos de 2 caracteres, quitar repetidas y quedarse con un máximo razonable (12). La lista de
+   palabras vacías se compara sin tildes, pero conservando la «ñ» (si no, «uña» sería la palabra vacía «una»).
 4. Poner cada término **entre comillas dobles**, duplicando cualquier comilla doble interna (así lo escapa
    FTS5), y unirlos con `" OR "`: `"precio" OR "tinte" OR "mechas"`. Entre comillas, `OR`, `NOT` o `*` son
    texto, no operadores.
 5. Pasar la expresión **siempre como parámetro** (`MATCH ?`), nunca pegada al SQL.
 6. Si no queda ningún término, no se consulta FTS5 (lista vacía).
+7. Con prefijos (la búsqueda del conocimiento), cada término largo va como `"término"*` (ver «La tabla»).
+
+Todo esto está en `buildFtsQuery()` de `src/server/adapters/text-search.ts`.
 
 ## 4. Drizzle con libSQL
 
@@ -369,19 +375,23 @@ la consulta y la expresión `MATCH` son siempre parámetros.
 2. Con clave de OpenRouter: embedding de la consulta (1536, validado) y **40 resultados vectoriales**. Sin
    clave, esta lista queda vacía y la búsqueda es solo de texto (requisito de la demo).
 3. **40 resultados de texto** con FTS5.
-4. **RRF con k = 60** (Cormack, Clarke y Büttcher, SIGIR 2009): cada fragmento suma `1 / (60 + posición)` por
+4. Los resultados por significado con una similitud por debajo de **0,2** se descartan antes de mezclar: la búsqueda
+   vectorial devuelve los más cercanos aunque no se parezcan en nada, y rellenarían la respuesta de ruido.
+5. **RRF con k = 60** (Cormack, Clarke y Büttcher, SIGIR 2009): cada fragmento suma `1 / (60 + posición)` por
    cada lista en la que aparece, con la posición empezando en 1. Ejemplo: 1.º en vectores y 3.º en texto =
    1/61 + 1/63 ≈ 0,0323; solo 1.º en una lista = 1/61 ≈ 0,0164. No hay que normalizar las puntuaciones de
    cada lista, porque solo cuenta la posición. Empates: primero el de mejor posición vectorial, después por
    id, para que el orden sea estable en las pruebas.
-5. Los **8 mejores**; con rerank activado (interruptor de toda la instalación en Ajustes > IA, [AJU-04];
+6. Los **8 mejores**; con rerank activado (interruptor de toda la instalación en Ajustes > IA, [AJU-04];
    `POST /api/v1/rerank`, ver `docs/integracion-openrouter.md`) se reordenan y se quedan **6**. Si el rerank
-   falla, se devuelven los 8 de RRF sin reordenar.
-6. **`SIN_RESULTADOS`** si nada es relevante. La puntuación RRF no sirve para decidirlo (es relativa): se usa
-   la similitud del mejor resultado vectorial (1 − distancia), si hubo coincidencias de texto y, con rerank,
-   su `relevance_score`. Los umbrales son **no verificados** y se calibran con la demo; van en constantes con
-   nombre.
-7. Respuesta de unos 3.500 tokens como máximo, en fragmentos numerados con título, sección y página, y lo
+   falla, se devuelven los 8 de RRF sin reordenar. Con ZDR solo se reordena con un modelo sin retención (hoy
+   `qwen/qwen3-reranker-8b`); con otro, Ajustes > IA lo avisa y no se reordena.
+7. **`SIN_RESULTADOS`** si nada es relevante. La puntuación RRF no sirve para decidirlo (es relativa). Basta
+   con que aparezca alguna palabra de la pregunta (las palabras vacías no se buscan, [CON-16]); sin ninguna,
+   decide la similitud del mejor resultado vectorial (1 − distancia, al menos **0,3**). Si se reordenó, decide
+   el `relevance_score` del primero (al menos 0,1). Los umbrales son **no verificados** y se calibran con la demo; van en
+   constantes con nombre (decisión 0021).
+8. Respuesta de unos 3.500 tokens como máximo, en fragmentos numerados con título, sección y página, y lo
    usado se guarda en `message_retrievals`.
 
 Referencia: el ejemplo de búsqueda híbrida de Supabase usa RRF con `rrf_k = 50` y `websearch_to_tsquery`
@@ -406,7 +416,7 @@ Elasticsearch, y consultas OR.
 
 ## 7. Embeddings precalculados de la demo
 
-Propuesta de formato para `seed/fixtures/embeddings.json`:
+Formato de `seed/fixtures/embeddings.json` (construido en la fase 4; lo lee y lo escribe `seed/knowledge/fixtures.ts`):
 
 ```json
 {
@@ -419,20 +429,29 @@ Propuesta de formato para `seed/fixtures/embeddings.json`:
 }
 ```
 
+Mientras nadie ha ejecutado `pnpm seed:embeddings`, el archivo del repositorio está vacío: `"generatedAt": null` e
+`"items": {}`. El cargador es estricto: un archivo mal formado da un error en español y nunca se usa a medias.
+
 - **Clave** = SHA-256 de `modelo + "\n" + dimensiones + "\n" + texto`, donde el texto es exactamente el que se
   manda a la API (con el prefijo «Documento: …», en NFC y con saltos `\n`). Si cambian el troceado, el texto
   o el modelo, la clave deja de coincidir sola y no se usa un embedding equivocado.
 - **Valor** = los 1536 `float32` en little-endian, en base64 (8.192 caracteres). Es el formato binario de
   `F32_BLOB`, se inserta tal cual con `vector32(?)` pasando los bytes, y ocupa unas 4 veces menos que un array
   JSON de números sin perder precisión.
-- Tamaño: unos 8 KB por fragmento; 150 fragmentos de demo son ~1,2 MB en el repositorio.
-- `pnpm seed`: trocea los documentos de la demo, calcula la clave de cada trozo y, si está, inserta el
-  embedding. Si falta, deja el fragmento sin embedding (la búsqueda por texto sigue funcionando) y avisa de
-  que hay que ejecutar `pnpm seed:embeddings`.
-- `pnpm seed:embeddings` (necesita clave): recalcula todo, escribe las claves ordenadas para que el `diff` sea
-  legible y elimina las que ya no se usan.
-- La base de conocimiento de la demo guarda el mismo modelo y dimensiones que el archivo; si no coinciden,
-  el seed no usa el archivo.
+- Tamaño: unos 8 KB por fragmento; los ~95 textos distintos de los nueve sectores son ~0,8 MB en el repositorio.
+- `pnpm seed`: trocea los documentos de la demo con el mismo código que la app, calcula la clave de cada trozo
+  (la misma que guarda `kb_chunks.content_hash`) y, si está, inserta el embedding. Si falta, deja el fragmento sin
+  embedding (la búsqueda por texto sigue funcionando) y avisa de que hay que ejecutar `pnpm seed:embeddings`. No
+  programa ningún trabajo ni llama a la IA: los que falten los calcula el trabajo `knowledge.embeddings` cuando se
+  guarda una clave en Ajustes › IA o, si la clave está en `.env.local`, al arrancar la app (`src/instrumentation.ts`,
+  [ARR-15]).
+- `pnpm seed:embeddings` (necesita `OPENROUTER_API_KEY` en `.env.local`; no abre la base de datos): calcula los
+  textos de los nueve sectores, los pide en lotes con `dimensions: 1536` y `data_collection: "deny"`, comprueba que
+  cada vector tiene 1536 números finitos, escribe las claves ordenadas para que el `diff` sea legible y elimina
+  las que ya no se usan. Si algo falla (sin clave, 401, un tamaño equivocado), no toca el archivo. El propietario
+  lo ejecuta una vez con una clave real y guarda el archivo en el repositorio.
+- La base de conocimiento de la demo usa el modelo de embeddings por defecto de Ajustes › IA; un vector del
+  archivo solo se usa si coinciden la clave, el modelo y las dimensiones.
 
 ## 8. Futuro: Supabase (Postgres)
 

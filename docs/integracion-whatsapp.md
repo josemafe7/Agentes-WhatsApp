@@ -358,7 +358,7 @@ Comprobaciones y resultado en la interfaz (decisión de diseño sobre datos docu
 | La llamada responde (no error de autenticación) | **Bloquea**: «El App ID o el App Secret no son correctos, o el token es de otra app». Meta no documenta el código concreto de este error. |
 | `data.is_valid === true` | **Bloquea**: «El token no es válido». Si viene `data.error`, se muestra su `message`. |
 | `data.app_id === meta_app_id` | **Bloquea**: «El token pertenece a otra app». |
-| `data.type === "SYSTEM_USER"` | **Aviso**: «Este token no es de un usuario del sistema y caducará. Crea uno permanente». `SYSTEM_USER` aparece en el ejemplo oficial [F12]; la referencia genérica solo muestra `USER` [F55]. |
+| `data.type === "SYSTEM_USER"` | **Bloquea** ([WA-06]): «El token no es de un usuario del sistema. Genera uno permanente en Usuarios del sistema». `SYSTEM_USER` aparece en el ejemplo oficial [F12]; la referencia genérica solo muestra `USER` [F55]. Si Meta no devuelve `type`, no se bloquea. Decisión en `docs/decisions/0019-token-solo-de-usuario-del-sistema.md`. |
 | `data.expires_at === 0` | **Aviso** con la fecha: «El token caduca el …». `0` = no caduca [F12]. |
 | `scopes` incluye `whatsapp_business_management` y `whatsapp_business_messaging` | **Bloquea**: «Al token le falta el permiso …». |
 | Si `granular_scopes` trae `target_ids` para esos permisos, incluyen el `waba_id` | **Bloquea**: «El token no tiene acceso a esta cuenta de WhatsApp». Sin `target_ids`, el permiso vale para todos los activos a los que accede el usuario del sistema [F11]. |

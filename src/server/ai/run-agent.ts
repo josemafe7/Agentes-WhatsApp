@@ -5,6 +5,8 @@
 import "server-only";
 import { recordAiRun } from "@/data/ai-runs";
 import type { AgentHandoffConfig, AgentInstructions } from "@/db/schema";
+import type { AgentKnowledgeMode } from "@/lib/enums";
+import { prefetchKnowledge, withSystemSection } from "@/server/knowledge/agent-knowledge";
 import { isOpenRouterError } from "@/lib/openrouter/errors";
 import { REASONING_EFFORTS, type ChatMessage, type ReasoningEffort } from "@/lib/openrouter/types";
 import { isWithinOpeningHours } from "@/lib/opening-hours";
@@ -41,6 +43,8 @@ export type AgentRunConfig = {
   maxOutputTokens: number | null;
   handoff: AgentHandoffConfig;
   systemTools: string[];
+  /** «Automático» (the model searches when needed) or «Buscar siempre» (search before each reply) ([AGE-07]). */
+  knowledgeMode?: AgentKnowledgeMode;
 };
 
 export type RunAgentContext = {
@@ -72,7 +76,7 @@ export type RunAgentInput = {
 
 export type RunAgentDeps = OpenRouterDeps & { now?: Date; clock?: () => number };
 
-/** A knowledge fragment used in the reply ([PRU-02], [CON-20]); always empty until the knowledge phase. */
+/** A knowledge fragment used in the reply ([PRU-02], [CON-20]); same shape as KnowledgeRetrieval. */
 export type AgentRetrieval = {
   chunkId: string | null;
   documentId: string | null;
@@ -146,6 +150,7 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
   });
 
   const tools = toolsForAgent(agent.systemTools);
+  const retrievals: AgentRetrieval[] = [];
   const toolContext: ToolContext = {
     mode,
     agentId: agent.id,
@@ -156,10 +161,20 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
     timezone: businessData.timezone,
     withinBusinessHours: isWithinOpeningHours(now, businessData.timezone, businessData.hours, businessData.closures),
     handoff: agent.handoff,
+    retrievals,
+    ai: { client },
   };
 
-  const messages: ChatMessage[] = [...prompt.messages];
+  let messages: ChatMessage[] = [...prompt.messages];
   const records: ToolCallRecord[] = [];
+  // «Buscar siempre»: the knowledge is searched before the model and goes into the prompt ([AGE-07]).
+  if (agent.knowledgeMode === "always") {
+    const prefetch = await prefetchKnowledge(input.history, { agentId: agent.id, mode, conversationId: toolContext.conversationId, retrievals, ai: { client } });
+    if (prefetch) {
+      messages = withSystemSection(messages, prefetch.systemSection);
+      records.push(prefetch.record);
+    }
+  }
   const totals = emptyUsageTotals();
   let modelUsed = model;
   let provider: string | null = null;
@@ -272,6 +287,6 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
     provider,
     steps,
     handedOff,
-    retrievals: [],
+    retrievals,
   };
 }

@@ -7,6 +7,7 @@ import { defaultCapabilitiesOf } from "./capabilities";
 import { demoAdapter } from "./demo-adapter";
 import type { ChannelAdapter, ChannelCapabilities, ChannelRecord } from "./types";
 import { webchatAdapter } from "./webchat-adapter";
+import { whatsappAdapter } from "./whatsapp/adapter";
 
 export class ChannelAdapterMissingError extends AppError {
   constructor() {
@@ -14,9 +15,11 @@ export class ChannelAdapterMissingError extends AppError {
   }
 }
 
-// Survives dev hot reloads (one registry per process), like the database client.
-const globalRef = globalThis as unknown as { __dominiaChannelAdapters?: Map<ChannelType, ChannelAdapter> };
-const registry = (globalRef.__dominiaChannelAdapters ??= new Map<ChannelType, ChannelAdapter>());
+// One registry per copy of this module, never on globalThis: a production build carries its own copy of the server code
+// in each route's bundle (the WhatsApp webhook, the cron, each page and its actions). A process-wide registry handed
+// one bundle's adapter to another, whose `instanceof ChannelSendError` then failed: a Meta error such as 131047 showed
+// as «error inesperado». Every adapter is registered below, so a hot reload registers them again.
+const registry = new Map<ChannelType, ChannelAdapter>();
 
 /** Registers the adapter of a channel type; registering again replaces it (tests, hot reload). */
 export function registerChannelAdapter(adapter: ChannelAdapter): void {
@@ -29,6 +32,7 @@ export function unregisterChannelAdapter(type: ChannelType): void {
 }
 
 registerChannelAdapter(webchatAdapter);
+registerChannelAdapter(whatsappAdapter);
 
 /** The adapter that talks to this channel. Demo WhatsApp and email channels get the DemoAdapter. */
 export function getChannelAdapter(channel: Pick<ChannelRecord, "type" | "isDemo">): ChannelAdapter {

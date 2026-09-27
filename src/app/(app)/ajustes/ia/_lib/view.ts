@@ -4,7 +4,7 @@ import "server-only";
 import { recommendedModelIds } from "@/components/model-picker/catalog";
 import { getBusinessProfile, getIntegrationSettings } from "@/data/settings";
 import type { Actor } from "@/lib/permissions";
-import { effectiveDefaultModels, type AiModels } from "./form";
+import { effectiveDefaultModels, effectiveRerankModel, type AiModels } from "./form";
 import { loadModelUseWarnings, type ModelUseWarning } from "./models";
 
 export type { AiModels } from "./form";
@@ -18,6 +18,8 @@ export type AiSettingsView = {
   models: AiModels;
   recommendedModels: string[];
   zdr: boolean;
+  /** «Reordenar resultados» ([AJU-04], [CON-16]): off by default, with its own model. */
+  rerank: { enabled: boolean; model: string };
   /** Models in use that retire or left the list, with who uses them ([MOD-06]). */
   warnings: ModelUseWarning[];
 };
@@ -33,6 +35,7 @@ export async function loadAiSettingsView(actor: Actor): Promise<AiSettingsView> 
     models,
     recommendedModels: recommendedModelIds(settings.recommendedModels),
     zdr: settings.zdr,
+    rerank: { enabled: settings.rerankEnabled, model: effectiveRerankModel(settings.defaultModels) },
     warnings: await loadModelUseWarnings(actor, models, timezone),
   };
 }

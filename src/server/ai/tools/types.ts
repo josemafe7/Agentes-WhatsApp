@@ -3,6 +3,8 @@
 import "server-only";
 import type { z } from "zod";
 import type { AgentHandoffConfig } from "@/db/schema";
+import type { KnowledgeRetrieval } from "@/server/knowledge/types";
+import type { OpenRouterDeps } from "../openrouter";
 
 export type ToolMode = "test" | "live";
 
@@ -20,6 +22,10 @@ export type ToolContext = {
   withinBusinessHours: boolean;
   /** The agent's hand-off settings ([AGE-09]). */
   handoff: AgentHandoffConfig;
+  /** Knowledge fragments used in this answer, filled by buscar_conocimiento ([CON-20], [PRU-02]); runAgent returns them. */
+  retrievals?: KnowledgeRetrieval[];
+  /** The run's OpenRouter client (or the fake fetch of a test), for tools that call the AI (query embeddings). */
+  ai?: OpenRouterDeps;
 };
 
 export type ToolOutput = {
@@ -39,6 +45,8 @@ export type AgentTool<S extends z.ZodType = z.ZodType> = {
   description: string;
   /** Validated before execute ([HER-02]); also the JSON Schema the model sees. */
   parameters: S;
+  /** Longest result sent back to the model; default MAX_TOOL_RESULT_CHARS (the knowledge search needs ~3,500 tokens, [CON-19]). */
+  maxResultChars?: number;
   execute(args: z.output<S>, context: ToolContext): Promise<ToolOutput>;
 };
 

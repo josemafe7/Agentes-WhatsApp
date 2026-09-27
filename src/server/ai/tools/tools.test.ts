@@ -35,9 +35,9 @@ afterEach(() => {
 });
 
 describe("tools an agent gets [AGE-08] [HER-10]", () => {
-  it("in phase 1 only the hand-off exists, and it is always on", () => {
+  it("the hand-off is always on; the knowledge search (phase 4) only when enabled; later tools do not exist yet", () => {
     expect([...toolsForAgent([]).keys()]).toEqual(["transferir_a_humano"]);
-    expect([...toolsForAgent(["crear_cita", "buscar_conocimiento", "transferir_a_humano"]).keys()]).toEqual(["transferir_a_humano"]);
+    expect([...toolsForAgent(["crear_cita", "buscar_conocimiento", "transferir_a_humano"]).keys()]).toEqual(["transferir_a_humano", "buscar_conocimiento"]);
   });
 
   it("the model sees each tool as a function with the JSON Schema of its Zod parameters", () => {

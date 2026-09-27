@@ -10,6 +10,8 @@ export type RateLimitResult = { allowed: boolean; remaining: number; resetAt: Da
 export interface RateLimiter {
   /** Counts one request for `key` and says whether it is within `limit` per `windowMs`. */
   hit(key: string, limit: number, windowMs: number): Promise<RateLimitResult>;
+  /** Whether `key` already reached `limit` in its current window, without counting a request. */
+  isLimited(key: string, limit: number, windowMs: number): Promise<boolean>;
   /** Forgets a key (e.g. after a successful sign-in). */
   reset(key: string): Promise<void>;
   /** Clean-up of counters whose window started before `date`. */
@@ -46,6 +48,11 @@ export class LibsqlRateLimiter implements RateLimiter {
       resetAt: new Date(row.windowStart.getTime() + windowMs),
       limit,
     };
+  }
+
+  async isLimited(key: string, limit: number, windowMs: number): Promise<boolean> {
+    const [row] = await this.db.select({ count: rateLimits.count, windowStart: rateLimits.windowStart }).from(rateLimits).where(eq(rateLimits.key, key));
+    return Boolean(row && row.windowStart.getTime() + windowMs > this.now().getTime() && row.count >= limit);
   }
 
   async reset(key: string): Promise<void> {

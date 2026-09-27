@@ -104,6 +104,14 @@ export const CONTENT_TYPE_LABELS: Record<MessageContentType, string> = {
   system: "Aviso del sistema",
 };
 
+/** A customer's file the channel could not give us ([WA-41]). */
+export const MEDIA_DOWNLOAD_FAILED_TEXT = "No se pudo descargar el archivo";
+
+/** What a customer's file shows while it is not stored: still downloading, or the failure of [WA-41]. */
+export function mediaNotStoredText(contentType: MessageContentType, downloadStatus: string | null | undefined): string {
+  return downloadStatus === "pending" ? `${CONTENT_TYPE_LABELS[contentType]} · descargando…` : MEDIA_DOWNLOAD_FAILED_TEXT;
+}
+
 export const URGENCY_LABELS: Record<Urgency, string> = { low: "Baja", normal: "Normal", high: "Alta" };
 
 export const HANDOFF_TRIGGER_LABELS: Record<HandoffTrigger, string> = {

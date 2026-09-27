@@ -3,6 +3,7 @@
 // never come back to the browser ([SEG-02]). «Probar clave» asks OpenRouter from the server ([ASI-07]).
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { reindexAllKnowledgeBases } from "@/data/knowledge";
 import { getBusinessProfile, getIntegrationSettings, resolveOpenRouterKey, updateIntegrationSettings } from "@/data/settings";
 import { fail, fromZodError, ok, type ActionResult } from "@/lib/action-result";
 import { checkOpenRouterKey } from "@/lib/openrouter/key";
@@ -12,6 +13,7 @@ import { getRateLimiter } from "@/server/adapters/rate-limiter";
 import { enforceAiRateLimit } from "@/server/ai/limits";
 import { getCachedModelCatalog, getTranscriptionPrivacy, type TranscriptionPrivacy } from "@/server/ai/models";
 import { toActionFailure, ValidationError } from "@/server/errors";
+import { scheduleEmbeddingsBackfill } from "@/server/knowledge/queue";
 import { requirePermission } from "@/server/session";
 import { aiSettingsFormSchema, aiSettingsFromFormData, effectiveDefaultModels, type AiModels } from "./_lib/form";
 import { defaultModelProblems, embeddingModelProblem } from "./_lib/models";
@@ -21,8 +23,13 @@ const KEY_TESTS_PER_MINUTE = 10;
 const MINUTE_MS = 60_000;
 
 /**
- * Saves keys, default models, recommended list and ZDR. The default models are checked first ([MOD-05], [MOD-02])
+ * Saves keys, default models, recommended list, ZDR and «Reordenar resultados» with its model (one of the list,
+ * [AJU-04]; with ZDR and a model that keeps data it is saved but not used, and the page says so). The default models
+ * are checked first ([MOD-05], [MOD-02])
  * and a new embeddings model is tried for real (decision 0013); if anything fails, nothing is saved ([AJU-15]).
+ * Then the knowledge catches up in the background: a new embeddings model (confirmed on screen) processes every base
+ * again, searching the old index until the new one is complete ([AJU-05], [CON-13]); a new OpenRouter key starts at
+ * once the embeddings left pending without one ([CON-12]).
  */
 export async function saveAiSettingsAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   try {
@@ -50,15 +57,19 @@ export async function saveAiSettingsAction(_prev: ActionResult | null, formData:
     await updateIntegrationSettings(actor, {
       openrouterKey: form.openrouterKey,
       mistralKey: form.mistralKey,
-      defaultModels: next,
+      defaultModels: { ...next, ...(form.rerank ? { rerank: form.rerank } : {}) },
       recommendedModels: form.recommendedModels,
       zdr: form.zdr,
+      rerankEnabled: form.rerankEnabled,
     });
+    if (embeddingsChanged) await reindexAllKnowledgeBases(actor, { model: next.embeddings });
+    if (form.openrouterKey) await scheduleEmbeddingsBackfill({ now: true });
     revalidatePath(AI_PATH);
+    if (embeddingsChanged) revalidatePath("/conocimiento", "layout");
     return ok(
       undefined,
       embeddingsChanged
-        ? "Cambios guardados. Has cambiado el modelo de embeddings: habrá que volver a procesar las bases de conocimiento."
+        ? "Cambios guardados. Has cambiado el modelo de embeddings: las bases de conocimiento se van a volver a procesar con él. Mientras tanto, se sigue buscando con el anterior."
         : "Cambios guardados.",
     );
   } catch (error) {

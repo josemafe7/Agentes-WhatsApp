@@ -8,11 +8,11 @@ import { loadBusinessSettings } from "@/data/settings";
 import { db } from "@/db";
 import { aiRuns, channels, conversations, messageRetrievals, messages, type MessageError, type MessageReaction } from "@/db/schema";
 import type { MessageContentType, MessageDirection, MessageStatus, SenderType } from "@/lib/enums";
+import { whatsappWindowState } from "@/lib/meta/window";
 import { can, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
 import { getJobQueue } from "@/server/adapters/job-queue";
 import { defaultCapabilitiesOf } from "@/server/channels/capabilities";
-import { WINDOW_24H_MS } from "@/server/engine/checks";
 import { replyDedupeKey } from "@/server/engine/schedule";
 import { AuthError, ConflictError, parseInput, ValidationError } from "@/server/errors";
 import { recordFirstHumanResponse } from "@/server/handoff/service";
@@ -48,6 +48,8 @@ export type MessageItem = {
   simulated: boolean;
   /** For «¿Por qué respondió esto?» (knowledge phase). */
   aiRunId: string | null;
+  /** WhatsApp: Meta's pricing of the sent message and its estimated cost in USD ([WA-47]); null until it arrives. */
+  pricing?: { type: string | null; category: string | null; costEstimate: number | null } | null;
   createdAt: Date;
   sentAt: Date | null;
 };
@@ -100,6 +102,7 @@ function toItem(row: typeof messages.$inferSelect): MessageItem {
     reactions: row.reactions,
     simulated: row.simulated,
     aiRunId: typeof row.metadata.aiRunId === "string" ? row.metadata.aiRunId : null,
+    pricing: row.pricingType || row.pricingCategory ? { type: row.pricingType, category: row.pricingCategory, costEstimate: row.costEstimate } : null,
     createdAt: row.createdAt,
     sentAt: row.sentAt,
   };
@@ -112,11 +115,14 @@ export const sendHumanMessageSchema = z
   })
   .strict();
 
-/** A disabled channel sends nothing ([CAN-16]); outside WhatsApp's 24 h window only a template goes ([BAN-08]). */
-async function assertCanSendNow(conversation: { channelId: string; lastInboundAt: Date | null }, now: Date): Promise<void> {
+/**
+ * A disabled channel sends nothing ([CAN-16]); outside WhatsApp's 24 h window only a template goes ([BAN-08]). The window
+ * counts from the customer's last message, and a 131047 from Meta closes it until the customer writes again ([WA-43]).
+ */
+async function assertCanSendNow(conversation: { channelId: string; lastInboundAt: Date | null; metadata: Record<string, unknown> }, now: Date): Promise<void> {
   const [channel] = await db.select().from(channels).where(eq(channels.id, conversation.channelId));
   if (!channel || channel.status === "disabled") throw new ConflictError("El canal está desactivado: no se pueden enviar mensajes.");
-  if (defaultCapabilitiesOf(channel).window24h && (!conversation.lastInboundAt || now.getTime() - conversation.lastInboundAt.getTime() > WINDOW_24H_MS)) {
+  if (defaultCapabilitiesOf(channel).window24h && !whatsappWindowState(conversation.lastInboundAt, now, conversation.metadata).open) {
     throw new ConflictError("Han pasado más de 24 horas desde el último mensaje del cliente: solo puedes enviar una plantilla aprobada.");
   }
 }
@@ -138,8 +144,11 @@ export async function sendHumanMessage(actor: Actor, input: unknown): Promise<Se
   return { messageId: sent.messageId, status: sent.status, error: sent.error, aiPausedUntil };
 }
 
-/** What every reply of a person does: AI paused with the reason, read, first response timed, pending reply dropped. */
-async function afterHumanReply(actor: Actor, conversation: { id: string; channelId: string; aiMode: string }, messageId: string, now: Date): Promise<Date | null> {
+/**
+ * What every reply of a person does: AI paused with the reason, read, first response timed, pending reply dropped.
+ * Also used by the WhatsApp templates a person sends (src/data/whatsapp-send.ts).
+ */
+export async function afterHumanReply(actor: Actor, conversation: { id: string; channelId: string; aiMode: string }, messageId: string, now: Date): Promise<Date | null> {
   const { aiPauseHours } = await loadBusinessSettings();
   const aiPausedUntil = conversation.aiMode === "ai" ? new Date(now.getTime() + aiPauseHours * HOUR_MS) : null;
   await db.transaction(async (tx) => {

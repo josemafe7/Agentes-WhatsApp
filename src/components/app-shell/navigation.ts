@@ -12,6 +12,7 @@ import {
   Inbox,
   Info,
   Mail,
+  MessageCircle,
   RadioTower,
   ScrollText,
   Settings,
@@ -59,6 +60,7 @@ export type SettingsPageKey =
   | "horario"
   | "ia"
   | "correo"
+  | "whatsapp"
   | "privacidad"
   | "notificaciones"
   | "actividad"
@@ -117,6 +119,14 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     icon: Mail,
     description: "Servidor de correo para invitaciones, recuperación de contraseña y avisos.",
     permission: PERMISSIONS.settings.integrations,
+  },
+  {
+    key: "whatsapp",
+    label: "WhatsApp",
+    href: "/ajustes/whatsapp",
+    icon: MessageCircle,
+    description: "Tarifas por mensaje de Meta y dirección de avisos de la instalación.",
+    permission: PERMISSIONS.settings.business,
   },
   {
     key: "privacidad",

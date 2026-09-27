@@ -206,12 +206,18 @@ test.describe("as the demo owner", () => {
     expect(roleAt, "the agent's own instructions come after them").toBeGreaterThan(rulesAt);
   });
 
-  test("[HER-10][AGE-08] in this phase the agent only has the hand-off tool; the others are «Próximamente»", async ({ page }) => {
+  test("[HER-10][AGE-08] a new agent has the hand-off tool; «Buscar en el conocimiento» can be switched on (fase 4) and the rest are «Próximamente»", async ({
+    page,
+  }) => {
     const agentId = await createAgentFromTemplate(page);
     await page.goto(agentPath(agentId, "herramientas"));
     const main = page.getByRole("main");
     await expect(main.getByRole("switch", { name: "Pasar a una persona" })).toBeChecked();
-    for (const label of ["Buscar en el conocimiento", "Consultar huecos libres", "Crear citas"]) {
+    // The tools arrive with their phase ([HER-10]): the knowledge search came with fase 4, off for a new agent.
+    const search = main.getByRole("switch", { name: "Buscar en el conocimiento" });
+    await expect(search, "Buscar en el conocimiento is available").toBeEnabled();
+    await expect(search).not.toBeChecked();
+    for (const label of ["Consultar huecos libres", "Crear citas"]) {
       await expect(main.getByRole("switch", { name: label }), `${label} is not available yet`).toBeDisabled();
     }
     await expect(main.getByText("Próximamente").first()).toBeVisible();

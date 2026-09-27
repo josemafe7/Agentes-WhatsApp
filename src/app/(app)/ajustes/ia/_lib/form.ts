@@ -3,10 +3,11 @@ import { z } from "zod";
 import type { DefaultModels } from "@/db/schema/settings";
 import { DEFAULT_MODELS } from "@/lib/openrouter/default-models";
 import { MODEL_ID_HINT as MODEL_HINT, MODEL_ID_PATTERN } from "@/lib/openrouter/model-id";
+import { isRerankModel, type RerankModel } from "@/lib/openrouter/rerank-models";
 
 export const MAX_RECOMMENDED_MODELS = 50;
 
-/** Default models edited on this page ([AJU-04]); rerank arrives with the knowledge search (phase 4). */
+/** Default models edited on this page ([AJU-04]); the rerank model goes with its own switch («Reordenar resultados»). */
 export const DEFAULT_MODEL_FIELDS = ["chat", "fallback", "transcription", "embeddings", "imageDescription"] as const;
 export type DefaultModelField = (typeof DEFAULT_MODEL_FIELDS)[number];
 export type AiModels = Record<DefaultModelField, string>;
@@ -31,9 +32,18 @@ export function effectiveDefaultModels(stored: DefaultModels): AiModels {
   };
 }
 
+/** The rerank model in use: the saved one, or cohere/rerank-v3.5 ([AJU-04]). */
+export function effectiveRerankModel(stored: DefaultModels): string {
+  return stored.rerank || DEFAULT_MODELS.rerank;
+}
+
 const modelId = z.string().trim().min(1, "Escribe el modelo.").max(200, MODEL_HINT).regex(MODEL_ID_PATTERN, MODEL_HINT);
 /** A secret field: absent = keep (the «Cambiar» button was not pressed); "" also keeps ([AJU-16]). */
 const secret = z.string().trim().max(2_000, "Valor demasiado largo.").optional();
+const rerankModel = z
+  .string()
+  .trim()
+  .refine((value): value is RerankModel => isRerankModel(value), "Elige uno de los modelos de reordenación de la lista.");
 
 export const aiSettingsFormSchema = z.object({
   openrouterKey: secret,
@@ -54,6 +64,10 @@ export const aiSettingsFormSchema = z.object({
         .max(MAX_RECOMMENDED_MODELS, `Como mucho ${MAX_RECOMMENDED_MODELS} modelos.`),
     ),
   zdr: z.boolean(),
+  /** «Reordenar resultados» for the whole install, off by default ([AJU-04], [CON-16]). */
+  rerankEnabled: z.boolean(),
+  /** Absent = keep the saved one. */
+  rerank: rerankModel.optional(),
 });
 
 export type AiSettingsForm = z.output<typeof aiSettingsFormSchema>;
@@ -72,5 +86,7 @@ export function aiSettingsFromFormData(formData: FormData) {
     imageDescription: String(formData.get("imageDescription") ?? ""),
     recommendedModels: String(formData.get("recommendedModels") ?? ""),
     zdr: formData.get("zdr") === "on",
+    rerankEnabled: formData.get("rerankEnabled") === "on",
+    rerank: optionalText(formData, "rerank"),
   };
 }

@@ -1,9 +1,11 @@
+import { eq } from "drizzle-orm";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@/db";
-import { agents, aiRuns, appKv, auditLog, integrationSettings, rateLimits } from "@/db/schema";
+import { agents, aiRuns, appKv, auditLog, integrationSettings, jobs, knowledgeBases, rateLimits } from "@/db/schema";
 import type { Role } from "@/lib/enums";
 import type { OpenRouterKeyCheck } from "@/lib/openrouter/key";
 import { DEFAULT_MODELS } from "@/lib/openrouter/default-models";
+import { rerankModelOptions, rerankZdrWarning } from "@/lib/openrouter/rerank-models";
 import type { Actor } from "@/lib/permissions";
 import { getModelCatalog } from "@/server/ai/models";
 import { createBusiness, createUser, type TestUser } from "@/test/factories";
@@ -234,6 +236,50 @@ describe("Ajustes › IA actions", () => {
   });
 });
 
+describe("Ajustes › IA: «Reordenar resultados» [AJU-04] [CON-16]", () => {
+  beforeEach(async () => {
+    await db.update(integrationSettings).set({ rerankEnabled: false });
+  });
+
+  it("is off by default with cohere/rerank-v3.5, and is saved on with its model", async () => {
+    expect((await loadAiSettingsView(owner.actor)).rerank).toEqual({ enabled: false, model: DEFAULT_MODELS.rerank });
+    expect(await saveAiSettingsAction(null, validForm({ rerankEnabled: "on", rerank: "cohere/rerank-4-fast" }))).toMatchObject({ ok: true });
+    const row = await stored();
+    expect(row.rerankEnabled).toBe(true);
+    expect(row.defaultModels).toMatchObject({ rerank: "cohere/rerank-4-fast", chat: "openai/gpt-5.6-luna" });
+    expect((await loadAiSettingsView(admin.actor)).rerank).toEqual({ enabled: true, model: "cohere/rerank-4-fast" });
+
+    // A form without the field keeps the model; the switch left off turns it off.
+    expect(await saveAiSettingsAction(null, validForm())).toMatchObject({ ok: true });
+    expect(await stored()).toMatchObject({ rerankEnabled: false, defaultModels: expect.objectContaining({ rerank: "cohere/rerank-4-fast" }) });
+  });
+
+  it("only a rerank model of the list is accepted, checked on the server [AJU-15]", async () => {
+    const result = await saveAiSettingsAction(null, validForm({ rerankEnabled: "on", rerank: "openai/gpt-5.6-luna" }));
+    expect(result).toMatchObject({ ok: false, fieldErrors: { rerank: [expect.stringMatching(/reordenación/)] } });
+    expect(await stored()).toMatchObject({ rerankEnabled: false, defaultModels: {} });
+  });
+
+  it("with ZDR on, a model that keeps data can be saved but the page says it will not reorder", async () => {
+    expect(await saveAiSettingsAction(null, validForm({ zdr: "on", rerankEnabled: "on", rerank: "cohere/rerank-v3.5" }))).toMatchObject({ ok: true });
+    const view = await loadAiSettingsView(owner.actor);
+    expect(view.rerank).toEqual({ enabled: true, model: "cohere/rerank-v3.5" });
+    expect(rerankZdrWarning(view.rerank.model, view.zdr)).toMatch(/no se reordena/);
+    expect(rerankZdrWarning("qwen/qwen3-reranker-8b", true)).toBeNull();
+    expect(rerankZdrWarning("cohere/rerank-v3.5", false)).toBeNull();
+    // With ZDR, only the models whose every provider keeps no data are offered.
+    expect(rerankModelOptions({ zdr: true, current: "qwen/qwen3-reranker-8b" })).toEqual(["qwen/qwen3-reranker-8b"]);
+    expect(rerankModelOptions({ zdr: true, current: "cohere/rerank-v3.5" })).toEqual(["qwen/qwen3-reranker-8b", "cohere/rerank-v3.5"]);
+    expect(rerankModelOptions({ zdr: false, current: DEFAULT_MODELS.rerank })).toEqual(expect.arrayContaining([DEFAULT_MODELS.rerank, "qwen/qwen3-reranker-8b"]));
+  });
+
+  it.each<Role>(["supervisor", "agent", "viewer"])("%s cannot turn it on [PER-04]", async (role) => {
+    state.actor = (await createUser(role)).actor;
+    expect(await saveAiSettingsAction(null, validForm({ rerankEnabled: "on", rerank: "qwen/qwen3-reranker-8b" }))).toEqual(FORBIDDEN);
+    expect(await stored()).toMatchObject({ rerankEnabled: false, defaultModels: {} });
+  });
+});
+
 /** Keeps the sample catalogue in the 12 h cache, as the picker leaves it, and leaves the AI without a key. */
 async function cacheSampleCatalog() {
   vi.stubEnv("OPENROUTER_BASE_URL", FAKE_BASE_URL);
@@ -349,6 +395,68 @@ describe("Ajustes › IA: a new embeddings model must give 1536 numbers [AJU-05]
       error: "Has hecho muchas peticiones a la IA seguidas. Espera un minuto y vuelve a intentarlo.",
     });
     expect(fake.calls).toHaveLength(10);
+  });
+});
+
+describe("Ajustes › IA and the knowledge: re-index on a new embeddings model, pending embeddings on a new key [AJU-05] [CON-12] [CON-13]", () => {
+  beforeEach(async () => {
+    await db.delete(jobs);
+    await db.delete(knowledgeBases);
+  });
+
+  const jobsOf = (type: string) => db.select().from(jobs).where(eq(jobs.type, type));
+
+  it("after confirming a new embeddings model, every knowledge base is processed again with it, keeping its index until the new one is ready", async () => {
+    const [first, second] = await db
+      .insert(knowledgeBases)
+      .values([
+        { name: "Información del negocio", indexVersion: 1 },
+        { name: "Catálogo", indexVersion: 3 },
+      ])
+      .returning();
+    const result = await saveAiSettingsAction(null, validForm({ embeddings: "openai/text-embedding-3-large" }));
+    expect(result).toMatchObject({ ok: true, message: expect.stringMatching(/volver a procesar/) });
+
+    const bases = await db.select().from(knowledgeBases);
+    // Searches keep the index in use; the new version is being built ([CON-13]).
+    expect(bases.find((base) => base.id === first.id)).toMatchObject({ indexVersion: 1, buildingIndexVersion: 2 });
+    expect(bases.find((base) => base.id === second.id)).toMatchObject({ indexVersion: 3, buildingIndexVersion: 4 });
+    const reindexJobs = await jobsOf("knowledge.reindex");
+    expect(reindexJobs.map((job) => job.payload).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))).toEqual(
+      [
+        { kbId: first.id, version: 2, model: "openai/text-embedding-3-large" },
+        { kbId: second.id, version: 4, model: "openai/text-embedding-3-large" },
+      ].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+    );
+    expect((await db.select().from(auditLog)).map((row) => row.action)).toContain("knowledge.all_reindexed");
+  });
+
+  it("saving without changing the embeddings model processes nothing again", async () => {
+    await db.insert(knowledgeBases).values({ name: "Información del negocio" });
+    expect(await saveAiSettingsAction(null, validForm())).toMatchObject({ ok: true, message: "Cambios guardados." });
+    expect(await jobsOf("knowledge.reindex")).toEqual([]);
+    expect((await db.select().from(knowledgeBases))[0].buildingIndexVersion).toBeNull();
+  });
+
+  it("a new OpenRouter key starts the pending embeddings right away; saving without a new key does not", async () => {
+    expect(await saveAiSettingsAction(null, validForm())).toMatchObject({ ok: true });
+    expect(await jobsOf("knowledge.embeddings")).toEqual([]);
+
+    const before = Date.now();
+    expect(await saveAiSettingsAction(null, validForm({ openrouterKey: OPENROUTER_KEY }))).toMatchObject({ ok: true });
+    const pending = await jobsOf("knowledge.embeddings");
+    expect(pending).toHaveLength(1);
+    expect(pending[0].runAt.getTime()).toBeLessThanOrEqual(Date.now());
+    expect(pending[0].runAt.getTime()).toBeGreaterThanOrEqual(before - 1_000);
+  });
+
+  it("nobody but owner and admin gets there: nothing is processed again [PER-04]", async () => {
+    await db.insert(knowledgeBases).values({ name: "Información del negocio" });
+    for (const role of ["supervisor", "agent", "viewer"] as const) {
+      state.actor = (await createUser(role)).actor;
+      expect(await saveAiSettingsAction(null, validForm({ embeddings: "openai/text-embedding-3-large", openrouterKey: OPENROUTER_KEY }))).toEqual(FORBIDDEN);
+    }
+    expect(await db.select().from(jobs)).toEqual([]);
   });
 });
 

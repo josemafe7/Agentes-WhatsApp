@@ -58,9 +58,9 @@ export type ToolCallOutcome = {
   reply?: string;
 };
 
-function toolMessage(callId: string, result: Record<string, unknown>): ToolMessage {
+function toolMessage(callId: string, result: Record<string, unknown>, maxChars: number = MAX_TOOL_RESULT_CHARS): ToolMessage {
   const text = JSON.stringify(result);
-  return { role: "tool", tool_call_id: callId, content: text.length > MAX_TOOL_RESULT_CHARS ? `${text.slice(0, MAX_TOOL_RESULT_CHARS)}…` : text };
+  return { role: "tool", tool_call_id: callId, content: text.length > maxChars ? `${text.slice(0, maxChars)}…` : text };
 }
 
 /**
@@ -125,7 +125,7 @@ export async function executeToolCall(
 
   return {
     record: { id: call.id, name, arguments: args, ok, result },
-    message: toolMessage(call.id, result),
+    message: toolMessage(call.id, result, tool?.maxResultChars),
     ...(ok && reply ? { reply } : {}),
   };
 }

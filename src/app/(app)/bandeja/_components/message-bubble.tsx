@@ -9,7 +9,8 @@ import type { MessageItem } from "@/data/messages";
 import type { ChannelType } from "@/lib/enums";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { CONTENT_TYPE_LABELS, contactDisplayName, DELIVERY_META, formatFileSize } from "../_lib/presentation";
+import { MessageCost } from "../[id]/_whatsapp/message-cost";
+import { CONTENT_TYPE_LABELS, contactDisplayName, DELIVERY_META, formatFileSize, mediaNotStoredText } from "../_lib/presentation";
 
 /** Longer transcripts start folded. */
 const LONG_TRANSCRIPT = 280;
@@ -29,6 +30,8 @@ type MessageBubbleProps = {
   retrying: boolean;
   /** Under a draft of the AI: «Aprobar y enviar», «Editar» and «Descartar», for whoever may review it ([CAN-07]). */
   draftReview?: ReactNode;
+  /** More actions in the line under the message, such as «Convertir en FAQ» on a person's reply ([CON-22]). */
+  actions?: ReactNode;
 };
 
 /**
@@ -36,13 +39,14 @@ type MessageBubbleProps = {
  * ([BAN-05]); audio with its transcript, images, videos and documents served by the authenticated file route
  * ([BAN-06], [MED-08]).
  */
-export function MessageBubble({ message, first, last, channel, contactName, timezone, hasSources, onShowSources, onRetry, retrying, draftReview }: MessageBubbleProps) {
+export function MessageBubble({ message, first, last, channel, contactName, timezone, hasSources, onShowSources, onRetry, retrying, draftReview, actions }: MessageBubbleProps) {
   const time = formatDateTime(message.createdAt, timezone, { preset: "time" });
   if (message.senderType === "system") {
     return (
       <div className="flex items-start justify-center gap-1.5 px-6 text-center text-xs text-muted-foreground">
         <Info aria-hidden className="mt-px size-3.5 shrink-0" />
         <p>
+          <span className="sr-only">Sistema: </span>
           {message.text ?? CONTENT_TYPE_LABELS.system} · <time dateTime={message.createdAt.toISOString()}>{time}</time>
         </p>
       </div>
@@ -93,12 +97,14 @@ export function MessageBubble({ message, first, last, channel, contactName, time
             Simulado
           </span>
         ) : null}
+        {outbound ? <MessageCost pricing={message.pricing} /> : null}
         {hasSources ? (
           <Button type="button" variant="link" size="xs" className="h-auto p-0 text-xs text-primary-text" onClick={onShowSources}>
             <BookOpen aria-hidden />
             Ver fuentes
           </Button>
         ) : null}
+        {actions}
       </div>
       {draft && draftReview ? draftReview : null}
       {message.status === "failed" ? (
@@ -168,7 +174,7 @@ function MessageContent({ message, onPrimary }: { message: MessageItem; onPrimar
       <div className="flex flex-col gap-1">
         <p className={cn("inline-flex items-center gap-1.5", secondary)}>
           {pending ? <LoaderCircle aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" /> : null}
-          {CONTENT_TYPE_LABELS[message.contentType]} · {pending ? "descargando…" : "no se ha podido descargar"}
+          {mediaNotStoredText(message.contentType, media.downloadStatus)}
         </p>
         {text}
       </div>

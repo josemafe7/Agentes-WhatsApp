@@ -110,6 +110,18 @@ describe("a person replies from the inbox [BAN-11] [BAN-05]", () => {
     expect(await errorOf(sendHumanMessage(users.owner.actor, { conversationId: conversation.id, text: "Hola" }))).toBeInstanceOf(ConflictError);
   });
 
+  it("a window Meta closed with 131047 only lets a template go, although less than 24 h have passed [BAN-08] [WA-43]", async () => {
+    const wa = await createChannel({ name: "WA Meta", type: "whatsapp", isDemo: true });
+    const { contact } = await createContactWithIdentity("whatsapp");
+    const conversation = await createConversation(wa.id, contact.id, { lastInboundAt: new Date(Date.now() - 3_600_000) });
+    await db
+      .update(conversations)
+      .set({ metadata: { whatsappWindowClosedAt: new Date(Date.now() - 60_000).toISOString() } })
+      .where(eq(conversations.id, conversation.id));
+    expect(await errorOf(sendHumanMessage(users.owner.actor, { conversationId: conversation.id, text: "Hola" }))).toBeInstanceOf(ConflictError);
+    expect(await outbound(conversation.id)).toHaveLength(0);
+  });
+
   it("Solo lectura and agents of other channels cannot reply [PER-02] [PER-03]", async () => {
     await forbidden(sendHumanMessage(users.viewer.actor, { conversationId: inA.id, text: "Hola" }));
     await forbidden(sendHumanMessage(users.agentA.actor, { conversationId: inB.id, text: "Hola" }));

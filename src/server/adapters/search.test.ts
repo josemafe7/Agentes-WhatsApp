@@ -60,6 +60,11 @@ describe("buildFtsQuery [CON-16]", () => {
     expect(buildFtsQuery("de la que")).toBeNull();
     expect(buildFtsQuery("¿?!")).toBeNull();
   });
+
+  it("with prefix, longer words become prefix queries and a plural «s» is dropped", () => {
+    expect(buildFtsQuery("¿Tintes y mechas en el pelo?", { prefix: true })).toBe('"tinte"* OR "mecha"* OR "pelo"*');
+    expect(buildFtsQuery('uña "rara"', { prefix: true })).toBe('"uña" OR "rara"*');
+  });
 });
 
 describe("LibsqlTextSearch", () => {
@@ -84,6 +89,11 @@ describe("LibsqlTextSearch", () => {
     const both = await search.search("depilación", { kbs: [...scopeA.kbs, { kbId: kbB, indexVersion: 1 }] });
     expect(both.map((h) => h.chunkId)).toContain(ids["otra-base"]);
     expect(await search.search("depilación", { kbs: [] })).toEqual([]);
+  });
+
+  it("with prefix, a plural finds the singular (no Spanish stemming in FTS5)", async () => {
+    expect(await search.search("tintes", scopeA)).toEqual([]);
+    expect((await search.search("tintes", { ...scopeA, prefix: true })).map((h) => h.chunkId)).toContain(ids.tinte);
   });
 
   it("never fails on hostile input", async () => {
