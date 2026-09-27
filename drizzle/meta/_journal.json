@@ -22,6 +22,13 @@
       "when": 1790450118129,
       "tag": "0002_ai_runs_cached_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1790469234661,
+      "tag": "0003_handoff_closed_at",
+      "breakpoints": true
     }
   ]
 }

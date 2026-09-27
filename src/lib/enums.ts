@@ -80,7 +80,7 @@ export type KbDocumentStatus = (typeof KB_DOCUMENT_STATUSES)[number];
 export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
-export const AI_RUN_KINDS = ["chat", "transcription", "embedding", "rerank", "image_description", "generation"] as const;
+export const AI_RUN_KINDS = ["chat", "transcription", "embedding", "rerank", "image_description", "generation", "summary"] as const;
 export type AiRunKind = (typeof AI_RUN_KINDS)[number];
 
 export const JOB_STATUSES = ["pending", "running", "done", "failed", "cancelled"] as const;

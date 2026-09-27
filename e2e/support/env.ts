@@ -64,6 +64,13 @@ const BLANKED_ENV = {
 
 export type AppServerKind = "demo" | "fresh";
 
+/**
+ * The wait before the AI answers a customer, fixed for the e2e run instead of the real 4–8 s ([MOT-01],
+ * src/server/engine/schedule.ts reads REPLY_DEBOUNCE_MS). Short enough for quick tests, long enough for three messages
+ * typed one after another in the web chat to land inside the same wait and get a single reply.
+ */
+export const REPLY_DEBOUNCE_MS = 2_000;
+
 /** Environment of one app server. The demo keeps DEMO_MODE on; the fresh install behaves like a real business. */
 export function appServerEnv(kind: AppServerKind): Record<string, string> {
   const url = kind === "demo" ? DEMO_URL : FRESH_URL;
@@ -75,6 +82,7 @@ export function appServerEnv(kind: AppServerKind): Record<string, string> {
     APP_URL: url,
     BETTER_AUTH_URL: url,
     DEMO_MODE: kind === "demo" ? "true" : "false",
+    REPLY_DEBOUNCE_MS: String(REPLY_DEBOUNCE_MS),
     NEXT_TELEMETRY_DISABLED: "1",
   };
 }

@@ -423,9 +423,9 @@ apartado en Ayuda ([AJU-17]).
 | Correo del sistema | `/ajustes/correo` | 0 | SMTP y «Enviar correo de prueba» (invitaciones, recuperación, avisos) | Ajustes |
 | WhatsApp | `/ajustes/whatsapp` | 3 | Tarifas por mercado y categoría (editables; las de la demo marcadas «ejemplo»), con la nota de que los mensajes gratis los marca Meta en cada estado y no se configuran ([AJU-09]); token de verificación de la instalación | WhatsApp (coste estimado) |
 | Privacidad y legal | `/ajustes/privacidad` | 7 | Datos del responsable, textos de las páginas legales con enlace a cada una, aviso de IA por defecto, conservación (conversaciones, audios, adjuntos, webhooks) | Cumplimiento |
-| Notificaciones | `/ajustes/notificaciones` | 2 | Qué sucesos avisan (traspaso, conversación asignada, canal con error, calidad de WhatsApp, modelo que se retira) y a quién por defecto ([AJU-08]); cada persona elige después en Mi cuenta por dónde le llegan | Traspaso, PWA |
+| Notificaciones | `/ajustes/notificaciones` | 2 | Qué sucesos avisan (traspaso, conversación asignada, canal con error, calidad de WhatsApp, modelo que se retira) y a quién por defecto ([AJU-08]); «Bandeja y traspasos»: horas de pausa de la IA cuando responde una persona ([BAN-11]) y traspasos por turnos o sin asignar ([TRA-04]); cada persona elige después en Mi cuenta por dónde le llegan | Traspaso, PWA |
 | Registro de actividad | `/ajustes/actividad` | 7 | Tabla de acciones de personas e IA con filtros | Seguridad (trazabilidad) |
-| Diagnóstico | `/ajustes/diagnostico` | 2 | Base de datos, cola (pendientes y fallidos con «Reintentar»), último webhook por canal, errores recientes, pruebas | Ajustes (diagnóstico) |
+| Diagnóstico | `/ajustes/diagnostico` | 2 | Base de datos, cola (pendientes y fallidos con «Reintentar»), errores recientes de la IA (hora, tipo, canal, modelo, error y «Ver la conversación»), último webhook por canal, correos del sistema, pruebas | Ajustes (diagnóstico) |
 | Simulador de canales | `/ajustes/diagnostico/simulador` | 2 | Elegir canal, contacto y tipo (texto, audio, imagen o documento), escribir y «Enviar»; «Ver conversación» | Demo, Simulador |
 | Acerca de | `/ajustes/acerca` | 0 | Versión y enlaces a Ayuda | Ajustes |
 

@@ -30,11 +30,11 @@ export default async function AgentChannelsPage({ params }: PageProps) {
         <EmptyState
           icon={RadioTower}
           title="Todavía no hay canales"
-          description="Cuando conectes el chat web, WhatsApp o el correo, podrás elegir aquí en cuáles responde este agente."
+          description="Añade un chat web, WhatsApp o el correo y elige aquí en cuáles responde este agente."
           action={
             canChange ? (
               <Button asChild variant="outline">
-                <Link href="/canales">Ir a Canales</Link>
+                <Link href="/canales/nuevo">Añadir canal</Link>
               </Button>
             ) : undefined
           }

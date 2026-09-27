@@ -54,6 +54,10 @@ export type RunAgentContext = {
   summary?: string | null;
   /** The channel's AI notice, when it has its own ([CUM-01]). */
   aiDisclosureText?: string | null;
+  /** Live replies: the engine puts the AI notice in front of the first reply, so the model must not repeat it. */
+  disclosureAddedByPlatform?: boolean;
+  /** Messages of `history` the prompt keeps (default DEFAULT_HISTORY_MESSAGES); the rest is in `summary` ([MOT-13]). */
+  maxHistoryMessages?: number;
 };
 
 export type RunAgentInput = {
@@ -135,8 +139,10 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
     contact: context.contact ?? null,
     summary: context.summary ?? null,
     history: input.history,
+    maxHistoryMessages: context.maxHistoryMessages,
     now,
     aiDisclosureText: context.aiDisclosureText ?? businessData.aiDisclosureText,
+    disclosureAddedByPlatform: context.disclosureAddedByPlatform,
   });
 
   const tools = toolsForAgent(agent.systemTools);

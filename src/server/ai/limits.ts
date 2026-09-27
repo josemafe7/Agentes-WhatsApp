@@ -14,6 +14,8 @@ export const AI_RATE_LIMITS = {
   generate: { limit: 5, windowMs: MINUTE_MS },
   /** «Actualizar lista» of models and the real checks of a model choice. */
   models: { limit: 10, windowMs: MINUTE_MS },
+  /** A message of the channel simulator, which the AI answers (Ajustes › Diagnóstico). */
+  simulator: { limit: 20, windowMs: MINUTE_MS },
 } as const;
 export type AiRateLimitKind = keyof typeof AI_RATE_LIMITS;
 

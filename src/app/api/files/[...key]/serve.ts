@@ -2,6 +2,8 @@
 import "server-only";
 import { canViewAgentAvatar } from "@/data/agents";
 import { isPublicLogoKey } from "@/data/business";
+import { canViewMessageMedia } from "@/data/messages";
+import { canViewWebchatLogo } from "@/data/webchat-logo";
 import type { StoredFile } from "@/server/adapters/file-storage";
 import type { SessionActor } from "@/server/session";
 
@@ -20,6 +22,9 @@ export async function resolveFileAccess(key: string, actor: SessionActor | null)
   if (await isPublicLogoKey(key)) return "public";
   if (!actor || actor.twoFactorSetupRequired) return "unauthenticated";
   if (await canViewAgentAvatar(actor, key)) return "private";
+  // A web chat's own logo, for the previews in Canales (the widget serves it through its own route) ([WEB-02]).
+  if (await canViewWebchatLogo(actor, key)) return "private";
+  if (await canViewMessageMedia(actor, key)) return "private";
   return "not_found";
 }
 
@@ -32,12 +37,29 @@ function isInline(contentType: string): boolean {
   return INLINE_TYPES.has(type) || INLINE_PREFIXES.some((prefix) => type.startsWith(prefix));
 }
 
+/**
+ * «inline» for what the page shows; «attachment» for the rest, with the original name (RFC 6266): an ASCII
+ * fallback plus the UTF-8 form. Control characters are dropped, so a name can never break the header.
+ */
+function contentDisposition(contentType: string, fileName: string | null | undefined): string {
+  if (isInline(contentType)) return "inline";
+  const clean = fileName?.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  if (!clean) return "attachment";
+  const fallback = clean.replace(/[^\x20-\x7e]|["\\%]/g, "_");
+  const encoded = encodeURIComponent(clean).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
 /** Headers of a served file: stored type, never sniffed, sandboxed, and not cached by shared caches if private. */
-export function fileResponseHeaders(file: Pick<StoredFile, "contentType" | "size">, visibility: FileVisibility): Record<string, string> {
+export function fileResponseHeaders(
+  file: Pick<StoredFile, "contentType" | "size">,
+  visibility: FileVisibility,
+  downloadName?: string | null,
+): Record<string, string> {
   return {
     "Content-Type": file.contentType,
     "Content-Length": String(file.size),
-    "Content-Disposition": isInline(file.contentType) ? "inline" : "attachment",
+    "Content-Disposition": contentDisposition(file.contentType, downloadName),
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "sandbox",
     // Logo keys are new on every upload, so a cached copy never goes stale.

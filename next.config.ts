@@ -19,6 +19,9 @@ const nextConfig: NextConfig = {
   // In development Next.js prints every Server Function call with its arguments: the sign-in password, the
   // OpenRouter key typed in the wizard, 2FA codes… Logs never carry secrets ([SEG-02], [SEG-14]).
   logging: { serverFunctions: false },
+  // Files a person attaches in the inbox go through a Server Action ([BAN-14], at most 3.5 MB plus the form's own
+  // bytes): the default 1 MB would refuse most photos. Still under Vercel's 4.5 MB body limit.
+  experimental: { serverActions: { bodySizeLimit: "4mb" } },
   // @libsql/client, libsql and pino (imapflow) are externalized by Next.js already. ffmpeg-static resolves its
   // binary from __dirname, so it must be loaded with Node's require (docs/plataforma-despliegue.md).
   serverExternalPackages: ["ffmpeg-static"],

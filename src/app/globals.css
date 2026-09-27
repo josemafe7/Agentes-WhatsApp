@@ -70,6 +70,13 @@
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
 
+  /* The web chat is always light (DESIGN.md «Chat web (widget)»): its preview in Canales uses these, never dark */
+  --color-widget-surface: var(--widget-surface);
+  --color-widget-foreground: var(--widget-foreground);
+  --color-widget-muted: var(--widget-muted);
+  --color-widget-muted-foreground: var(--widget-muted-foreground);
+  --color-widget-border: var(--widget-border);
+
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -157,6 +164,13 @@
   --sidebar-accent-foreground: #18181b;
   --sidebar-border: #e4e4e7;
   --sidebar-ring: var(--primary);
+
+  /* Same values as public/widget.js; not redefined in .dark */
+  --widget-surface: #ffffff;
+  --widget-foreground: #09090b;
+  --widget-muted: #f4f4f5;
+  --widget-muted-foreground: #65656f;
+  --widget-border: #e4e4e7;
 }
 
 .dark {

@@ -4,7 +4,9 @@
 import type { Page } from "@playwright/test";
 import { agentCard, AGENTS_PATH } from "../support/agents";
 import { newPersonContext } from "../support/app";
+import { activeAgentPicker, channelCards, CHANNELS_PATH } from "../support/channels";
 import { TEST_SECRETS } from "../support/env";
+import { chosenLabel } from "../support/forms";
 import { clientIpFor, expect, test } from "../support/test";
 import {
   clickAndWaitForPost,
@@ -24,6 +26,8 @@ const HOURS_STEP_TITLE = "Horario, festivos y zona horaria";
 const DENTAL_TEMPLATE_AGENT = "Recepción de la clínica";
 /** The name the owner gives the first agent in step 5. */
 const FIRST_AGENT_NAME = "Recepción Sonrisa";
+/** What the owner writes in the web chat of step 6, trying it right there. */
+const SETUP_CHAT_TEXT = "Hola, ¿esto funciona? Soy la propietaria probando el chat.";
 
 type Person = { name: string; email: string; password: string };
 
@@ -40,7 +44,7 @@ function stepUrl(step: number): RegExp {
   return new RegExp(`/setup\\?paso=${step}$`);
 }
 
-test("[ARR-17][ASI-01][ASI-02][ASI-03][ASI-05][ASI-06][ASI-07][ASI-08][ASI-10][ASI-11] the first owner sets up an empty installation", async ({ page, browser, mock }, testInfo) => {
+test("[ARR-17][ASI-01][ASI-02][ASI-03][ASI-05][ASI-06][ASI-07][ASI-08][ASI-09][ASI-10][ASI-11] the first owner sets up an empty installation", async ({ page, browser, mock }, testInfo) => {
   // Seven steps and a second browser: more than the default time.
   test.setTimeout(180_000);
   const owner: Person = { name: "Olga Propietaria", email: "olga@e2e.test", password: "e2e-clave-olga-1" };
@@ -162,8 +166,26 @@ test("[ARR-17][ASI-01][ASI-02][ASI-03][ASI-05][ASI-06][ASI-07][ASI-08][ASI-10][A
     await expect(page).toHaveURL(stepUrl(6));
   });
 
-  await test.step("the step still to come (web chat) can be passed", async () => {
-    await clickAndWaitForPost(page, page.getByRole("button", { name: "Continuar" }));
+  await test.step("[ASI-09] step 6 creates a web chat where the first agent answers, ready to try right here and in /widget-demo", async () => {
+    // The step says who will answer: the agent of step 5.
+    await expect(page.getByText(FIRST_AGENT_NAME).first()).toBeVisible();
+    await clickAndWaitForPost(page, page.getByRole("button", { name: "Crear el chat web" }));
+    await expect(page.getByRole("heading", { name: /está listo$/ })).toBeVisible();
+    await expect(page).toHaveURL(stepUrl(6));
+    await expect(page.getByText(FIRST_AGENT_NAME).first()).toBeVisible();
+    // Without a key the chat cannot answer yet: the test only checks that it can be tried (Canales is checked at the end).
+    await expect(page.getByRole("link", { name: /widget-demo/ })).toHaveAttribute("href", /^\/widget-demo\?canal=[0-9a-f-]{36}$/);
+    // «Ahí mismo»: the chat loads on this page, as on the business's site, and a message reaches the inbox.
+    const launcher = page.getByRole("button", { name: /^Abrir el chat/ });
+    await expect(launcher).toBeVisible({ timeout: 20_000 });
+    await launcher.click();
+    const panel = page.getByRole("dialog");
+    await panel.getByRole("textbox", { name: /mensaje|escribe/i }).fill(SETUP_CHAT_TEXT);
+    await panel.getByRole("button", { name: /^Enviar/ }).click();
+    await expect(panel.getByRole("list", { name: "Mensajes" }).getByText(SETUP_CHAT_TEXT, { exact: true })).toBeVisible();
+    await panel.getByRole("button", { name: "Cerrar el chat" }).click();
+    await expect(panel).toBeHidden();
+    await page.getByRole("link", { name: "Continuar", exact: true }).click();
     await expect(page).toHaveURL(stepUrl(7));
   });
 
@@ -181,6 +203,8 @@ test("[ARR-17][ASI-01][ASI-02][ASI-03][ASI-05][ASI-06][ASI-07][ASI-08][ASI-10][A
     await expect(page).toHaveURL(pathPattern("/bandeja"));
     await expect(page.getByText(OPENROUTER_BANNER)).toBeVisible();
     await expect(page.getByText(DEMO_BANNER, { exact: true })).toHaveCount(0);
+    // [ASI-09] What the owner wrote in the chat of step 6 waits in the inbox (no key: the AI does not answer).
+    await expect(page.getByRole("list", { name: "Conversaciones" }).getByText(SETUP_CHAT_TEXT)).toBeVisible();
   });
 
   await test.step("[ASI-08][AGE-01] the first agent is in Agentes, ready to be tested", async () => {
@@ -190,6 +214,13 @@ test("[ARR-17][ASI-01][ASI-02][ASI-03][ASI-05][ASI-06][ASI-07][ASI-08][ASI-10][A
     await card.getByRole("link").first().click();
     await expect(page).toHaveURL(/\/agentes\/[0-9a-f-]{36}$/);
     await expect(page.getByRole("heading", { level: 1, name: FIRST_AGENT_NAME })).toBeVisible();
+  });
+
+  await test.step("[ASI-09][CAN-01] the web chat of step 6 is in Canales with the first agent active", async () => {
+    await page.goto(CHANNELS_PATH);
+    const webchats = channelCards(page).filter({ hasText: "Chat web" });
+    await expect(webchats).toHaveCount(1);
+    await expect.poll(() => chosenLabel(activeAgentPicker(webchats))).toContain(FIRST_AGENT_NAME);
   });
 
   await test.step("[ASI-01][ASI-02] once finished, the wizard cannot be opened again", async () => {

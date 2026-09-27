@@ -10,7 +10,7 @@ import type { ChannelStatus, ChannelType } from "@/lib/enums";
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
 import { ConflictError, NotFoundError, parseInput } from "@/server/errors";
-import { writeAudit } from "./audit";
+import { applyActiveAgent } from "./channels";
 import { assertCan } from "./guard";
 
 export type AgentChannelItem = {
@@ -77,19 +77,7 @@ export async function setAgentChannelActive(actor: Actor, input: unknown): Promi
     const replaced = data.active && channel.activeAgentId && channel.activeAgentId !== agent.id ? channel.activeAgentName : null;
     if (replaced && !data.confirmReplace) throw new ConflictError(`En «${channel.name}» responde ahora «${replaced}». Si continúas, lo sustituirá.`);
     const next = data.active ? agent.id : channel.activeAgentId === agent.id ? null : channel.activeAgentId;
-    if (next !== channel.activeAgentId) {
-      await tx.update(channels).set({ activeAgentId: next, updatedAt: new Date() }).where(eq(channels.id, channel.id));
-      await writeAudit(
-        {
-          actor,
-          action: "channel.agent_changed",
-          targetType: "channel",
-          targetId: channel.id,
-          metadata: { agentId: next, previousAgentId: channel.activeAgentId },
-        },
-        tx,
-      );
-    }
+    await applyActiveAgent(tx, actor, channel.id, channel.activeAgentId, next);
     return { replacedAgentName: replaced };
   });
 }

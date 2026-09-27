@@ -55,8 +55,8 @@ import {
 export const SETUP_STEP = { owner: 1, business: 2, hours: 3, ai: 4, agent: 5, webchat: 6, channels: 7 } as const;
 export const SETUP_STEP_COUNT = 7;
 /**
- * Steps with nothing required: «Hacerlo más tarde» (AI), «Saltar este paso» (first agent) or «Continuar» (web
- * chat, a placeholder until the web chat exists in phase 2) just marks them done.
+ * Steps with nothing required: «Hacerlo más tarde» (AI) and «Saltar este paso» (first agent and web chat) just mark
+ * them done. Creating the web chat of step 6 marks it done too (src/data/setup-webchat.ts).
  */
 export const SKIPPABLE_SETUP_STEPS: readonly number[] = [SETUP_STEP.ai, SETUP_STEP.agent, SETUP_STEP.webchat];
 
@@ -529,7 +529,7 @@ const skippableStepSchema = z
   .int()
   .refine((step) => SKIPPABLE_SETUP_STEPS.includes(step), "Este paso no se puede saltar.");
 
-/** «Hacerlo más tarde» (AI), «Saltar este paso» (first agent) and «Continuar» on the web chat placeholder. */
+/** «Hacerlo más tarde» (AI) and «Saltar este paso» (first agent and web chat). */
 export async function skipSetupStep(actor: Actor, step: unknown): Promise<void> {
   assertSetupOwner(actor);
   const value = parseInput(skippableStepSchema, step);

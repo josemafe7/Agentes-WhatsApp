@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { BusinessBrand } from "./business-brand";
 import { INBOX_PATH } from "./home-destination";
 import { ShellTrail } from "./shell-trail";
@@ -24,6 +25,7 @@ export function AppTopbar({ business }: { business: ShellBusiness }) {
         <BusinessBrand business={business} />
       </Link>
       <ShellTrail className="hidden min-w-0 md:block" />
+      <NotificationBell className="ml-auto" />
     </header>
   );
 }

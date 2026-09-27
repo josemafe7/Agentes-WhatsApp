@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { updateIntegrationSettings } from "@/data/settings";
 import { primaryStyleSheet } from "@/lib/color";
-import { actorFor, createBusiness, createUser } from "@/test/factories";
+import { actorFor, createBusiness, createChannel, createContactWithIdentity, createConversation, createUser } from "@/test/factories";
 import { loadShellData } from "./shell-data";
 
 const OWNER_EXTRA = { email: "ana@example.com", sessionId: "s", isDemo: false, twoFactorEnabled: false, twoFactorSetupRequired: false };
@@ -36,6 +36,20 @@ describe("loadShellData", () => {
     const shell = await loadShellData(owner);
     expect(shell.openRouterNotice).toBeNull();
     expect(JSON.stringify(shell)).not.toContain("clave-secreta");
+  });
+
+  it("[BAN-03] [PER-02] «Bandeja» counts the unread conversations of the person's channels", async () => {
+    await createBusiness();
+    const web = await createChannel({ name: "Web" });
+    const whatsapp = await createChannel({ name: "WhatsApp", type: "whatsapp", isDemo: true });
+    const ana = await createContactWithIdentity("webchat");
+    const bruno = await createContactWithIdentity("whatsapp");
+    await createConversation(web.id, ana.contact.id, { unreadCount: 2 });
+    await createConversation(whatsapp.id, bruno.contact.id, { unreadCount: 1 });
+    await createConversation(web.id, bruno.contact.id, { unreadCount: 0 });
+    expect((await loadShellData({ ...actorFor("owner"), ...OWNER_EXTRA })).inboxUnread).toBe(2);
+    expect((await loadShellData({ ...actorFor("viewer"), ...OWNER_EXTRA })).inboxUnread).toBe(2);
+    expect((await loadShellData({ ...actorFor("agent", { channelIds: [web.id] }), ...OWNER_EXTRA })).inboxUnread).toBe(1);
   });
 
   it("[PER-01] only the sections of the role reach the menus", async () => {

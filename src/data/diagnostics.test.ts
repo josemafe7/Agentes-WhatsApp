@@ -1,14 +1,14 @@
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
-import { auditLog, jobs, realtimeEvents, webhookEvents } from "@/db/schema";
+import { aiRuns, auditLog, jobs, realtimeEvents, webhookEvents } from "@/db/schema";
 import type { Role } from "@/lib/enums";
 import { getJobQueue } from "@/server/adapters/job-queue";
 import { getRealtime } from "@/server/adapters/realtime";
 import { AuthError, NotFoundError } from "@/server/errors";
 import { LAST_TICK_KV_KEY } from "@/server/jobs";
 import { setKv } from "@/server/kv";
-import { actorFor, createBusiness, createChannel } from "@/test/factories";
+import { actorFor, createBusiness, createChannel, createConversation } from "@/test/factories";
 import journal from "../../drizzle/meta/_journal.json";
 import { cancelJob, getDiagnostics, retryJob } from "./diagnostics";
 
@@ -90,6 +90,38 @@ describe("getDiagnostics [AJU-11]", () => {
     );
     expect(webhooks.channels.map((c) => c.type)).not.toContain("webchat");
     expect(webhooks.unknown).toEqual({ count: 1, lastReceivedAt: older });
+  });
+
+  it("recent errors: the failed AI calls of real conversations, newest first and without secrets [MOT-12] [AJU-11]", async () => {
+    await db.delete(aiRuns);
+    const channel = await createChannel({ type: "webchat", name: "Web" });
+    const conversation = await createConversation(channel.id, null);
+    const older = new Date("2026-09-26T08:00:00Z");
+    const newer = new Date("2026-09-26T09:00:00Z");
+    await db.insert(aiRuns).values([
+      { kind: "chat", conversationId: conversation.id, modelRequested: "openai/gpt-5.6-luna", ok: true, createdAt: newer, updatedAt: newer },
+      {
+        kind: "chat",
+        conversationId: conversation.id,
+        modelRequested: "openai/gpt-5.6-luna",
+        ok: false,
+        error: "Error interno de OpenRouter con Bearer sk-or-v1-abcdefghijklmnopqrstu",
+        createdAt: newer,
+        updatedAt: newer,
+      },
+      { kind: "transcription", conversationId: null, modelRequested: "openai/whisper-large-v3-turbo", ok: false, error: "Tiempo agotado", createdAt: older, updatedAt: older },
+      // «Probar agente» is not a real conversation: it never appears here.
+      { kind: "chat", modelRequested: "openai/gpt-5.6-luna", ok: false, error: "Prueba fallida", isTest: true, createdAt: newer, updatedAt: newer },
+    ]);
+
+    const { aiErrors } = await getDiagnostics(owner);
+    expect(aiErrors.map((run) => [run.kind, run.conversationId, run.model])).toEqual([
+      ["chat", conversation.id, "openai/gpt-5.6-luna"],
+      ["transcription", null, "openai/whisper-large-v3-turbo"],
+    ]);
+    expect(aiErrors[0]).toMatchObject({ at: newer, channelName: "Web" });
+    expect(aiErrors[0].error).toContain("Error interno de OpenRouter");
+    expect(JSON.stringify(aiErrors)).not.toContain("sk-or-v1-abcdefghijklmnopqrstu");
   });
 
   it.each(denied)("%s cannot see it [PER-03] [PER-04]", async (role) => {

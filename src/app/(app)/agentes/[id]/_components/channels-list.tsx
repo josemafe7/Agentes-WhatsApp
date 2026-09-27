@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import type { AgentChannelItem } from "@/data/agent-channels";
 import type { ChannelStatus } from "@/lib/enums";
 import { cn } from "@/lib/utils";
-import { CHANNEL_IDENTITY } from "../../_components/channel-chip";
+import { CHANNEL_IDENTITY } from "@/components/channels/channel-identity";
 import { setAgentChannelActiveAction } from "../actions";
 
 const STATUS: Record<ChannelStatus, { label: string; icon: LucideIcon; className: string }> = {

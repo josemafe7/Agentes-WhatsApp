@@ -73,8 +73,12 @@ Lo propio de cada tipo:
   proveedor, carpetas, permisos concedidos), la fecha de caducidad del secreto de cliente de Outlook
   ([COR-07]), los topes diarios ([COR-17]) y la firma ([COR-21]). Secretos: secreto de cliente, tokens de
   acceso y contraseñas IMAP/SMTP.
-- **Chat web.** Color, logo, bienvenida, posición, textos legales, dominios permitidos y si admite voz e
-  imágenes ([WEB-02], [WEB-07], [WEB-10]).
+- **Chat web.** En `config` (`src/lib/webchat-config.ts`): `color`, `logoFileKey`, `welcomeMessage`, `position`,
+  `legalText`, `allowedDomains` y si admite voz e imágenes (`voiceEnabled`, `imagesEnabled`) ([WEB-02], [WEB-07],
+  [WEB-10]). El logo solo se cambia subiendo un archivo (clave bajo `webchat-logos/`). Sin secretos: los tokens de
+  los visitantes se firman con una clave derivada de `APP_ENCRYPTION_KEY` y no se guardan.
+- **Común.** `config.handoffOnSendFailure` (opcional, sin pantalla todavía): si la respuesta de la IA no se puede
+  enviar, la conversación pasa a una persona en vez de solo avisar.
 - **Telegram** (después de la v1). Secretos: token del bot y secreto de los avisos ([TG-01], [TG-02]).
 
 `whatsapp_templates` guarda las plantillas sincronizadas de cada número: nombre, idioma, categoría, estado,
@@ -126,6 +130,8 @@ variables y el id de Meta. Único por canal + nombre + idioma. Sirve a [WA-22], 
 - `last_inbound_at` (abre la ventana de 24 h de WhatsApp, con la hora del mensaje y no la de llegada),
   `last_outbound_at`, `unread_count`, `labels` y `summary` ([WA-43], [BAN-03], [MOT-13]).
 - `is_test` para «Probar agente», que no tiene canal real ([PRU-05]).
+- `metadata` (JSON): `simulated` (la empezó el simulador: sus respuestas nunca salen, [AJU-13]) y
+  `summaryUntil` (hasta qué mensaje llega `summary`, [MOT-13]).
 
 `messages`:
 
@@ -133,23 +139,28 @@ variables y el id de Meta. Único por canal + nombre + idioma. Sirve a [WA-22], 
   la copia del nombre, y `agent_id`: qué agente respondió ([CAN-05], [BAN-05]).
 - `external_id`, **único junto con `channel_id`**: un mensaje repetido por el canal no se guarda dos veces
   ([CAN-11], [WA-35]).
-- `content_type`, `text`, `media` (clave del archivo, tipo, tamaño y nombre) y `transcript` ([WA-36],
-  [MED-04]).
+- `content_type`, `text`, `media` (JSON: `fileKey`, `mimeType`, `size`, `fileName`, `sha256`, `durationSec` y
+  `downloadStatus`) y `transcript` ([WA-36], [MED-04]). La clave del archivo es siempre generada; el nombre del
+  cliente solo se guarda para mostrarlo y descargarlo.
 - `status`: `received`, `queued`, `sent`, `delivered`, `read`, `played`, `failed` o `draft`, y `error`.
   Los estados de salida solo avanzan (`queued` < `sent` < `delivered` < `read` < `played`) y `failed` solo
   sustituye a `queued` o `sent` ([WA-38]). `played` no está en el §4 del encargo: Meta lo envía desde el
   17-03-2026 para las notas de voz. `draft` es la respuesta que espera aprobación ([CAN-07], [MOT-14]).
 - `pricing_category`, `pricing_type` y `cost_estimate` ([WA-38], [WA-47]). `pricing_type` no está en el §4
   del encargo: sin él no se sabe si Meta cobró el mensaje.
-- `metadata`: lo propio de cada canal (cabeceras del correo, mensaje citado, marca `simulated`…). Las
+- `metadata`: lo propio de cada canal (cabeceras del correo, mensaje citado…) y lo que añade la app:
+  `aiRunId` (el uso de la IA que lo escribió), `handoff` y `unknownAnswer` (mensaje de traspaso, respuesta «no lo
+  sé»), `transcriptionFailed` («No se pudo transcribir», [MED-03]), `imageDescription` o `imageDescriptionFailed`
+  ([MED-05]) y, en un borrador aprobado, `approvedByUserId`, `approvedByName`, `approvedAt` y
+  `editedBeforeSending` ([CAN-07]). Un borrador descartado se borra. `simulated` es una columna aparte. Las
   reacciones se guardan en el mensaje al que reaccionan, no como mensaje nuevo ([WA-37]).
 
 | Tabla | Qué guarda y campos clave | Reglas |
 |---|---|---|
 | `internal_notes` | Notas del equipo en una conversación, con autor. Nunca se envían. | [BAN-07] |
-| `handoff_events` | Cada traspaso: conversación, quién lo lanza (herramienta, regla o persona), motivo, resumen, urgencia, a quién se asigna, hora de la petición y hora y mensaje de la primera respuesta humana. De aquí salen los informes de traspasos y del tiempo de respuesta. | [TRA-01], [TRA-06], [TRA-07], [INF-04], [INF-05], [CUM-11] |
+| `handoff_events` | Cada traspaso: conversación, quién lo lanza (herramienta, regla o persona), motivo, resumen, urgencia, a quién se asigna, hora de la petición, hora y mensaje de la primera respuesta humana y `closed_at`, cuando terminó sin respuesta porque se resolvió la conversación o se reactivó la IA (deja de estar abierto y una respuesta posterior no cuenta como la suya). De aquí salen los informes de traspasos y del tiempo de respuesta. | [TRA-01], [TRA-06], [TRA-07], [INF-04], [INF-05], [CUM-11] |
 | `webhook_events` | Avisos en bruto de los canales: origen, canal, cuerpo, si la firma era correcta, cuándo se procesó y error. Para un número de WhatsApp que no es de ningún canal, solo la hora y el número. Se borran a los 14 días por defecto. | [CAN-09], [WA-34], [WA-35], [CUM-05], [AJU-11] |
-| `ai_runs` | Cada uso de la IA (chat, transcripción, embeddings, reordenación, descripción de imágenes): modelo pedido y usado, proveedor, tokens (de entrada, de salida, de razonamiento y leídos de la caché), coste de `usage.cost`, tiempo, herramientas usadas, error y si fue de «Probar agente». | [MOT-11], [MED-01], [INF-07], [PRU-02] |
+| `ai_runs` | Cada uso de la IA (chat, transcripción, embeddings, reordenación, descripción de imágenes, borradores de «Generar con IA» y el resumen acumulado de las conversaciones largas, tipo `summary`): modelo pedido y usado, proveedor, tokens (de entrada, de salida, de razonamiento y leídos de la caché), coste de `usage.cost`, tiempo, herramientas usadas, error y si fue de «Probar agente». | [MOT-11], [MED-01], [INF-07], [PRU-02] |
 
 ## Operación
 
@@ -161,7 +172,7 @@ variables y el id de Meta. Único por canal + nombre + idioma. Sirve a [WA-22], 
 | `audit_log` | Registro de actividad: quién (persona, IA o sistema), qué, sobre qué y cuándo, sin datos personales. Solo se añade: nadie lo edita ni lo borra a mano. | [AJU-10], [SEG-10], [HER-03], [CUM-06] |
 | `realtime_events` | Cambios para las pantallas, con un cursor que crece. Se borran pronto. No está en el §4: la pide el sondeo (0009). | [BAN-03], [WEB-06] |
 | `rate_limits` | Contadores de límites de peticiones por clave (IP, visitante, email) y ventana. Better Auth usa además su propia tabla para el inicio de sesión. | [SEG-07], [USU-13], [WEB-08] |
-| `app_kv` | Almacén pequeño de clave y valor: el catálogo de modelos de OpenRouter ya normalizado (`ai.model_catalog`, se renueva a las 12 h), el agente que creó el asistente y sus preguntas frecuentes (`setup.first_agent`), la última ronda del trabajo en segundo plano y otros cursores. | [MOD-01], [MOD-06], [ASI-11], [AJU-11] |
+| `app_kv` | Almacén pequeño de clave y valor: el catálogo de modelos de OpenRouter ya normalizado (`ai.model_catalog`, se renueva a las 12 h), el agente que creó el asistente y sus preguntas frecuentes (`setup.first_agent`), el chat web del paso 6 (`setup.webchat_channel`), el «alquiler» de la respuesta en preparación de cada conversación (`reply.lease:<conversación>`, 5 min), el turno de asignación de cada canal (`handoff.round_robin:<canal>`), la última ronda del trabajo en segundo plano y otros cursores. | [MOD-01], [MOD-06], [ASI-09], [ASI-11], [MOT-02], [TRA-04], [AJU-11] |
 
 ## Agenda
 

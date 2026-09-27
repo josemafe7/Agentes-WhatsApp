@@ -14,6 +14,11 @@ export type SeedRefs = {
   resourceIds: Map<string, string>;
   /** By demo agent key (recepcion, correo, fuera-de-horario); set by the agents step. */
   agentIds?: Map<string, string>;
+  /** By demo channel key (webchat, whatsapp, email); set by the channels step. */
+  channelIds?: Map<string, string>;
+  /** By demo contact and conversation key (seed/steps/conversation-scripts.ts); set by the conversations step. */
+  contactIds?: Map<string, string>;
+  conversationIds?: Map<string, string>;
 };
 
 export type SeedContext = {

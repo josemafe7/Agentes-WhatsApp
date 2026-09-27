@@ -10,9 +10,10 @@
 //   GET  /api/v1/models/:author/:slug/endpoints  the providers of a model (404 if it is not in the catalogue).
 //   GET  /api/v1/endpoints/zdr     the zero-retention endpoints: Whisper's (DeepInfra, Groq) are in, Voxtral's
 //                                  (Mistral) are not ([AJU-04], [CUM-10]).
-//   POST /api/v1/chat/completions  valid key only (free tier → 402, others → 401). Deterministic answers:
+//   POST /api/v1/chat/completions  valid key only (free tier → 402, others → 401). Deterministic answers, the same for
+//        «Probar» and for the reply engine of the channels (`session_id` = the conversation, so specs count per conversation):
 //        - the reply says which agent answered («Soy <nombre>», read from «Te llamas <nombre>.» of the system prompt),
-//          the channel it was told to write for and the customer's last message;
+//          the channel it was told to write for («Canal: …» or «simulando …») and the customer's last message;
 //        - a last customer message asking for «una persona» (and the tool offered) → a transferir_a_humano call
 //          (arguments in ../openrouter-scenarios.json); after a tool result → a short closing text;
 //        - «Generar borrador con IA» (a system prompt asking for one JSON object with "instructions") → a draft whose
@@ -509,5 +510,16 @@ export const openrouterRoutes = [
     method: "POST",
     path: "/api/v1/embeddings",
     handle: ({ headers, body }) => inference(headers, () => embeddingsAnswer(body)),
+  },
+  {
+    // Voice notes (§5.1, [MED-01]): a fixed transcript that says which format arrived, with the usage OpenRouter
+    // reports for audio (seconds and cost). The audio itself is never decoded.
+    method: "POST",
+    path: "/api/v1/audio/transcriptions",
+    handle: ({ headers, body }) =>
+      inference(headers, () => {
+        const format = typeof body?.input_audio?.format === "string" ? body.input_audio.format : "desconocido";
+        return { text: `Transcripción simulada de una nota de voz (${format}).`, usage: { seconds: 3, cost: 0.00005 } };
+      }),
   },
 ];

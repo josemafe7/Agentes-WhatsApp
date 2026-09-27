@@ -4,7 +4,7 @@ import type { AgentListItem } from "@/data/agents";
 import { formatRelative } from "@/lib/format";
 import { AgentAvatar } from "./agent-avatar";
 import { AgentCardMenu } from "./agent-card-menu";
-import { ChannelChip } from "./channel-chip";
+import { ChannelChip } from "@/components/channels/channel-identity";
 
 type AgentCardProps = {
   agent: AgentListItem;

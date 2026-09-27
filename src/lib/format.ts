@@ -96,6 +96,19 @@ export function formatNumber(value: number, options?: Intl.NumberFormatOptions):
   return new Intl.NumberFormat(LOCALE, options).format(value);
 }
 
+/** Control characters (line breaks, tabs, BEL…) and the Unicode line and paragraph separators. */
+const LINE_BREAKING = /[\p{Cc}\p{Zl}\p{Zp}]+/gu;
+
+/**
+ * One line of plain text: control characters and line breaks become spaces and runs of spaces collapse. For text
+ * from outside (a name a visitor typed, a channel's profile name) that goes into a prompt, a title or a subject:
+ * it can never start a line of its own ([HER-09]).
+ */
+export function toSingleLine(value: string, maxLength?: number): string {
+  const flat = value.replace(LINE_BREAKING, " ").replace(/\s+/g, " ").trim();
+  return maxLength !== undefined && flat.length > maxLength ? flat.slice(0, maxLength).trimEnd() : flat;
+}
+
 /** Amount in US dollars («12,34 US$»); amounts below one cent keep two significant digits («0,0023 US$»). */
 export function formatCurrencyUSD(amount: number): string {
   if (!Number.isFinite(amount)) return "";

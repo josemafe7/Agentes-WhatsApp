@@ -20,9 +20,9 @@ vi.mock("@/server/adapters/file-storage", async (importOriginal) => {
 
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { agents, businessSettings } from "@/db/schema";
+import { agents, businessSettings, contactIdentities, contacts, conversations, messages } from "@/db/schema";
 import { getFileStorage } from "@/server/adapters/file-storage";
-import { createBusiness, createUser } from "@/test/factories";
+import { createBusiness, createChannel, createContactWithIdentity, createConversation, createMessage, createUser } from "@/test/factories";
 import { GET, runtime } from "./route";
 
 const PNG = Uint8Array.from(
@@ -32,6 +32,9 @@ const LOGO_KEY = "logos/2026/09/4f1d2c3b-aaaa-4bbb-8ccc-123456789abc.png";
 const PRIVATE_KEY = "media/2026/09/9e8d7c6b-aaaa-4bbb-8ccc-123456789abc.png";
 const HTML_KEY = "media/2026/09/5a5a5a5a-aaaa-4bbb-8ccc-123456789abc.html";
 const AVATAR_KEY = "avatars/2026/09/7b7b7b7b-aaaa-4bbb-8ccc-123456789abc.png";
+const AUDIO_KEY = "media/2026/09/1c1c1c1c-aaaa-4bbb-8ccc-123456789abc.ogg";
+const PDF_KEY = "media/2026/09/2d2d2d2d-aaaa-4bbb-8ccc-123456789abc.pdf";
+const PDF = new TextEncoder().encode("%PDF-1.4 fake");
 
 const call = (key: string) =>
   GET(new Request(`http://localhost:3000/api/files/${key}`), { params: Promise.resolve({ key: key.split("/") }) });
@@ -47,6 +50,8 @@ beforeAll(async () => {
   await storage.put(PRIVATE_KEY, PNG, "image/png");
   await storage.put(HTML_KEY, new TextEncoder().encode("<script>alert(1)</script>"), "text/html");
   await storage.put(AVATAR_KEY, PNG, "image/png");
+  await storage.put(AUDIO_KEY, new TextEncoder().encode("OggS-voice"), "audio/ogg; codecs=opus");
+  await storage.put(PDF_KEY, PDF, "application/pdf");
 });
 
 afterAll(() => fs.rmSync(state.storageDir, { recursive: true, force: true }));
@@ -122,6 +127,69 @@ describe("/api/files [SEG-04] [MED-08]", () => {
   });
 });
 
+describe("message files: only for people who can see that conversation [MED-08] [PER-02]", () => {
+  beforeEach(async () => {
+    for (const table of [messages, conversations, contactIdentities, contacts]) await db.delete(table);
+  });
+
+  async function conversationWithFiles(options: { isTest?: boolean } = {}) {
+    const channel = await createChannel({ type: "webchat" });
+    const { contact } = await createContactWithIdentity("webchat");
+    const conversation = await createConversation(channel.id, contact.id, { isTest: options.isTest ?? false });
+    await createMessage(conversation, { contentType: "audio", text: null, media: { fileKey: AUDIO_KEY, mimeType: "audio/ogg; codecs=opus", size: 10 } });
+    await createMessage(conversation, {
+      contentType: "document",
+      text: null,
+      media: { fileKey: PDF_KEY, mimeType: "application/pdf", size: PDF.byteLength, fileName: "Presupuesto «boda» 2026.pdf" },
+    });
+    return channel;
+  }
+
+  it("the team of the channel gets the file, privately and never sniffed; an audio plays in the page", async () => {
+    const channel = await conversationWithFiles();
+    for (const user of [await createUser("owner"), await createUser("viewer"), await createUser("agent", { channelIds: [channel.id] })]) {
+      signIn(user.userId);
+      const response = await call(AUDIO_KEY);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("audio/ogg; codecs=opus");
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(response.headers.get("content-disposition")).toBe("inline");
+    }
+  });
+
+  it("an agent of other channels gets «not found», and without a session it is 401", async () => {
+    await conversationWithFiles();
+    const otherChannel = await createChannel({ type: "webchat" });
+    const outsider = await createUser("agent", { channelIds: [otherChannel.id] });
+    signIn(outsider.userId);
+    expect((await call(AUDIO_KEY)).status).toBe(404);
+    expect((await call(PDF_KEY)).status).toBe(404);
+    signIn(null);
+    expect((await call(AUDIO_KEY)).status).toBe(401);
+  });
+
+  it("files of «Probar agente» conversations are never served", async () => {
+    await conversationWithFiles({ isTest: true });
+    const owner = await createUser("owner");
+    signIn(owner.userId);
+    expect((await call(AUDIO_KEY)).status).toBe(404);
+  });
+
+  it("a document is downloaded with its original name, never shown in the page", async () => {
+    await conversationWithFiles();
+    const owner = await createUser("owner");
+    signIn(owner.userId);
+    const response = await call(PDF_KEY);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(response.headers.get("content-disposition")).toBe(
+      `attachment; filename="Presupuesto _boda_ 2026.pdf"; filename*=UTF-8''Presupuesto%20%C2%ABboda%C2%BB%202026.pdf`,
+    );
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(PDF);
+  });
+});
+
 describe("response headers of served files", () => {
   it("images are shown inline; anything that could run code is downloaded and sandboxed", async () => {
     const { fileResponseHeaders } = await import("./serve");
@@ -136,5 +204,14 @@ describe("response headers of served files", () => {
       "Cache-Control": "private, no-store",
     });
     expect(fileResponseHeaders({ contentType: "image/svg+xml", size: 10 }, "private")["Content-Disposition"]).toBe("attachment");
+  });
+
+  it("a download name cannot break the header", async () => {
+    const { fileResponseHeaders } = await import("./serve");
+    const disposition = fileResponseHeaders({ contentType: "application/pdf", size: 10 }, "private", 'a"b\\c\r\nX-Evil: 1.pdf')["Content-Disposition"];
+    expect(disposition).not.toMatch(/[\r\n]/);
+    expect(disposition).toBe(`attachment; filename="a_b_cX-Evil: 1.pdf"; filename*=UTF-8''a%22b%5CcX-Evil%3A%201.pdf`);
+    // Images keep showing in the page, whatever their name.
+    expect(fileResponseHeaders({ contentType: "image/png", size: 10 }, "private", "foto.png")["Content-Disposition"]).toBe("inline");
   });
 });

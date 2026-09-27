@@ -11,7 +11,7 @@ import { db } from "@/db";
 import { businessSettings, userRoles } from "@/db/schema";
 import type { Role } from "@/lib/enums";
 import { createBusiness, createUser } from "@/test/factories";
-import { saveMyNotificationPreferencesAction, saveNotificationSettingsAction } from "./actions";
+import { saveInboxSettingsAction, saveMyNotificationPreferencesAction, saveNotificationSettingsAction } from "./actions";
 
 const signInAs = async (role: Role) => {
   const person = await createUser(role);
@@ -21,7 +21,7 @@ const signInAs = async (role: Role) => {
 
 beforeEach(async () => {
   state.session = null;
-  await createBusiness({ notificationSettings: {} });
+  await createBusiness({ notificationSettings: {}, aiPauseHours: 12, handoff: { assignment: "round_robin" } });
 });
 
 describe("saveNotificationSettingsAction", () => {
@@ -41,6 +41,36 @@ describe("saveNotificationSettingsAction", () => {
     expect(result).toEqual({ ok: false, error: "No tienes permiso para hacer esto." });
     const [row] = await db.select().from(businessSettings);
     expect(row.notificationSettings).toEqual({});
+  });
+});
+
+describe("saveInboxSettingsAction [BAN-11] [TRA-04]", () => {
+  it("owner and admin set how long the AI pauses after a person replies and how hand-offs are assigned", async () => {
+    for (const role of ["owner", "admin"] as const) {
+      await signInAs(role);
+      const hours = role === "owner" ? 4 : 24;
+      const result = await saveInboxSettingsAction(undefined, { aiPauseHours: hours, handoffAssignment: "unassigned" });
+      expect(result).toEqual({ ok: true, message: "Cambios guardados." });
+      const [row] = await db.select().from(businessSettings);
+      expect(row).toMatchObject({ aiPauseHours: hours, handoff: { assignment: "unassigned" } });
+    }
+  });
+
+  it("wrong values are explained next to the field and not saved [AJU-15]", async () => {
+    await signInAs("owner");
+    const result = await saveInboxSettingsAction(undefined, { aiPauseHours: 0, handoffAssignment: "round_robin" });
+    expect(result).toMatchObject({ ok: false, fieldErrors: { aiPauseHours: ["Mínimo 1 hora."] } });
+    expect((await saveInboxSettingsAction(undefined, { aiPauseHours: 12, handoffAssignment: "al azar" })).ok).toBe(false);
+    const [row] = await db.select().from(businessSettings);
+    expect(row.aiPauseHours).toBe(12);
+  });
+
+  it.each<Role>(["supervisor", "agent", "viewer"])("%s cannot change them", async (role) => {
+    await signInAs(role);
+    const result = await saveInboxSettingsAction(undefined, { aiPauseHours: 2, handoffAssignment: "unassigned" });
+    expect(result).toEqual({ ok: false, error: "No tienes permiso para hacer esto." });
+    const [row] = await db.select().from(businessSettings);
+    expect(row.aiPauseHours).toBe(12);
   });
 });
 

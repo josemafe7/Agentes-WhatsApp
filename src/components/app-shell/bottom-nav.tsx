@@ -18,6 +18,7 @@ import {
   splitMobileSections,
   type SectionKey,
 } from "./navigation";
+import { InboxUnreadBadge, InboxUnreadDescription } from "./inbox-unread";
 import { THEME_OPTIONS } from "./theme-options";
 import type { ShellUser } from "./types";
 import { useSignOut } from "./use-sign-out";
@@ -25,6 +26,7 @@ import { UserAvatar } from "./user-menu";
 
 type BottomNavProps = { user: ShellUser; sectionKeys: readonly SectionKey[] };
 
+const UNREAD_DESCRIPTION_ID = "bottom-nav-inbox-unread";
 const ITEM_CLASS =
   "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset [&_svg]:size-5";
 
@@ -55,18 +57,24 @@ export function BottomNav({ user, sectionKeys }: BottomNavProps) {
         {primary.map((section) => {
           const active = isActivePath(pathname, section.href);
           const Icon = section.icon;
+          const inbox = section.key === "bandeja";
           return (
             <Link
               key={section.key}
               href={section.href}
               aria-current={active ? "page" : undefined}
+              aria-describedby={inbox ? UNREAD_DESCRIPTION_ID : undefined}
               className={cn(ITEM_CLASS, active ? "text-primary-text" : "text-muted-foreground")}
             >
-              <Icon aria-hidden />
+              <span className="relative">
+                <Icon aria-hidden />
+                {inbox ? <InboxUnreadBadge className="absolute -top-1.5 left-3 min-w-5 text-center" /> : null}
+              </span>
               <span className="truncate">{section.label}</span>
             </Link>
           );
         })}
+        <InboxUnreadDescription id={UNREAD_DESCRIPTION_ID} />
         <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
           <SheetTrigger asChild>
             <button

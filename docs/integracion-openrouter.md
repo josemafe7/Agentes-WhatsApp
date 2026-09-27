@@ -472,7 +472,9 @@ Respuesta:
 **Notas de voz de WhatsApp (OGG/Opus)**: `ogg` está en la lista de formatos y la guía pone como ejemplo
 «notas de voz Opus», pero que cada proveedor acepte Opus dentro de OGG está **no verificado**. Se mantiene
 la estrategia de la especificación: probar tal cual con `format: "ogg"`; si da 400, convertir a MP3 con
-ffmpeg y reintentar; si falla, modelo de respaldo; y como último recurso, 5.2.
+ffmpeg y reintentar; si falla, modelo de respaldo, pero solo si todos sus proveedores están en la lista ZDR
+(como la transcripción no admite `zdr` por petición, un respaldo con proveedores que guardan datos se saltaría el
+aviso de Ajustes; decisión 0018); y como último recurso, 5.2.
 
 Modelos: `GET /api/v1/models?output_modalities=transcription` (24 el 2026-09-26) o `/models/user` con el
 mismo parámetro. Recomendados en la sección 10.
@@ -589,7 +591,7 @@ los de la tarifa normal del 2026-09-26, en dólares.
 | Respaldo (otro proveedor) | `google/gemini-3.1-flash-lite` | También ≥ 95 % en herramientas; admite imagen, PDF, audio y vídeo; razonamiento por defecto «minimal» y no obligatorio; 4,5 meses en el catálogo | 0,25 $/M entrada · 1,50 $/M salida · audio 0,50 $/M · caché 0,025 $/M | Sí (Google Vertex) |
 | Visión barata (describir imágenes) | `google/gemini-3.1-flash-lite` | El mismo: barato y con imagen | Igual | Sí |
 | Transcripción | `openai/whisper-large-v3-turbo` | El más barato de los que tienen **todos** sus proveedores en ZDR (DeepInfra y Groq); multilingüe | 0,00000333 $/s (≈ 0,0002 $/min) en DeepInfra; 0,0000111 $/s en Groq | Sí, todos |
-| Transcripción de respaldo | `mistralai/voxtral-mini-transcribe` | Otro proveedor (Mistral) | 0,00005 $/s (≈ 0,003 $/min); UE 0,000055 $/s | Solo el endpoint `mistral/eu` |
+| Transcripción de respaldo | `mistralai/voxtral-mini-transcribe` | Otro proveedor (Mistral). Solo se usa si todos sus endpoints pasan a ZDR: hoy no se usa (decisión 0018) | 0,00005 $/s (≈ 0,003 $/min); UE 0,000055 $/s | Solo el endpoint `mistral/eu` |
 | Embeddings | `openai/text-embedding-3-small` | 1536 dimensiones nativas; las de la base vectorial | 0,02 $/M tokens | Sí (Azure) |
 | Rerank (opcional) | `cohere/rerank-v3.5` | Multilingüe y el más barato por búsqueda | 0,001 $/búsqueda (página web del modelo) | No: con ZDR, `qwen/qwen3-reranker-8b` (0,20 $/M) |
 

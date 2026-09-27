@@ -230,7 +230,9 @@ límites y sus fuentes) están en `docs/integracion-whatsapp.md`, `docs/integrac
 - [CAN-05] Cambiar el agente activo afecta solo a los mensajes que llegan después; cada mensaje guarda qué agente
   lo respondió.
 - [CAN-06] Modo pruebas «solo a estos contactos» (números, emails o identificadores): mientras está activo, la IA
-  solo contesta a los de la lista y los demás mensajes esperan a una persona.
+  solo contesta a los de la lista y los demás mensajes esperan a una persona. Se compara solo lo que da el canal
+  (el identificador del visitante, el email del remitente, el BSUID o el número que da WhatsApp), nunca lo que
+  alguien escribe, como el email o el teléfono del formulario del chat web.
 - [CAN-07] Modo de respuesta: «Automático» (la IA envía) o «Borrador para revisar» (la IA deja un borrador que una
   persona aprueba, edita o descarta). Por defecto, automático en WhatsApp, chat web y Telegram, y borrador en
   correo.
@@ -610,7 +612,8 @@ Detalles en `docs/integracion-openrouter.md`.
   prohibición de guardar datos en cada petición, así que su privacidad depende del modelo: el de por defecto
   (`openai/whisper-large-v3-turbo`) solo tiene proveedores sin retención de datos ([CUM-10], [AJU-04]).
 - [MED-02] Las notas de voz de WhatsApp se envían tal cual; si el modelo las rechaza, se convierten a MP3 y, si aun
-  así falla, se prueba el modelo de respaldo.
+  así falla, se prueba el modelo de respaldo, solo si todos sus proveedores están en la lista sin retención de
+  datos de OpenRouter ([CUM-10]).
 - [MED-03] Si un audio no se puede transcribir o pasa de 25 MB, se indica «No se pudo transcribir» y la IA pide al
   cliente que lo escriba.
 - [MED-04] La transcripción se guarda y se ve bajo el reproductor en la bandeja; el agente recibe el texto.
@@ -797,7 +800,9 @@ Detalles en `docs/busqueda-hibrida.md` y, para los PDF escaneados, en `docs/inte
 - [TRA-04] La conversación se asigna por turnos entre las personas que pueden atender ese canal (nunca Solo
   lectura), o queda sin asignar, según se configure.
 - [TRA-05] Se avisa en la app, por push y por email a quien diga la configuración del agente.
-- [TRA-06] Se mide el tiempo hasta la primera respuesta de una persona.
+- [TRA-06] Se mide el tiempo hasta la primera respuesta de una persona. Si la conversación se resuelve o se
+  reactiva la IA antes, el traspaso termina sin respuesta: deja de destacarse y una respuesta posterior no cuenta
+  como la suya.
 - [TRA-07] El motivo, el resumen y la urgencia se ven en la conversación; las urgentes se destacan en la lista.
 - [TRA-08] Cuando una conversación se resuelve, vuelve al modo IA para el siguiente mensaje del cliente.
 - [TRA-09] Siempre hay una vía a una persona: si el cliente la pide, se traspasa ([MOT-05], [CUM-02]).
@@ -1046,11 +1051,16 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
   (en «Probar» el agente responde con OpenRouter simulado mostrando tokens, coste y tiempo; sin clave sale el aviso
   y no se envía nada; modelos, traspaso, asistente y aviso de transcripción sin retención comprobados); revisiones
   corregidas. La prueba a mano con una clave real queda para el propietario.
-- [ ] Fase 2 · Bandeja, chat web y motor: base común de canales, chat web, bandeja, trabajo en segundo plano (al
+- [x] Fase 2 · Bandeja, chat web y motor: base común de canales, chat web, bandeja, trabajo en segundo plano (al
   contestar avisos, con el cron y con el lanzador local), agrupación y bloqueo, IA encendida o apagada, pausa y
   traspaso, agente activo por canal y simulador — se comprueba: en `/widget-demo` responde el agente activo; al
   cambiarlo, responde el nuevo; si escribe una persona, la IA se pausa; el traspaso avisa; varios mensajes
   seguidos reciben una sola respuesta.
+  Comprobado el 2026-09-27: 1991 pruebas de Vitest y 91 de Playwright en verde, con lint, tipos y compilación (en
+  `/widget-demo` responde el agente activo y, al cambiarlo, el nuevo; una persona pausa la IA; el traspaso avisa y
+  también se pide con «Hablar con una persona»; tres mensajes seguidos, una sola respuesta; si la IA falla dos
+  veces, pasa a una persona y el error sale en Diagnóstico); revisiones de especificación, seguridad y aceptación
+  corregidas (lo que queda para decidir, en el informe de cierre).
 - [ ] Fase 3 · WhatsApp: asistente, avisos con firma, recepción y envío, archivos y audios, estados, ventana de
   24 h y plantillas, varios números, panel y modo pruebas, y las tres páginas legales en versión básica que
   Meta pide para publicar la app ([CUM-08]) — se comprueba: pruebas con avisos realistas de Meta (texto, audio,

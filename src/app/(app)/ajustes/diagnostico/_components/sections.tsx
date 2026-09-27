@@ -1,4 +1,4 @@
-import { FlaskConical, Mail, RadioTower } from "lucide-react";
+import { CircleCheck, FlaskConical, Mail, RadioTower } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { EmptyState } from "@/components/empty-state";
@@ -113,6 +113,42 @@ export function QueueSection({ queue }: { queue: DiagnosticsView["queue"] }) {
   );
 }
 
+/** «Errores recientes» ([AJU-11], [MOT-12]): the AI calls that failed in real conversations. */
+export function AiErrorsSection({ aiErrors }: { aiErrors: DiagnosticsView["aiErrors"] }) {
+  return (
+    <Section
+      id="errores-recientes"
+      title="Errores recientes de la IA"
+      description="Las últimas llamadas a OpenRouter que han fallado en conversaciones reales. Si la respuesta falla también al reintentarla, la conversación pasa a una persona."
+    >
+      {aiErrors.length === 0 ? (
+        <EmptyState icon={CircleCheck} title="Sin errores recientes" description="Aquí aparecerá cualquier fallo de la IA al responder, transcribir o resumir." />
+      ) : (
+        <ul className="divide-y">
+          {aiErrors.map((run) => (
+            <li key={run.id} className="flex flex-col gap-1 py-3 text-sm">
+              <p className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{run.kindLabel}</Badge>
+                <span className="text-muted-foreground tabular-nums">{run.when}</span>
+                {run.channelName ? <span className="text-muted-foreground">· {run.channelName}</span> : null}
+              </p>
+              <p className="text-destructive-text">{run.error}</p>
+              <p className="flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+                {run.model ? <span className="font-mono">{run.model}</span> : null}
+                {run.link ? (
+                  <Link href={run.link} className="underline underline-offset-4 hover:text-foreground">
+                    Ver la conversación
+                  </Link>
+                ) : null}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
+  );
+}
+
 export function RealtimeSection({ realtime }: { realtime: DiagnosticsView["realtime"] }) {
   return (
     <Section title="Tiempo real" description="Cambios que las pantallas abiertas recogen cada pocos segundos.">
@@ -205,14 +241,21 @@ export function EmailsSection({ emails }: { emails: DiagnosticsView["emails"] })
   );
 }
 
+/** Link to the channel simulator ([AJU-11], [AJU-12]). */
 export function SimulatorCard() {
   return (
-    <Section title="Simulador de canales">
-      <EmptyState
-        icon={FlaskConical}
-        title="Llegará junto con los canales"
-        description="Podrás enviar mensajes de prueba como si fueras un cliente (texto, audio, imagen o documento) y ver cómo responde la IA, sin que nada salga a WhatsApp ni al correo."
-      />
+    <Section
+      title="Simulador de canales"
+      description="Envía mensajes de prueba como si fueras un cliente (texto, nota de voz, imagen o documento) y mira cómo responde la IA, sin que nada salga a WhatsApp ni al correo."
+    >
+      <div>
+        <Button asChild variant="outline">
+          <Link href="/ajustes/diagnostico/simulador">
+            <FlaskConical aria-hidden />
+            Abrir el simulador
+          </Link>
+        </Button>
+      </div>
     </Section>
   );
 }

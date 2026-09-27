@@ -4,7 +4,7 @@ import "server-only";
 import { getDiagnostics } from "@/data/diagnostics";
 import { getBusinessProfile } from "@/data/settings";
 import { listSystemEmails } from "@/data/system-mail";
-import type { ChannelType, JobStatus, SystemEmailKind, SystemEmailStatus } from "@/lib/enums";
+import type { AiRunKind, ChannelType, JobStatus, SystemEmailKind, SystemEmailStatus } from "@/lib/enums";
 import { formatDateTime, formatNumber, formatRelative } from "@/lib/format";
 import type { Actor } from "@/lib/permissions";
 
@@ -20,6 +20,15 @@ const JOB_STATUS_LABELS: Record<JobStatus, string> = {
   done: "Hecho",
   failed: "Fallido",
   cancelled: "Cancelado",
+};
+const AI_RUN_KIND_LABELS: Record<AiRunKind, string> = {
+  chat: "Respuesta de la IA",
+  transcription: "Transcripción",
+  embedding: "Embeddings",
+  rerank: "Reordenación",
+  image_description: "Descripción de imagen",
+  generation: "Generación",
+  summary: "Resumen de la conversación",
 };
 const CHANNEL_TYPE_LABELS: Partial<Record<ChannelType, string>> = { whatsapp: "WhatsApp", telegram: "Telegram" };
 const EMAIL_KIND_LABELS: Record<SystemEmailKind, string> = {
@@ -47,7 +56,7 @@ export async function loadDiagnosticsView(actor: Actor) {
   const tz = profile.timezone;
   const now = new Date();
   const relative = (date: Date | null) => (date ? formatRelative(date, tz, now) : null);
-  const { database, queue, realtime, webhooks } = diagnostics;
+  const { database, queue, realtime, webhooks, aiErrors } = diagnostics;
 
   const migrations = database.migrations;
   const migrationsStatus: Light = !migrations ? "off" : migrations.pending.length > 0 ? "warn" : "ok";
@@ -100,6 +109,15 @@ export async function loadDiagnosticsView(actor: Actor) {
       })),
       unknown: webhooks.unknown.count > 0 ? { count: formatNumber(webhooks.unknown.count), last: relative(webhooks.unknown.lastReceivedAt) } : null,
     },
+    aiErrors: aiErrors.map((run) => ({
+      id: run.id,
+      kindLabel: AI_RUN_KIND_LABELS[run.kind],
+      model: run.model,
+      channelName: run.channelName,
+      link: run.conversationId ? `/bandeja/${run.conversationId}` : null,
+      error: run.error,
+      when: formatDateTime(run.at, tz),
+    })),
     emails: {
       outboxEnabled: emails.outboxEnabled,
       items: emails.emails.map((email) => ({

@@ -2,6 +2,7 @@
 // Files never have public URLs: this route is the only way to read them. Rules and headers: ./serve.ts.
 import { z } from "zod";
 import { getFileStorage, isValidFileKey } from "@/server/adapters/file-storage";
+import { messageMediaFileName } from "@/server/media/store";
 import { safeErrorMessage } from "@/server/redact";
 import { getActor } from "@/server/session";
 import { fileResponseHeaders, resolveFileAccess } from "./serve";
@@ -27,9 +28,12 @@ export async function GET(_request: Request, context: { params: Promise<{ key: s
     }
     if (access === "not_found") return notFound();
 
+    // The original name of a message file (media/, webchat/… keys), for its download. Looked up before opening the
+    // file, so a failure here never leaves a stream open.
+    const downloadName = access === "private" ? await messageMediaFileName(key) : null;
     const file = await getFileStorage().get(key);
     if (!file) return notFound();
-    return new Response(file.stream, { status: 200, headers: fileResponseHeaders(file, access) });
+    return new Response(file.stream, { status: 200, headers: fileResponseHeaders(file, access, downloadName) });
   } catch (error) {
     // Generic answer only: no key, path or storage details ([SEG-14]).
     console.error(`[files] No se ha podido servir un archivo: ${safeErrorMessage(error)}`);

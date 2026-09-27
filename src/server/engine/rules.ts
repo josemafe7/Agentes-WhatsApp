@@ -1,0 +1,54 @@
+// The agent's hand-off rules ([TRA-01], [AGE-09]): phrases of the customer that hand the conversation to a person
+// before answering (keywords and sensitive topics), and «no lo sé» answers counted until the configured number.
+// Pure functions: matching ignores case and accents and only takes whole words («persona» never matches «personas»).
+import type { ToolCallRecord } from "@/server/ai/tools";
+
+/** What the knowledge tool returns when nothing is relevant ([CON-18]). */
+export const KNOWLEDGE_NO_RESULTS = "SIN_RESULTADOS";
+
+/** Lower case, without accents or repeated spaces. */
+export function normalizeForMatch(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** The first phrase found as whole words in `text`, or null. */
+export function findPhrase(text: string, phrases: readonly string[] | undefined): string | null {
+  if (!phrases?.length) return null;
+  const haystack = normalizeForMatch(text);
+  if (!haystack) return null;
+  for (const phrase of phrases) {
+    const needle = normalizeForMatch(phrase);
+    if (!needle) continue;
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(needle).replace(/ /g, "\\s+")}(?![\\p{L}\\p{N}])`, "u");
+    if (pattern.test(haystack)) return phrase;
+  }
+  return null;
+}
+
+/** Ways an answer says it does not know (normalized text). */
+export const UNCERTAINTY_PATTERNS: readonly RegExp[] = [
+  /\bno lo se\b/,
+  /\bno (lo )?sabria (decirte|decir)\b/,
+  /\bno tengo (esa|esta|dicha|la|suficiente) informacion\b/,
+  /\bno dispongo de (esa|esta|dicha|la) informacion\b/,
+  /\bno tengo (esos|estos) datos\b/,
+  /\bno (puedo|podria) confirmar(te|lo)?\b/,
+  /\bno encuentro (esa|esta|la) informacion\b/,
+  /\bdesconozco\b/,
+];
+
+/** An answer that does not know: the knowledge search found nothing, or the text says so ([CON-18]). */
+export function isUnknownAnswer(text: string, toolCalls: readonly ToolCallRecord[] = []): boolean {
+  if (toolCalls.some((call) => JSON.stringify(call.result).includes(KNOWLEDGE_NO_RESULTS))) return true;
+  const normalized = normalizeForMatch(text);
+  return UNCERTAINTY_PATTERNS.some((pattern) => pattern.test(normalized));
+}

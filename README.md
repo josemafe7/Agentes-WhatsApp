@@ -4,12 +4,13 @@ Plataforma de agentes IA de atención al cliente (WhatsApp, correo y chat web) q
 negocio y se configura sin tocar código. Cada instalación es de un solo negocio, con su propia base de datos y
 sus propias claves.
 
-**Estado: fases 0 (base) y 1 (agentes y OpenRouter) construidas, solo en local.** Ya funcionan el arranque con
-la demo, el inicio de sesión con roles e invitaciones, el asistente de arranque, los ajustes, el cifrado de
-claves y los agentes de IA: crearlos desde la plantilla del sector, editarlos con versiones, elegir su modelo
-de OpenRouter y probarlos en «Probar agente» viendo el coste y el tiempo de cada respuesta. Los canales, la
-bandeja, la agenda y el conocimiento llegan en las fases siguientes (`docs/spec.md`, «Fases»). La app todavía no
-está publicada en internet.
+**Estado: fases 0 (base), 1 (agentes y OpenRouter) y 2 (bandeja, chat web y motor) construidas, solo en local.**
+Ya funcionan el arranque con la demo, el inicio de sesión con roles e invitaciones, el asistente de arranque, los
+ajustes, el cifrado de claves, los agentes de IA (plantillas, versiones, modelos y «Probar agente»), el chat web
+para pegar en la web del negocio, la bandeja con traspaso a una persona, los contactos, los canales con su agente
+activo, el motor que responde en segundo plano y el simulador de canales. WhatsApp y correo reales, el
+conocimiento y la agenda llegan en las fases siguientes (`docs/spec.md`, «Fases»). La app todavía no está
+publicada en internet.
 
 ## Requisitos
 
@@ -99,7 +100,56 @@ disponible con tu privacidad…).
 
 ## Recorrido de la demo
 
-Lo que ya puedes probar:
+Lo que ya puedes probar. Para que los agentes respondan hace falta la clave de OpenRouter (ver arriba); sin ella,
+los mensajes llegan a la bandeja y esperan a una persona.
+
+### Chat web, bandeja y traspaso (fase 2)
+
+1. **`/widget-demo`** (<http://localhost:3000/widget-demo>, sin iniciar sesión): una web de ejemplo del negocio con
+   su chat web. Pulsa el botón redondo de abajo a la derecha y pregunta algo del negocio (horario, precios,
+   servicios). Tras unos segundos (la app espera de 4 a 8 para juntar varios mensajes seguidos en una sola
+   respuesta) contesta el agente activo del chat, con el aviso de IA delante de su primer mensaje. Si escribes
+   varios mensajes seguidos, recibes una sola respuesta. Puedes mandar fotos y notas de voz (la demo las tiene
+   activadas; las notas de voz se transcriben con la clave). Con varios chats web, la página deja elegir cuál.
+2. **Bandeja** (entra como `propietario@demo.test`): la conversación aparece sola, sin recargar. La demo trae
+   además siete conversaciones de ejemplo: una reserva por WhatsApp, una nota de voz con su transcripción, un
+   traspaso urgente pendiente, uno resuelto por una persona con su nota interna, una foto por el chat web,
+   preguntas frecuentes y un hilo de correo con un borrador de la IA. Hay filtros (canal, estado, asignado, IA o
+   persona, sin leer, etiquetas), buscador y el contador de no leídos junto a «Bandeja» en el menú.
+3. **Contesta tú desde la bandeja:** la IA de esa conversación se pausa (12 horas por defecto; se cambia en Ajustes ›
+   Notificaciones › «Bandeja y traspasos», junto a si los traspasos se asignan por turnos) y la cabecera dice
+   «IA en pausa hasta …». Vuelve sola al pasar ese tiempo o al pulsar «Reactivar». El interruptor de IA, la
+   asignación, las etiquetas, el estado, el agente de la conversación y «Pasar a una persona» están en la cabecera;
+   las notas internas (solo las ve el equipo) en el cuadro de escribir, donde también se adjuntan imágenes y PDF si
+   el canal los admite.
+4. **Traspaso:** en el chat escribe «Quiero que me atienda una persona». El agente pasa la conversación a una
+   persona: el cliente recibe el mensaje de traspaso del agente (distinto dentro y fuera de horario), la
+   conversación queda «Pendiente de humano» con el motivo, el resumen y la urgencia, se asigna por turnos y la
+   campana de avisos (arriba a la derecha) avisa a quien diga la pestaña Traspaso del agente. Las palabras clave y
+   los temas sensibles del agente también la traspasan, y la IA no vuelve hasta que una persona la reactiva o
+   resuelve la conversación.
+5. **Asignar agentes a canales:** en **Canales**, cada tarjeta tiene el «Agente activo» y el interruptor de la IA.
+   Elige otro agente (la app pregunta antes «… sustituirá a …») y vuelve a escribir en `/widget-demo`: responde el
+   nuevo, y cada respuesta anterior conserva el nombre de quien la escribió. También desde la pestaña Canales de
+   cada agente, con el interruptor de cada canal («Activo aquí»; en el móvil se lee «Activo en <canal>»), y en una
+   conversación concreta se puede elegir otro agente solo para ella.
+6. **Canales › Añadir canal › Chat web:** crea otro chat con su color, logo, bienvenida, posición, textos legales,
+   dominios permitidos, notas de voz e imágenes, con vista previa, y copia el código para pegar en tu web
+   (`<script src=".../widget.js" data-channel="…" async></script>`). Con la lista de dominios vacía solo funciona
+   dentro de la app, en `/widget-demo`. El panel de cada canal tiene su configuración: modo de respuesta
+   («Automático» o «Borrador para revisar», en el que una persona aprueba, edita o descarta cada respuesta desde la
+   bandeja), aviso de IA, fuera de horario, modo pruebas y quién lo atiende.
+7. **Simulador** (**Ajustes › Diagnóstico › Simulador**): manda un mensaje como si fueras un cliente de WhatsApp,
+   del correo o del chat web (texto, audio, imagen o documento, con un ejemplo o un archivo tuyo de hasta 1 MB).
+   Entra por el mismo camino que uno real, aparece en la bandeja marcado «Simulado» y la IA responde como lo haría;
+   esa respuesta nunca sale de la app. «Ver conversación» la abre.
+8. **Contactos:** listado con buscador y filtros por etiqueta y canal, y la ficha de cada uno con sus datos, sus
+   identidades en cada canal, etiquetas, campos personalizados, consentimientos y conversaciones.
+9. **Cada rol:** el Agente (`agente@demo.test`) solo ve las conversaciones de sus canales (se eligen en Ajustes ›
+   Usuarios); Solo lectura ve la bandeja sin poder responder; el Supervisor atiende la bandeja pero no entra en
+   Canales.
+
+### Lo demás
 
 - **Entrar con cada rol** y ver cómo cambia el menú: Bandeja, Contactos, Agenda, Agentes, Conocimiento,
   Canales, Informes y Ajustes. En todas las pantallas aparece el aviso «Modo demo».
@@ -134,22 +184,24 @@ Lo que ya puedes probar:
   proveedores que pueden guardar los audios; el servidor SMTP de los
   correos de la app; textos legales, aviso de IA y plazos de conservación; y quién recibe cada aviso.
 - **Ajustes › Registro de actividad y Diagnóstico:** quién hizo qué, con filtros; y el estado de la base de
-  datos, de la cola de trabajos (con «Reintentar») y de los correos que ha enviado la app, que en local puedes
-  abrir desde ahí.
+  datos, de la cola de trabajos (con «Reintentar»), los errores recientes de la IA (si una respuesta falla también
+  al reintentarla, la conversación pasa a una persona y el error aparece aquí) y los correos que ha enviado la app,
+  que en local puedes abrir desde ahí.
 - **Páginas legales públicas**, sin iniciar sesión: `/legal/privacidad`, `/legal/terminos` y
   `/legal/eliminacion-datos`.
 - **Asistente de arranque:** con `pnpm db:fresh` (ver «Paso a un negocio real») la app queda vacía y te guía:
   cuenta de propietario, negocio y sector, horario, clave de IA, primer agente (desde la plantilla del sector
-  o generado desde la web del negocio si hay clave) y canales.
+  o generado desde la web del negocio si hay clave), un chat web con ese agente que se prueba ahí mismo (y en
+  `/widget-demo`) y los canales que faltan.
 
-Próximamente: el simulador de canales, `/widget-demo` con el chat web, la bandeja con traspaso a una persona,
-los agentes asignados a canales, la agenda con citas y el conocimiento con sus documentos (fases 2 a 5).
+Próximamente: WhatsApp real (fase 3), el conocimiento con sus documentos y fuentes (fase 4), la agenda con citas
+(fase 5) y el correo real (fase 6).
 
 ## Órdenes
 
 | Orden | Qué hace |
 |---|---|
-| `pnpm dev` | Arranca la app en local (y la prepara si falta `.env.local` o la base de datos). |
+| `pnpm dev` | Arranca la app en local (y la prepara si falta `.env.local` o la base de datos). Lanza el trabajo en segundo plano cada 15 s; además, cada mensaje que llega lo lanza él mismo cuando toca responder, así que las respuestas llegan sin configurar ningún cron. |
 | `pnpm run setup` | Solo la preparación. Siempre con `run`: `pnpm setup` es otra orden de pnpm que cambia el PATH del ordenador. Repetirla no cambia nada. |
 | `pnpm lint` / `pnpm typecheck` | Revisan el código y los tipos. |
 | `pnpm test` | Pruebas de Vitest (cada archivo con su propia base temporal; nunca toca `data/local.db`). |
@@ -182,13 +234,20 @@ Están todas explicadas en `.env.example`. En local no tienes que tocar ninguna:
 | `DEMO_MODE` | `true` en local: aviso «Modo demo» y canales de demo que nunca llaman a servicios reales. |
 | `OPENROUTER_API_KEY` | Clave de OpenRouter (opcional; mejor en Ajustes › IA). |
 | `BLOB_READ_WRITE_TOKEN` | Almacén de archivos de Vercel Blob al publicar; en local los archivos van a `data/uploads/`. |
+| `FFMPEG_BIN` | Opcional: otro FFmpeg para convertir notas de voz a MP3. Sin ella se usa el que trae el proyecto. |
 | `OPENROUTER_BASE_URL` y demás `*_BASE_URL` | Solo para las pruebas, que apuntan a un simulador. No las cambies. |
+| `REPLY_DEBOUNCE_MS` | Solo para las pruebas: espera fija antes de que la IA responda (en una instalación real, de 4 a 8 s). |
 
 Los secretos van solo en `.env.local`, que nunca se sube a Git.
 
 ## Conectar canales reales
 
-Llega con las fases de canales. Mientras tanto, lo comprobado de cada servicio está en:
+- **Chat web (ya disponible):** en Canales › Añadir canal › Chat web, añade el dominio de tu web (por ejemplo
+  `www.tunegocio.es`) en «Dominios permitidos» y pega el código de «Apariencia y código» en tu web. El chat solo
+  funciona en esos dominios y en la propia app. Hasta publicar la app, tu web no puede llegar a `localhost`:
+  pruébalo en `/widget-demo`.
+
+WhatsApp y correo llegan con sus fases. Mientras tanto, lo comprobado de cada servicio está en:
 
 - WhatsApp (API oficial de Meta): `docs/integracion-whatsapp.md` y `docs/integracion-whatsapp-mensajes.md`.
   Guía paso a paso: `docs/guia-whatsapp.md` (próximamente).
@@ -242,6 +301,16 @@ A partir de aquí `pnpm seed` se niega a cargar la demo en esa base, para no mez
 - **El agente no responde en Probar:** el mensaje dice por qué. Lo habitual: clave no válida o caducada, cuenta
   sin saldo o clave en su límite de gasto (se sube en OpenRouter), o «Este modelo no está disponible con tu
   configuración de privacidad» (elige otro modelo en la pestaña Modelo o revisa la privacidad de la cuenta).
+- **El agente no contesta en el chat web ni en el simulador:** revisa, por este orden, que haya clave de OpenRouter,
+  que el canal tenga «Agente activo» y la IA encendida (Canales), que la conversación no esté en pausa, apagada o
+  «Pendiente de humano» (cabecera de la conversación), el modo pruebas del canal y «Fuera de horario». En cualquiera
+  de esos casos el mensaje espera en la bandeja a una persona.
+- **La respuesta tarda unos segundos:** es a propósito: la app espera de 4 a 8 segundos por si el cliente escribe
+  algo más, y contesta todo junto (como mucho, 20 segundos desde el primer mensaje).
+- **El chat no aparece en mi web:** añade su dominio exacto en «Dominios permitidos» del chat (sin `https://` ni
+  rutas; con el puerto si lo tiene) y recuerda que la app tiene que estar publicada para que tu web llegue a ella.
+- **Un adjunto no se envía desde la bandeja:** solo imágenes (JPG, PNG o WebP) y PDF de hasta 3,5 MB, y solo si el
+  canal los admite (el chat web, imágenes si las tiene activadas).
 - **La lista de modelos no sale o le falta alguno:** sin clave no se carga. Solo aparecen modelos que admiten
   herramientas, con precio y sin fecha de retirada; «Actualizar lista» la vuelve a pedir a OpenRouter (se guarda
   12 horas).
@@ -275,5 +344,5 @@ datos comprobados de cada servicio externo (`docs/integracion-*.md`).
 Guías para el negocio (también dentro de la app, en Ayuda):
 
 - [Crear agentes y darles el conocimiento del negocio](docs/guia-agentes-y-conocimiento.md): crear, ajustar y
-  probar un agente (la parte de conocimiento llega con su fase).
+  probar un agente y ponerlo a responder en un canal (la parte de conocimiento llega con su fase).
 - [Publicar la app en Vercel](docs/guia-despliegue.md).

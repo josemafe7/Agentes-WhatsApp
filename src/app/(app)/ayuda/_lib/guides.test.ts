@@ -72,4 +72,11 @@ describe("the agents and knowledge guide [ARR-23]", () => {
     }
     expect(text.match(/\[Captura: /g)?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
+
+  it("explains putting an agent to answer in a channel and why it may not answer [CAN-03] [CAN-04] [AGE-10] [AGE-14]", async () => {
+    const text = guide ? await readGuide(guide) : "";
+    for (const topic of ["Agente activo", "Sustituir", "Activo aquí", "/widget-demo", "Simulador", "Borrador para revisar", "IA en pausa hasta", "Modo pruebas"]) {
+      expect(text, topic).toContain(topic);
+    }
+  });
 });

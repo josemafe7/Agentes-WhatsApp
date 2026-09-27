@@ -7,6 +7,7 @@ import { AppSidebar } from "@/components/app-shell/app-sidebar";
 import { AppTopbar } from "@/components/app-shell/app-topbar";
 import { BottomNav } from "@/components/app-shell/bottom-nav";
 import { DEFAULT_BUSINESS_NAME, SETUP_PATH } from "@/components/app-shell/home-destination";
+import { InboxUnreadProvider } from "@/components/app-shell/inbox-unread";
 import { loadShellData } from "@/components/app-shell/shell-data";
 import { isDemoMode } from "@/components/banners/banner-state";
 import { DemoBanner } from "@/components/banners/demo-banner";
@@ -62,21 +63,23 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         Saltar al contenido
       </a>
       {demo ? <DemoBanner /> : null}
-      <SidebarProvider defaultOpen={sidebarOpen} className="min-h-[calc(100svh-var(--app-banner-h))]">
-        <AppSidebar business={shell.business} user={shell.user} sectionKeys={shell.sectionKeys} />
-        <div className="flex min-w-0 flex-1 flex-col bg-background">
-          <AppTopbar business={shell.business} />
-          <main
-            id="contenido"
-            tabIndex={-1}
-            className="flex-1 px-4 pt-6 pb-[calc(3.5rem+env(safe-area-inset-bottom)+1.5rem)] outline-none md:px-6 md:pb-8"
-          >
-            {shell.openRouterNotice ? <OpenRouterBanner variant={shell.openRouterNotice} /> : null}
-            {children}
-          </main>
-        </div>
-        <BottomNav user={shell.user} sectionKeys={shell.sectionKeys} />
-      </SidebarProvider>
+      <InboxUnreadProvider initial={shell.inboxUnread}>
+        <SidebarProvider defaultOpen={sidebarOpen} className="min-h-[calc(100svh-var(--app-banner-h))]">
+          <AppSidebar business={shell.business} user={shell.user} sectionKeys={shell.sectionKeys} />
+          <div className="flex min-w-0 flex-1 flex-col bg-background">
+            <AppTopbar business={shell.business} />
+            <main
+              id="contenido"
+              tabIndex={-1}
+              className="flex-1 px-4 pt-6 pb-[calc(3.5rem+env(safe-area-inset-bottom)+1.5rem)] outline-none md:px-6 md:pb-8"
+            >
+              {shell.openRouterNotice ? <OpenRouterBanner variant={shell.openRouterNotice} /> : null}
+              {children}
+            </main>
+          </div>
+          <BottomNav user={shell.user} sectionKeys={shell.sectionKeys} />
+        </SidebarProvider>
+      </InboxUnreadProvider>
     </div>
   );
 }

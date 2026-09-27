@@ -35,3 +35,8 @@ export const optionalText = (max: number) =>
 
 /** A record id (UUID v4 text). */
 export const idSchema = z.uuid({ error: "Identificador no válido." });
+
+/** Most labels on a conversation or a contact ([BAN-12], [CTO-01]). */
+export const MAX_LABELS = 20;
+/** One label: trimmed, 1–40 characters. */
+export const labelSchema = z.string().trim().min(1, "Escribe la etiqueta.").max(40, "Como mucho 40 caracteres.");

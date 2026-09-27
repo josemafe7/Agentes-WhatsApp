@@ -63,6 +63,10 @@ export type MessageMedia = {
   mimeType?: string;
   size?: number;
   fileName?: string;
+  /** Hex SHA-256 of the stored bytes (src/server/media/store.ts). */
+  sha256?: string;
+  /** Length of an audio or video in seconds, when the channel or the recorder gives it. */
+  durationSec?: number;
   /** Channel media id while the download is pending (WhatsApp ids last 7 days). */
   externalMediaId?: string;
   downloadStatus?: "pending" | "done" | "failed";
@@ -152,6 +156,11 @@ export const handoffEvents = sqliteTable(
     requestedAt: timestamp("requested_at").notNull(),
     firstHumanResponseAt: timestamp("first_human_response_at"),
     firstHumanMessageId: text("first_human_message_id").references(() => messages.id, { onDelete: "set null" }),
+    /**
+     * The hand-off ended without a person's reply: the conversation was resolved or its AI reactivated ([TRA-02],
+     * [TRA-08]). It no longer waits (not urgent, not shown) and a later reply never counts as its first ([TRA-06]).
+     */
+    closedAt: timestamp("closed_at"),
     ...timestamps(),
   },
   (t) => [

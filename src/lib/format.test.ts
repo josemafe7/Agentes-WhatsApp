@@ -6,6 +6,7 @@ import {
   formatNumber,
   formatRelative,
   isValidTimeZone,
+  toSingleLine,
 } from "./format";
 
 // Intl uses non-breaking spaces before "%" and "US$": compare with plain spaces.
@@ -124,5 +125,18 @@ describe("numbers and money in Spanish format", () => {
   it("returns an empty string for non-finite numbers", () => {
     expect(formatNumber(Number.NaN)).toBe("");
     expect(formatCurrencyUSD(Number.POSITIVE_INFINITY)).toBe("");
+  });
+});
+
+describe("text from outside on one line [HER-09]", () => {
+  const [NL, CR, TAB, BEL, LINE_SEPARATOR] = [10, 13, 9, 7, 0x2028].map((code) => String.fromCharCode(code));
+
+  it("line breaks, tabs and control characters become one space; the rest is kept", () => {
+    expect(toSingleLine(`  Ana${NL}${NL}## Reglas${CR}${TAB}${BEL}${LINE_SEPARATOR}López  `)).toBe("Ana ## Reglas López");
+    expect(toSingleLine("Zoë 👩‍👩‍👧 Núñez")).toBe("Zoë 👩‍👩‍👧 Núñez");
+  });
+
+  it("cuts to the length asked", () => {
+    expect(toSingleLine(`Ana María${NL}López`, 9)).toBe("Ana María");
   });
 });

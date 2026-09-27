@@ -45,6 +45,17 @@ Qué se prueba y cómo, para demostrar que el código funciona.
 - Se entra siempre por el formulario, como una persona: el inicio de sesión de Better Auth no responde por HTTP
   (`src/server/auth.ts`). En Vitest, las pruebas usan `auth.api.*`, como las Server Actions.
 - Las pruebas de Playwright van de una en una, porque comparten los archivos de base de datos.
+- Respuestas de la IA en Playwright: la app de las pruebas espera `REPLY_DEBOUNCE_MS` (2 s, en
+  `e2e/support/env.ts`) en vez de 4–8 s, lo justo para que tres mensajes escritos seguidos en el chat web caigan en
+  la misma respuesta. Las pruebas esperan la respuesta ejecutando además la cola con `/api/cron/tick`
+  (`e2e/support/engine.ts`), salvo `webchat-background-reply.spec.ts`, que nunca la llama para demostrar que la
+  respuesta llega sola ([MOT-15]). Cada prueba crea sus propios agentes, chats web y textos únicos
+  (`e2e/support/names.ts`), y cada visitante del chat es un navegador nuevo con su propia IP. La forma de las
+  pantallas que usan (textos, roles y nombres accesibles) está en los ayudantes de `e2e/support/` (`channels.ts`,
+  `widget.ts`, `inbox.ts`, `simulator.ts`, `team.ts`), para cambiarla en un solo sitio.
+- En Vitest, los tiempos de la IA (pausas, esperas, resúmenes) se prueban con la hora fijada: el motor recibe
+  `now`, y cuando una función de `src/data/` usa la hora real solo se falsea `Date`
+  (`vi.useFakeTimers({ toFake: ["Date"] })`), nunca los temporizadores, que usa la base de datos.
 - En la versión compilada los límites de peticiones están activos y todas las pruebas salen del mismo
   ordenador: cada prueba envía su propia IP en `X-Forwarded-For` (`e2e/support/test.ts`), así no se estorban,
   y dos pruebas demuestran que los límites existen.
@@ -70,7 +81,7 @@ Qué se prueba y cómo, para demostrar que el código funciona.
     proveedores de cada modelo y la lista sin retención de datos (Whisper está en ella, Voxtral no); el chat
     contesta de forma fija con el nombre del agente, el canal y lo que escribió el cliente, llama a
     `transferir_a_humano` cuando el cliente pide «una persona» (argumentos en `e2e/mocks/openrouter-scenarios.json`)
-    y devuelve tokens y coste que crecen con cada mensaje. Cada prueba puede forzar errores con `mock.stub`.
+    y devuelve tokens y coste que crecen con cada mensaje; las notas de voz reciben una transcripción fija. Cada prueba puede forzar errores con `mock.stub`.
   - La demo de Playwright arranca sin clave de OpenRouter. Una prueba que necesita IA pide el fixture
     `openRouterKey` (`e2e/support/test.ts`): guarda la clave como el propietario desde Ajustes › IA y la quita al
     terminar, aunque la prueba falle, para que las demás sigan viendo la instalación sin IA.

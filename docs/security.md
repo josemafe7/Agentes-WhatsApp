@@ -128,7 +128,7 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
   propietario y administradores no usan la app hasta configurarla ([USU-12]). Better Auth no la exige por
   rol: lo comprueba `src/server/session.ts` en cada petición.
 - No se guardan tokens ni datos personales en `localStorage` (excepción: el identificador anónimo del
-  chat web, ver «Excepciones aprobadas»).
+  chat web y su token firmado, ver «Excepciones aprobadas»).
 - Los usuarios de prueba los crea el seed y solo existen en local y en la demo. En `README.md` solo
   aparecen esas credenciales, nunca unas reales, y en producción no existe ninguno de ellos: `pnpm seed` se
   niega en una instalación sin demo ([ARR-19]). Una demo pública con las credenciales a la vista la puede
@@ -255,7 +255,12 @@ cuenta.
   clientes, correos, transcripciones, documentos, webs y respuestas de las herramientas HTTP. Un «ignora
   tus instrucciones» no cambia las reglas ni da acceso a otros datos ([HER-09]).
 - Las reglas de la plataforma van siempre delante de las instrucciones del agente, y estas no las pueden
-  quitar ([MOT-05], [MOT-06]).
+  quitar ([MOT-05], [MOT-06]). Lo que viene del cliente y entra en el mensaje de sistema (su nombre, el resumen
+  acumulado de la conversación) nunca empieza una línea propia: el nombre va en una sola línea (sin saltos ni
+  caracteres de control, también al guardarlo) y el resumen, citado línea a línea con «>» bajo una nota que dice
+  que son datos.
+- Nada que escriba un visitante abre la IA: el modo pruebas de un canal compara solo los identificadores que da
+  el canal, nunca el email o el teléfono del formulario del chat web ([CAN-06]).
 - La IA nunca tiene más permisos que la persona que la usa. Aquí los agentes no son usuarios: solo actúan
   con sus herramientas y sobre el contacto de su conversación ([PER-08]).
 - Lo que borra, paga o envía algo pide confirmación a la persona: la IA confirma con el cliente antes de
@@ -265,7 +270,7 @@ cuenta.
 - Lo que responde la IA se valida antes de guardarlo, de mostrarlo como HTML o de usarlo en una acción.
 - OpenRouter siempre con `provider.data_collection: "deny"`, que no se puede desactivar ([CUM-10]), y ZDR
   si está activado. La transcripción no admite esas opciones por petición: por eso su modelo por defecto
-  solo tiene proveedores sin retención. Al leer PDF se fija siempre el motor, para que no vayan a otro
+  solo tiene proveedores sin retención, y el de respaldo solo se usa si también los tiene todos (0018). Al leer PDF se fija siempre el motor, para que no vayan a otro
   servicio sin querer. Ver `docs/integracion-openrouter.md`.
 
 ## Datos personales
@@ -336,7 +341,7 @@ Una app publicada se queda vieja aunque nadie la toque. Cuando pida el mantenimi
 
 | Punto | Motivo | Aprobada por y fecha |
 |---|---|---|
-| El chat web guarda en `localStorage` el identificador anónimo del visitante | Permite volver a su conversación sin cuenta. Es aleatorio, solo da acceso a su propia conversación ([WEB-11]) y no guarda datos personales | Encargo del usuario (§6.4 de la especificación original), 26-09-2026 |
+| El chat web guarda en `localStorage` el identificador anónimo del visitante, el token que el servidor firma para ese mismo identificador y la fecha de la última respuesta leída (para el punto de «mensajes nuevos») | Permite volver a su conversación sin cuenta. El identificador lo crea el servidor al azar; el token (HMAC con una clave derivada de `APP_ENCRYPTION_KEY` solo para esto, atado al canal y al visitante, como mucho 365 días) solo abre la conversación de ese visitante en ese chat ([WEB-11]). No se guardan datos personales. Si el navegador bloquea el almacenamiento, se queda en memoria | Encargo del usuario (§6.4 de la especificación original), 26-09-2026; token y fecha añadidos al integrar la fase 2 (27-09-2026) dentro del mismo encargo |
 | D1 · `next@16.3.6` y `eslint-config-next@16.3.6` (y los `@next/*` de esa misma versión, que `next` exige tal cual) entran por `minimumReleaseAgeExclude`, con versión exacta | 16.3.6 (22-09-2026) corrige un fallo crítico (CVE-2026-94545, GHSA-vcvr-r3jv-pc5j): ejecución remota de código en `ImageResponse` de `next/og`, que afecta a 16.2.0–16.3.5. **Quitar la exclusión de `pnpm-workspace.yaml` a partir del 29-09-2026**, cuando 16.3.6 cumpla 7 días | Permiso general del propietario, 2026-09-26 |
 | D2 · `trustPolicyExclude`: `eslint-import-resolver-typescript@3.10.1` y `semver@6.3.1` | Versiones antiguas que llegan de forma indirecta (por `eslint-config-next` y por `@babel/core` del CLI de shadcn), publicadas sin procedencia después de otras que sí la tenían: sin excluirlas, `trustPolicy: no-downgrade` impide instalar. Solo en desarrollo | Permiso general del propietario, 2026-09-26 |
 | D3 · `allowBuilds`: solo `ffmpeg-static` ejecuta su script de instalación | Descarga el binario de FFmpeg 6.1.1 (licencia GPL-3.0-or-later) desde las publicaciones del proyecto en GitHub, sin comprobación de suma visible; sin él no hay binario para convertir las notas de voz ([MED-02]). Los demás scripts (`esbuild`, `unrs-resolver`, `fsevents`, `sharp`) quedan denegados | Permiso general del propietario, 2026-09-26 |

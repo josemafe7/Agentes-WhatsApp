@@ -104,3 +104,20 @@ export function testEmail(params: { brand: EmailBrand; name: string }): EmailCon
     html: layout(params.brand, [greeting, intro], null, footer),
   };
 }
+
+/**
+ * A notice for a person of the team ([TRA-05], [PWA-07]): what happened and with whom, never the text of the
+ * customer's message ([PWA-04]), with a button to open it in the app.
+ */
+export function notificationEmail(params: { brand: EmailBrand; name: string | null; title: string; body: string | null; link: string | null }): EmailContent {
+  const business = businessName(params.brand);
+  const greeting = params.name ? `Hola, ${params.name}:` : "Hola:";
+  const paragraphs = [greeting, params.title, ...(params.body ? [params.body] : [])];
+  const footer = `Te llega porque tienes activados los avisos por email de ${business}. Puedes cambiarlos en Mi cuenta.`;
+  const text = [...paragraphs, ...(params.link ? [params.link] : []), footer].join("\n\n");
+  return {
+    subject: `${params.title} · ${business}`,
+    text: `${text}\n`,
+    html: layout(params.brand, paragraphs, params.link ? { label: "Abrir en la app", url: params.link } : null, footer),
+  };
+}

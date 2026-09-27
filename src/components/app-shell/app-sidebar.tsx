@@ -11,6 +11,7 @@ import {
   SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
@@ -18,6 +19,7 @@ import {
 } from "@/components/ui/sidebar";
 import { BusinessBrand } from "./business-brand";
 import { INBOX_PATH } from "./home-destination";
+import { InboxUnreadBadge, InboxUnreadDescription } from "./inbox-unread";
 import { groupSections, isActivePath, SECTIONS, type SectionKey } from "./navigation";
 import type { ShellBusiness, ShellUser } from "./types";
 import { UserMenu } from "./user-menu";
@@ -30,6 +32,7 @@ type AppSidebarProps = {
 };
 
 const TOGGLE_LABEL = "Plegar o desplegar el menú (Ctrl+B)";
+const UNREAD_DESCRIPTION_ID = "sidebar-inbox-unread";
 
 /** Desktop side menu (256 px, folds to icons with Ctrl/Cmd+B): business, sections and the user menu. */
 export function AppSidebar({ business, user, sectionKeys }: AppSidebarProps) {
@@ -64,6 +67,7 @@ export function AppSidebar({ business, user, sectionKeys }: AppSidebarProps) {
                     {group.map((section) => {
                       const active = isActivePath(pathname, section.href);
                       const Icon = section.icon;
+                      const inbox = section.key === "bandeja";
                       return (
                         <SidebarMenuItem key={section.key}>
                           <SidebarMenuButton
@@ -72,11 +76,19 @@ export function AppSidebar({ business, user, sectionKeys }: AppSidebarProps) {
                             tooltip={section.label}
                             className="h-9 [&_svg]:size-5 data-[active=true]:[&_svg]:text-primary-text"
                           >
-                            <Link href={section.href} aria-current={active ? "page" : undefined}>
+                            <Link href={section.href} aria-current={active ? "page" : undefined} aria-describedby={inbox ? UNREAD_DESCRIPTION_ID : undefined}>
                               <Icon aria-hidden />
                               <span>{section.label}</span>
                             </Link>
                           </SidebarMenuButton>
+                          {inbox ? (
+                            <>
+                              <SidebarMenuBadge>
+                                <InboxUnreadBadge />
+                              </SidebarMenuBadge>
+                              <InboxUnreadDescription id={UNREAD_DESCRIPTION_ID} />
+                            </>
+                          ) : null}
                         </SidebarMenuItem>
                       );
                     })}

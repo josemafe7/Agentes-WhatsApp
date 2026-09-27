@@ -1,9 +1,10 @@
 // What the app shell needs for the signed-in actor: business brand, the person, allowed sections and notices.
 // Only display data: never a secret ([SEG-02]).
 import "server-only";
+import { getInboxCounts } from "@/data/conversations";
 import { getBusinessProfile, isAiConfigured } from "@/data/settings";
 import { primaryStyleSheet } from "@/lib/color";
-import { ROLE_LABELS } from "@/lib/permissions";
+import { can, PERMISSIONS, ROLE_LABELS } from "@/lib/permissions";
 import type { SessionActor } from "@/server/session";
 import { openRouterNotice } from "@/components/banners/banner-state";
 import { businessInitials, DEFAULT_BUSINESS_NAME } from "./home-destination";
@@ -24,10 +25,16 @@ export type ShellData = {
   /** `:root{…}.dark{…}` with the business colour ([AJU-01], DESIGN.md «Color del negocio»). */
   brandStyleSheet: string;
   openRouterNotice: "manage" | "ask" | null;
+  /** Unread conversations of the actor's channels, for the counter of «Bandeja» ([BAN-03]); null without the inbox. */
+  inboxUnread: number | null;
 };
 
 export async function loadShellData(actor: SessionActor): Promise<ShellData> {
-  const [profile, aiConfigured] = await Promise.all([getBusinessProfile(actor), isAiConfigured()]);
+  const [profile, aiConfigured, inboxUnread] = await Promise.all([
+    getBusinessProfile(actor),
+    isAiConfigured(),
+    can(actor, PERMISSIONS.inbox.view) ? getInboxCounts(actor).then((counts) => counts.unreadConversations) : Promise.resolve(null),
+  ]);
   const name = profile.name.trim() || DEFAULT_BUSINESS_NAME;
   return {
     business: {
@@ -39,5 +46,6 @@ export async function loadShellData(actor: SessionActor): Promise<ShellData> {
     sectionKeys: visibleSections(actor).map((section) => section.key),
     brandStyleSheet: primaryStyleSheet(profile.color),
     openRouterNotice: openRouterNotice(actor, aiConfigured),
+    inboxUnread,
   };
 }

@@ -43,7 +43,10 @@ Sondeo cada 3–5 s a `/api/realtime?cursor=…`, detrás de la interfaz `Realti
   después de su cursor.
 - La ruta comprueba la sesión y devuelve solo lo que ese usuario puede ver (un agente, solo sus canales).
 - El cliente deja de preguntar cuando la pestaña no está visible, pregunta menos cuando no hay actividad y
-  vuelve al ritmo normal al recuperar el foco.
+  vuelve al ritmo normal al recuperar el foco. Con la pestaña a la vista nunca espera más de 5 s ([BAN-03]):
+  cada 4 s (3 s justo después de una novedad) y cada 5 s tras un minuto sin tocar la pantalla. Solo si falla la
+  conexión espera más, hasta 30 s. (Precisado el 2026-09-27: la primera versión llegaba a 30 s sin actividad,
+  y [BAN-03] pide 5 s como máximo.)
 - El chat web sondea su propia API, con sus límites por IP, visitante y dominio.
 - Los avisos push de la PWA (`docs/notificaciones-push.md`) cubren el caso de la app cerrada.
 - En el futuro, una implementación con Supabase Realtime sustituye a esta sin tocar a quien usa la interfaz.

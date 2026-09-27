@@ -142,7 +142,7 @@ export async function saveAiAction(_previous: SetupFormState, formData: FormData
 }
 
 /**
- * «Hacerlo más tarde» (step 4), «Saltar este paso» (step 5) and «Continuar» on the placeholder step 6. Bound to its step by the server
+ * «Hacerlo más tarde» (step 4) and «Saltar este paso» (steps 5 and 6). Bound to its step by the server
  * component (`skipStepAction.bind(null, 5)`); the form state and data that useActionState passes are not needed.
  */
 export async function skipStepAction(step: number): Promise<ActionResult> {
