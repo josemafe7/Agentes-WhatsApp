@@ -210,7 +210,15 @@ function removeOwnLock(lockFile: string): void {
   }
 }
 
-type Connection = { key: string; database: Database; close: () => Promise<void> };
+type Connection = { key: string; database: Database; close: () => Promise<void>; server?: boolean; lastUsedAt?: number };
+
+/**
+ * A server connection unused for this long is not reused: opened again instead. On Vercel a function waits frozen
+ * between requests, and on the way back its sockets may be dead (the network drops idle flows without telling
+ * anyone): a query sent on one waits for an answer that never comes, until the function times out (504). Reconnecting
+ * costs one handshake with the pooler.
+ */
+export const SERVER_IDLE_RESET_MS = 30_000;
 
 /** Identity of a database: the same folder is the same database, whatever the URL that names it. */
 function databaseKey(url: string, target: DatabaseTarget): string {
@@ -222,7 +230,14 @@ function databaseKey(url: string, target: DatabaseTarget): string {
 function connect(target: DatabaseTarget, key: string, max?: number): Connection {
   if (target.kind === "server") {
     const client = postgres(target.url, { ...serverConnectionOptions(target.url), ...(max ? { max } : {}) });
-    return { key, database: withWriteLock(drizzlePostgres(client, { schema }) as Database), close: () => client.end({ timeout: 5 }) };
+    return {
+      key,
+      database: withWriteLock(drizzlePostgres(client, { schema }) as Database),
+      // In-flight queries get a few seconds; one stuck on a dead socket then fails instead of hanging.
+      close: () => client.end({ timeout: 10 }),
+      server: true,
+      lastUsedAt: Date.now(),
+    };
   }
   if (target.kind === "memory") {
     const client = createPglite();
@@ -256,7 +271,11 @@ export function getDb(): Database {
   const target = resolveDatabaseTarget(url);
   const key = databaseKey(url, target);
   const cached = globalCache.__dominiaDb;
-  if (cached?.key === key) return cached.database;
+  const now = Date.now();
+  if (cached?.key === key && !(cached.server && now - (cached.lastUsedAt ?? now) > SERVER_IDLE_RESET_MS)) {
+    cached.lastUsedAt = now;
+    return cached.database;
+  }
   globalCache.__dominiaDb = undefined;
   cached?.close().catch(() => undefined);
   const connection = connect(target, key);
