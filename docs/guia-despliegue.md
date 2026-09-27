@@ -61,6 +61,11 @@ integrada, sin cuentas. Los datos de Supabase van en las variables de Vercel (ap
    secreto: guárdala en el gestor de contraseñas. Solo va en Vercel (apartado 4) y en tu terminal para las migraciones
    (apartado 2).
 
+**Si lo prepara Claude Code con el conector de Supabase**, sin tu contraseña: crea un usuario de la base solo para la
+app, `dominia_app`, que lee y escribe las tablas pero no puede cambiarlas (así está la instalación del propietario).
+La dirección de Vercel es entonces `postgresql://dominia_app.<ref>:<su contraseña>@…pooler.supabase.com:6543/postgres`,
+y las migraciones las sigue aplicando `postgres`, o el propio conector (apartado 2).
+
 [Captura: Connect, con Transaction pooler y la dirección del puerto 6543]
 
 ### Las claves de los archivos

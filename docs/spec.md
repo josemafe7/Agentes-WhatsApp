@@ -1165,7 +1165,7 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
   lleva al asistente; bajas, aviso de IA, conservación, exportar/borrar/fusionar, informes, PWA y push, herramientas
   HTTP y seguridad con pruebas; `pnpm audit` sin fallos graves. Pendiente del propietario: publicar en Vercel y
   generar `seed/fixtures/embeddings.json` con su clave.
-- [ ] Fase 8 · Supabase: la base de datos pasa a Postgres en todas partes, con la integrada (PGlite) en local y en las
+- [x] Fase 8 · Supabase: la base de datos pasa a Postgres en todas partes, con la integrada (PGlite) en local y en las
   pruebas, sin cuentas ni Docker, y Supabase solo en la app publicada, en la misma ciudad que las funciones de Vercel;
   Row Level Security en todas las tablas, sin políticas; un escritor a la vez, como con SQLite; los archivos de la app
   publicada, en un bucket privado de Supabase Storage; el cron de cada minuto, en Supabase Cron; la búsqueda por
@@ -1178,6 +1178,14 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
   todas las tablas tienen Row Level Security y el Security Advisor de Supabase no da errores ni avisos (solo los
   informativos «RLS Enabled No Policy», que son lo esperado); pasan lint, tipos, pruebas y compilación, y `pnpm audit`
   sin fallos graves.
+  Comprobado el 2026-09-27: clon limpio con `pnpm install && pnpm dev` que carga la demo en `data/pglite` y responde
+  en /api/health y /login sin Supabase; 4.399 pruebas de Vitest y las 163 de Playwright sobre la base integrada (los
+  usuarios de la demo entran en ellas); en el proyecto «Agentes WhatsApp» (Londres), migraciones 0000–0002, 54
+  tablas con Row Level Security y el Security Advisor solo con los avisos informativos; demo cargada (Peluquería
+  Aurora) y sus 4 archivos en el bucket privado `dominia-archivos`; publicada en https://dominia-agentes.vercel.app
+  (funciones en `lhr1`, rol de base `dominia_app` sin permisos para cambiar tablas): /api/health «ok» contra
+  Supabase y el cron de Supabase recibe 202 cada minuto; `pnpm audit`, 1 aviso moderado solo de desarrollo. Queda para
+  el propietario, en la app publicada: entrar con los usuarios de la demo, una reserva y la subida de un archivo.
 
 Después: publicación en Vercel (con Supabase) con la prueba del número de prueba de Meta; Dokploy; GitHub (versión,
 migraciones solo aditivas, changelog y aviso de versión nueva); Telegram; respuestas con voz; Google Calendar e iCal;
