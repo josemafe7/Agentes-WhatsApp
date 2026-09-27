@@ -156,6 +156,10 @@ pruebas y al publicar.
   error: un trabajo de la cola se reintenta y una persona ve un error y puede repetirlo. Las transacciones tienen que
   seguir siendo cortas. Las transacciones de solo lectura (como la de la búsqueda por el índice de vectores) no toman
   el candado, así que las búsquedas no esperan a las escrituras.
+- Acepta: Vercel congela la función en cuanto responde, y lo que quede a medias se queda parado (con el candado o
+  una conexión abierta a medias). Por eso cada consulta y cada transacción la mantienen viva hasta terminar
+  (`after()` en `src/db/index.ts`), y en Vercel las tareas de arranque, que ninguna petición espera, no las lanza el
+  arranque: las hace el primer aviso de cada minuto de cada instancia (`src/server/startup-maintenance.ts`).
 - Acepta: el plan Free de Supabase no tiene copias automáticas, se pausa tras una semana con poca actividad y
   limita cada archivo a 50 MB, cuando un documento de WhatsApp puede llegar a 100 MB. Sirve para pruebas; un negocio
   real necesita Pro (copias diarias de 7 días), con el límite de tamaño de Storage subido a 100 MB. Las copias de la

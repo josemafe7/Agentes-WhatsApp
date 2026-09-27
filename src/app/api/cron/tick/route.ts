@@ -4,6 +4,7 @@
 import { after } from "next/server";
 import { isCronAuthorized } from "@/server/cron";
 import { tick } from "@/server/jobs";
+import { runStartupMaintenance } from "@/server/startup-maintenance";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,8 @@ async function handle(request: Request): Promise<Response> {
     return Response.json({ error: "No autorizado." }, { status: 401 });
   }
   after(async () => {
+    // On Vercel the start-up upkeep runs here, the first time on each instance (src/instrumentation.ts).
+    if (process.env.VERCEL) await runStartupMaintenance();
     await tick({ budgetMs: CRON_TICK_BUDGET_MS, workerId: `cron-${crypto.randomUUID()}` });
   });
   return Response.json({ accepted: true }, { status: 202, headers: { "Cache-Control": "no-store" } });

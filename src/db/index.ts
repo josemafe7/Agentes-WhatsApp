@@ -117,7 +117,11 @@ export function createPglite(dataDir?: string, options: { loadDataDir?: Blob | F
 function withWriteLock<T extends Database>(database: T): T {
   const transaction = database.transaction.bind(database);
   const locked: Database["transaction"] = (callback, config) => {
-    if (config?.accessMode === "read only") return transaction(callback, config);
+    if (config?.accessMode === "read only") {
+      const reading = transaction(callback, config);
+      keepAliveUntilSettled(reading);
+      return reading;
+    }
     const running = transaction(async (tx) => {
       await tx.execute(sql.raw("SET LOCAL lock_timeout = '15s'"));
       await tx.execute(sql.raw(`SELECT pg_advisory_xact_lock(${WRITE_LOCK_KEY})`));
@@ -131,9 +135,10 @@ function withWriteLock<T extends Database>(database: T): T {
 
 /**
  * On Vercel a function may be frozen as soon as its response is sent. A transaction still open then (for example in a
- * page whose render was cut short by a quick navigation) would keep the write lock, and every other write would wait.
- * after() keeps the function alive until the transaction ends. Outside a request (scripts, the worker, the tests)
- * after() throws: there is nothing to keep alive.
+ * page whose render was cut short by a quick navigation) would keep the write lock, and every other write would wait;
+ * a query frozen halfway keeps its pooler connection busy until the statement timeout. after() keeps the function
+ * alive until the transaction or the query ends. Outside a request (scripts, the worker, the tests) after() throws:
+ * there is nothing to keep alive.
  */
 function keepAliveUntilSettled(promise: Promise<unknown>): void {
   try {
@@ -144,6 +149,16 @@ function keepAliveUntilSettled(promise: Promise<unknown>): void {
   } catch {
     // Outside a request.
   }
+}
+
+/** Every query outside a transaction (Drizzle sends them all through `unsafe`) keeps the function alive until it answers. */
+function keepQueriesAlive(client: postgres.Sql): void {
+  const unsafe = client.unsafe.bind(client);
+  client.unsafe = ((...args: Parameters<typeof unsafe>) => {
+    const query = unsafe(...args);
+    keepAliveUntilSettled(query);
+    return query;
+  }) as typeof client.unsafe;
 }
 
 // PGlite does not stop two processes from opening the same folder (that would corrupt it): `<folder>.lock` holds
@@ -250,6 +265,7 @@ function databaseKey(url: string, target: DatabaseTarget): string {
 function connect(target: DatabaseTarget, key: string, max?: number): Connection {
   if (target.kind === "server") {
     const client = postgres(target.url, { ...serverConnectionOptions(target.url), ...(max ? { max } : {}) });
+    keepQueriesAlive(client);
     return {
       key,
       database: withWriteLock(drizzlePostgres(client, { schema }) as Database),
