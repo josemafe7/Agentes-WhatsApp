@@ -155,6 +155,15 @@ describe("sending and receiving [CAN-10] [WEB-06] [CAN-11]", () => {
     expect(state.afterTasks).toHaveLength(1);
   });
 
+  it("a text with a NUL character (or half a surrogate pair) is stored without it, and the chat goes on", async () => {
+    const visitor = await newVisitor(channelId);
+    const first = await widgetApi.send(channelId, text("¿Hay\u0000 hueco\ud800 mañana?"), { token: visitor.token });
+    expect(first.status).toBe(201);
+    expect((first.body.message as Message).text).toBe("¿Hay hueco� mañana?");
+    expect((await widgetApi.send(channelId, text("Gracias"), { token: visitor.token })).status).toBe(201);
+    expect((await db.select({ text: messages.text }).from(messages)).map((row) => row.text).sort()).toEqual(["Gracias", "¿Hay hueco� mañana?"]);
+  });
+
   it("shows «escribiendo…» while the reply is pending, then the reply of the AI and of a person", async () => {
     const visitor = await newVisitor(channelId);
     const sent = await widgetApi.send(channelId, text("¿Cuánto cuesta un corte?"), { token: visitor.token });

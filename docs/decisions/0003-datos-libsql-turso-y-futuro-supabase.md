@@ -1,6 +1,6 @@
 # 0003 · Datos: libSQL (archivo local y Turso) ahora, Supabase en el futuro
 
-- **Estado:** aceptada
+- **Estado:** sustituida por 0024
 - **Fecha:** 2026-09-26
 
 ## Contexto y problema

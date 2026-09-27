@@ -28,7 +28,7 @@ import {
   realtimeEvents,
 } from "@/db/schema";
 import type { ChannelType } from "@/lib/enums";
-import { LibsqlJobQueue, type Job } from "@/server/adapters/job-queue";
+import { PgJobQueue, type Job } from "@/server/adapters/job-queue";
 import { registerChannelAdapter, unregisterChannelAdapter } from "@/server/channels/registry";
 import { ChannelSendError, type ChannelAdapter, type ChannelRecord, type OutboundMessage } from "@/server/channels/types";
 import { DEMO_STATUS_JOB } from "@/server/channels/demo-adapter";
@@ -138,7 +138,7 @@ describe("one reply for the whole turn [MOT-01] [MOT-10]", () => {
     registerJobHandler(REPLY_JOB, (payload, ctx) => processReplyJob(payload, ctx, { fetchImpl: fake.fetch, now: NOW, retryDelayMs: 0 }).then(() => undefined), {
       payload: replyJobPayload,
     });
-    const summary = await tick({ budgetMs: 60_000, queue: new LibsqlJobQueue({ now: () => NOW }) });
+    const summary = await tick({ budgetMs: 60_000, queue: new PgJobQueue({ now: () => NOW }) });
     expect(summary.completed).toBeGreaterThanOrEqual(1);
 
     expect(chatCalls(fake)).toHaveLength(1);
@@ -179,6 +179,14 @@ describe("one reply for the whole turn [MOT-01] [MOT-10]", () => {
     const [run] = await db.select().from(aiRuns);
     expect(run).toMatchObject({ kind: "chat", conversationId, agentId: agent.id, messageId: message.id, isTest: false, costUsd: 0.00024 });
     expect(message.metadata.aiRunId).toBe(run.id);
+  });
+
+  it("a reply with a NUL character (or half a surrogate pair) is stored without it and sent", async () => {
+    await setup();
+    const conversationId = await receive("Hola");
+    const { outcome } = await runReply(conversationId, openRouter(reply("Un corte\u0000 cuesta 18\ud800 €.")));
+    expect(outcome.kind).toBe("replied");
+    expect((await outbound(conversationId))[0]).toMatchObject({ text: `${DEFAULT_AI_DISCLOSURE_TEXT}\n\nUn corte cuesta 18� €.`, status: "sent" });
   });
 });
 
@@ -478,7 +486,7 @@ describe("what the AI does not answer never holds a reply back [MOT-01] [MOT-02]
       payload: replyJobPayload,
     });
     const started = Date.now();
-    const summary = await tick({ budgetMs: 20_000, maxJobs: 5, queue: new LibsqlJobQueue({ now: () => NOW }) });
+    const summary = await tick({ budgetMs: 20_000, maxJobs: 5, queue: new PgJobQueue({ now: () => NOW }) });
     expect(summary.rescheduled).toBe(0);
     expect(summary.stoppedBy).toBe("idle");
     expect(Date.now() - started).toBeLessThan(10_000);
@@ -573,6 +581,17 @@ describe("hand-off rules of the agent [TRA-01] [TRA-02] [TRA-03]", () => {
     // The team hears about it ([TRA-05]).
     const [notice] = await db.select().from(notifications).where(eq(notifications.userId, admin.userId)).limit(1);
     expect(notice).toMatchObject({ event: "handoff", title: "Traspaso urgente: Ana", link: `/bandeja/${conversationId}` });
+  });
+
+  it("what the model passes to a tool is saved without NUL characters: the hand-off keeps its reason and summary [HER-08]", async () => {
+    await setup();
+    const conversationId = await receive("Necesito ayuda con una factura");
+    const fake = openRouter(() =>
+      jsonResponse(chatCompletion({ toolCalls: [{ name: "transferir_a_humano", arguments: { motivo: "Fac\u0000tura", resumen: "Duda\u0000 de factura", urgencia: "alta" } }] })),
+    );
+    expect((await runReply(conversationId, fake)).outcome.kind).toBe("handed_off");
+    const [event] = await db.select().from(handoffEvents);
+    expect(event).toMatchObject({ trigger: "ai_tool", reason: "Factura", summary: "Duda de factura" });
   });
 });
 

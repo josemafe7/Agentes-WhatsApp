@@ -1,8 +1,8 @@
 // AI agents, their versions, context files and custom HTTP tools ([AGE-*], [CON-01], [HER-11]).
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { doublePrecision, index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { AGENT_KNOWLEDGE_MODES, HTTP_METHODS, SECTORS } from "@/lib/enums";
 import { user } from "./auth";
-import { bool, EMPTY_JSON_ARRAY, EMPTY_JSON_OBJECT, id, json, timestamps } from "./columns";
+import { bool, EMPTY_JSON_ARRAY, EMPTY_JSON_OBJECT, EMPTY_ORDERED_JSON_OBJECT, id, json, orderedJson, timestamps } from "./columns";
 
 /** Guided instructions ([AGE-04]): role, business info, what it can and cannot do, style, when to hand off. */
 export type AgentInstructions = {
@@ -27,7 +27,7 @@ export type AgentHandoffConfig = {
   notifyUserIds?: string[];
 };
 
-export const agents = sqliteTable("agents", {
+export const agents = pgTable("agents", {
   id: id(),
   name: text("name").notNull(),
   description: text("description"),
@@ -38,7 +38,7 @@ export const agents = sqliteTable("agents", {
   /** OpenRouter model ids ([MOD-05]); the fallback must be from another provider. */
   model: text("model"),
   fallbackModel: text("fallback_model"),
-  temperature: real("temperature"),
+  temperature: doublePrecision("temperature"),
   reasoningEffort: text("reasoning_effort"),
   maxOutputTokens: integer("max_output_tokens"),
   knowledgeMode: text("knowledge_mode", { enum: AGENT_KNOWLEDGE_MODES }).notNull().default("auto"),
@@ -51,10 +51,10 @@ export const agents = sqliteTable("agents", {
   currentVersion: integer("current_version").notNull().default(0),
   createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
   ...timestamps(),
-});
+}).enableRLS();
 
 /** Full snapshot of an agent on every save; restoring creates a new version ([AGE-12]). */
-export const agentVersions = sqliteTable(
+export const agentVersions = pgTable(
   "agent_versions",
   {
     id: id(),
@@ -69,10 +69,10 @@ export const agentVersions = sqliteTable(
     ...timestamps(),
   },
   (t) => [uniqueIndex("agent_versions_agent_version_uq").on(t.agentId, t.version)],
-);
+).enableRLS();
 
 /** Level 1 knowledge: editable Markdown sent whole in the prompt ([CON-01], [CON-02]). */
-export const agentContextFiles = sqliteTable(
+export const agentContextFiles = pgTable(
   "agent_context_files",
   {
     id: id(),
@@ -88,29 +88,30 @@ export const agentContextFiles = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("agent_context_files_agent_id_idx").on(t.agentId)],
-);
+).enableRLS();
 
 /** JSON-Schema-like description of the tool's parameters, as given to the model. */
 export type ToolParameters = Record<string, unknown>;
 
-export const customTools = sqliteTable("custom_tools", {
+export const customTools = pgTable("custom_tools", {
   id: id(),
   name: text("name").notNull().unique(),
   description: text("description").notNull().default(""),
-  parameters: json<ToolParameters>("parameters").notNull().default(EMPTY_JSON_OBJECT),
+  /** Kept in the order they were written (json, not jsonb), like the headers. */
+  parameters: orderedJson<ToolParameters>("parameters").notNull().default(EMPTY_ORDERED_JSON_OBJECT),
   method: text("method", { enum: HTTP_METHODS }).notNull().default("POST"),
   /** Public HTTPS URL only ([HER-14]). */
   url: text("url").notNull(),
   timeoutMs: integer("timeout_ms").notNull().default(10_000),
   /** Non-secret headers. */
-  headers: json<Record<string, string>>("headers").notNull().default(EMPTY_JSON_OBJECT),
+  headers: orderedJson<Record<string, string>>("headers").notNull().default(EMPTY_ORDERED_JSON_OBJECT),
   /** Encrypted JSON object of secret headers ([HER-12]); never shown whole. */
   secretHeadersEnc: text("secret_headers_enc"),
   enabled: bool("enabled").notNull().default(true),
   ...timestamps(),
-});
+}).enableRLS();
 
-export const agentCustomTools = sqliteTable(
+export const agentCustomTools = pgTable(
   "agent_custom_tools",
   {
     id: id(),
@@ -126,4 +127,4 @@ export const agentCustomTools = sqliteTable(
     uniqueIndex("agent_custom_tools_agent_tool_uq").on(t.agentId, t.customToolId),
     index("agent_custom_tools_tool_idx").on(t.customToolId),
   ],
-);
+).enableRLS();

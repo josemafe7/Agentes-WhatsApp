@@ -1,7 +1,8 @@
 // Hybrid search of the knowledge ([CON-16]–[CON-19], docs/busqueda-hibrida.md §5): 40 results by meaning (only with
-// an OpenRouter key: the query needs its embedding) and 40 by words (FTS5, any of the words), fused with RRF k = 60,
-// the best 8 kept (6 when «Reordenar resultados» is on; if the rerank fails, the 8 of RRF). SIN_RESULTADOS when
-// nothing is relevant. Never returns embeddings. Behind the TextSearch and VectorSearch adapters.
+// an OpenRouter key: the query needs its embedding) and 40 by words (Postgres full-text search in Spanish, any of the
+// words), fused with RRF k = 60, the best 8 kept (6 when «Reordenar resultados» is on; if the rerank fails, the 8 of
+// RRF). SIN_RESULTADOS when nothing is relevant. Never returns embeddings. Behind the TextSearch and VectorSearch
+// adapters.
 import "server-only";
 import { inArray } from "drizzle-orm";
 import { loadIntegrationSettings } from "@/data/settings";
@@ -212,7 +213,7 @@ export async function searchKnowledge(input: SearchKnowledgeInput, deps: SearchD
   const client = await knowledgeAiClient(deps);
   const textSearch = deps.textSearch ?? getTextSearch();
   const [byWords, byMeaning] = await Promise.all([
-    textSearch.search(query, { kbs: bases.map((base) => ({ kbId: base.id, indexVersion: base.indexVersion })), limit: SEARCH_CANDIDATES, prefix: true }),
+    textSearch.search(query, { kbs: bases.map((base) => ({ kbId: base.id, indexVersion: base.indexVersion })), limit: SEARCH_CANDIDATES }),
     searchByMeaning(client, bases, query, deps, input.run),
   ]);
   const mode = byMeaning.used ? "hybrid" : "text";

@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
 import { realtimeEvents } from "@/db/schema";
-import { LibsqlRealtime } from "./realtime";
+import { PgRealtime } from "./realtime";
 
 let nowMs = new Date("2026-09-26T10:00:00Z").getTime();
-const realtime = new LibsqlRealtime({ now: () => new Date(nowMs) });
+const realtime = new PgRealtime({ now: () => new Date(nowMs) });
 
 beforeEach(async () => {
   await db.delete(realtimeEvents);
@@ -51,6 +51,25 @@ describe("Realtime (polling) [BAN-03]", () => {
     const events = await Promise.all(Array.from({ length: 10 }, (_, i) => realtime.publish("t", { i })));
     const cursors = events.map((e) => Number(e.cursor)).sort((a, b) => a - b);
     expect(new Set(cursors).size).toBe(10);
+  });
+
+  it("seq strictly increases across publishes in separate transactions, and a rolled back one leaves no hole", async () => {
+    const inTransactions = await Promise.all(Array.from({ length: 5 }, (_, i) => db.transaction((tx) => realtime.publish("t", { i }, tx))));
+    const own = await realtime.publish("t", { own: true });
+    const cursors = [...inTransactions, own].map((event) => Number(event.cursor));
+    expect(new Set(cursors).size).toBe(6);
+    expect(Math.max(...cursors)).toBe(Number(own.cursor));
+
+    await expect(
+      db.transaction(async (tx) => {
+        await realtime.publish("t", { rolledBack: true }, tx);
+        throw new Error("rollback");
+      }),
+    ).rejects.toThrow("rollback");
+    const next = await realtime.publish("t", {});
+    expect(Number(next.cursor)).toBe(Number(own.cursor) + 1);
+    const { events } = await realtime.poll(String(Math.min(...cursors) - 1), ["t"]);
+    expect(events.map((event) => Number(event.cursor))).toEqual([...[...cursors].sort((a, b) => a - b), Number(next.cursor)]);
   });
 
   it("an invalid or future cursor restarts from the head", async () => {

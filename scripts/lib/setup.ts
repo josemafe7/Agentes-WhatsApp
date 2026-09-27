@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { loadDemo } from "../../seed";
-import { databaseUrlFromEnv, isLocalDatabaseUrl } from "../../src/db";
+import { databaseUrlFromEnv, isServerDatabase } from "../../src/db";
 import { migrateDatabase } from "../../src/db/migrate";
 import { DEFAULT_SECTOR, getSectorPreset } from "../../src/lib/sectors";
 import { demoRefusal } from "../../src/server/demo/guard";
@@ -20,7 +20,7 @@ export type SetupDemoOutcome =
   | "real"
   /** Emptied on purpose with `pnpm db:fresh`: the setup wizard runs on the next visit. */
   | "fresh"
-  /** Empty, but the demo does not belong here (DEMO_MODE off, production or a remote database). */
+  /** Empty, but the demo does not belong here (DEMO_MODE off, production or a Supabase database). */
   | "skipped";
 
 export type SetupResult = { env: EnvLocalResult; demo: SetupDemoOutcome };
@@ -36,7 +36,7 @@ export async function runSetup(options: { rootDir: string; out?: Output; now?: D
 
   fs.mkdirSync(path.join(rootDir, "data"), { recursive: true });
   const url = databaseUrlFromEnv();
-  await migrateDatabase({ url });
+  await migrateDatabase(url);
   out.log("Base de datos al día.");
 
   const state = await getInstallState();
@@ -52,9 +52,9 @@ export async function runSetup(options: { rootDir: string; out?: Output; now?: D
     out.log("Instalación vacía (pnpm db:fresh): al abrir la app aparecerá el asistente de arranque.");
     return { env, demo: "fresh" };
   }
-  const refusal = isLocalDatabaseUrl(url)
-    ? demoRefusal(process.env)
-    : "La base de datos no es local: la demo solo se carga sola en local.";
+  const refusal = isServerDatabase(url)
+    ? "La base de datos no es local: la demo solo se carga sola en local."
+    : demoRefusal(process.env);
   if (refusal) {
     out.log(`Instalación vacía: no se carga la demo. ${refusal}`);
     return { env, demo: "skipped" };

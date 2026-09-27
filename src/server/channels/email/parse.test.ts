@@ -88,6 +88,45 @@ describe("[COR-19] lectura del correo con mailparser", () => {
   });
 });
 
+describe("nada de un correo impide guardarlo", () => {
+  const utf16 = (text: string) => `=?utf-16le?B?${Buffer.from(text, "utf16le").toString("base64")}?=`;
+
+  it("sin caracteres nulos ni mitades sueltas de pares sustitutos, en ningún campo", async () => {
+    const raw = Buffer.from(
+      [
+        "From: Ana <ana@cliente.test>",
+        "To: hola@negocio.test",
+        `Subject: ${utf16("Cita\u0000 del\ud800 martes")}`,
+        "Message-ID: <nu\u0000lo@cliente.test>",
+        "References: <ra\u0000iz@cliente.test>",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        "Hola\u0000, ¿tenéis hueco?",
+      ].join("\r\n"),
+    );
+    const parsed = await parseRawEmail(raw);
+    expect(parsed).toMatchObject({ subject: "Cita del� martes", messageId: "<nulo@cliente.test>", references: ["<raiz@cliente.test>"], text: "Hola, ¿tenéis hueco?" });
+    const everything = JSON.stringify({ ...parsed, attachments: [] });
+    expect(everything).not.toContain("\\u0000");
+    expect(everything).not.toMatch(/\\ud[89a-f]/i);
+  });
+
+  it("una fecha que no puede ser real no es fecha (se usará la de llegada)", async () => {
+    const withDate = async (date: string) => (await parseRawEmail(Buffer.from(`From: ana@cliente.test\r\nDate: ${date}\r\nSubject: x\r\n\r\nhola\r\n`))).date;
+    expect(await withDate("-005000-01-01T00:00:00Z")).toBeNull();
+    expect(await withDate("Fri, 13 Sep 275760 00:00:00 +0000")).toBeNull();
+    expect(await withDate("Wed, 31 Dec 1969 23:59:59 +0000")).toBeNull();
+    expect(await withDate("Sun, 27 Sep 2026 09:00:00 +0000")).toEqual(new Date("2026-09-27T09:00:00Z"));
+  });
+
+  it("una dirección más larga que ninguna real (254 caracteres) no es una dirección", async () => {
+    const long = `${"a".repeat(250)}@cliente.test`;
+    const parsed = await parseRawEmail(Buffer.from(`From: ${long}\r\nTo: hola@negocio.test, ${long}\r\nSubject: x\r\n\r\nhola\r\n`));
+    expect(parsed.from).toBeNull();
+    expect(parsed.to).toEqual([{ address: "hola@negocio.test", name: null }]);
+  });
+});
+
 describe("[CAN-12] hilo de IMAP", () => {
   it("la raíz de References manda, después In-Reply-To y el propio id", () => {
     expect(imapThreadCandidates({ messageId: "<c@x>", inReplyTo: "<b@x>", references: ["<a@x>", "<b@x>"] })).toEqual(["<a@x>", "<b@x>", "<c@x>"]);

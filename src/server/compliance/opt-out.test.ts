@@ -26,7 +26,7 @@ import {
   notifications,
   realtimeEvents,
 } from "@/db/schema";
-import { LibsqlJobQueue } from "@/server/adapters/job-queue";
+import { PgJobQueue } from "@/server/adapters/job-queue";
 import { ingestInboundEmail } from "@/server/channels/email/ingest";
 import { parseRawEmail } from "@/server/channels/email/parse";
 import { buildRawEmail, type RawEmailInput } from "@/server/channels/email/test-helpers";
@@ -178,7 +178,7 @@ describe("the customer opts out by writing it [CUM-03] [CUM-13]", () => {
 
   it("the queue runs the confirmation job on its own", async () => {
     const { conversationId } = await receive("baja");
-    const summary = await tick({ budgetMs: 30_000, queue: new LibsqlJobQueue({ now: () => at(5_000) }) });
+    const summary = await tick({ budgetMs: 30_000, queue: new PgJobQueue({ now: () => at(5_000) }) });
     expect(summary.completed).toBe(1);
     expect((await outboundOf(conversationId)).map((message) => message.text)).toEqual([OPT_OUT_CONFIRMATION_TEXT]);
     expect(leaving).toHaveLength(1);

@@ -1,47 +1,26 @@
 {
   "version": "7",
-  "dialect": "sqlite",
+  "dialect": "postgresql",
   "entries": [
     {
       "idx": 0,
-      "version": "6",
-      "when": 1790440048252,
-      "tag": "0000_initial",
+      "version": "7",
+      "when": 1790520066997,
+      "tag": "0000_extensions",
       "breakpoints": true
     },
     {
       "idx": 1,
-      "version": "6",
-      "when": 1790440058969,
-      "tag": "0001_kb_search_indexes",
+      "version": "7",
+      "when": 1790520088682,
+      "tag": "0001_initial",
       "breakpoints": true
     },
     {
       "idx": 2,
-      "version": "6",
-      "when": 1790450118129,
-      "tag": "0002_ai_runs_cached_tokens",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1790469234661,
-      "tag": "0003_handoff_closed_at",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1790494525071,
-      "tag": "0004_agenda_secondary_resources",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1790500910888,
-      "tag": "0005_search_text",
+      "version": "7",
+      "when": 1790521240463,
+      "tag": "0002_json_key_order",
       "breakpoints": true
     }
   ]

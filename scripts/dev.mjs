@@ -14,9 +14,12 @@ const TICK_TIMEOUT_MS = 60_000;
 /** Time `next dev` gets to stop by itself before its whole process tree is ended. */
 const SHUTDOWN_GRACE_MS = 5_000;
 const DEFAULT_PORT = 3000;
-const DEFAULT_DATABASE_URL = "file:./data/local.db";
+/** Folder of the embedded database (PGlite) when DATABASE_URL is empty: EMBEDDED_DATABASE_DIR of src/db/index.ts. */
+const EMBEDDED_DATABASE_DIR = "data/pglite";
 /** Secrets the setup generates (scripts/lib/env-local.ts); an empty one is filled by running the setup again. */
 const REQUIRED_SECRETS = ["APP_ENCRYPTION_KEY", "BETTER_AUTH_SECRET", "CRON_SECRET"];
+export const LEGACY_DATABASE_URL_NOTICE =
+  "Aviso: DATABASE_URL=file:… de .env.local era la base SQLite y ya no se usa: la app usa la base local data/pglite. Puedes borrar esa línea.";
 
 /**
  * Variables of an env file, or null if it does not exist.
@@ -33,19 +36,50 @@ export function readEnvFile(file) {
 }
 
 /**
- * Absolute path of a local `file:` database URL (relative to `rootDir`), or null for remote or in-memory ones.
- * @param {string} url
- * @param {string} rootDir
+ * DATABASE_URL as the app will see it: a value already in the process environment wins over .env.local, even an
+ * empty one, as in Next.js (`DATABASE_URL="…" pnpm dev` works whatever .env.local says).
+ * @param {Record<string, string | undefined>} env
+ * @param {Record<string, string | undefined>} localEnv
  */
-export function localDatabaseFile(url, rootDir) {
-  if (!url.startsWith("file:") || url.includes(":memory:")) return null;
-  if (url.startsWith("file://")) return fileURLToPath(url.split("?")[0]);
-  return path.resolve(rootDir, url.slice("file:".length).split("?")[0]);
+export function databaseUrl(env, localEnv) {
+  return (env.DATABASE_URL ?? localEnv.DATABASE_URL ?? "").trim();
 }
 
 /**
- * Why the installation must be prepared first, or null if it is ready. The process environment wins over
- * .env.local, as in Next.js.
+ * The SQLite setting of earlier versions (`file:./data/local.db`), which may still be in a .env.local: now it means
+ * the embedded database.
+ * @param {string} url
+ */
+export function isLegacyFileDatabaseUrl(url) {
+  return url.trim().startsWith("file:");
+}
+
+/**
+ * Folder of the embedded database (PGlite) that DATABASE_URL points at, with the rules of resolveDatabaseTarget in
+ * src/db/index.ts (this plain script cannot import it): empty or the old SQLite `file:` setting → data/pglite,
+ * `pglite:<folder>` → that folder, relative to `rootDir`. Null for a Postgres server (Supabase) and for
+ * `pglite:memory`. Anything else, such as Turso's libsql://, throws the reason in Spanish (never the URL: it may
+ * carry the password).
+ * @param {string} url
+ * @param {string} rootDir
+ * @returns {string | null}
+ */
+export function localDatabaseDir(url, rootDir) {
+  const value = url.trim();
+  if (/^postgres(ql)?:\/\//i.test(value)) return null;
+  if (value.startsWith("libsql:")) throw new Error("Turso ya no se usa: pon la conexión de Supabase en DATABASE_URL.");
+  if (value === "" || isLegacyFileDatabaseUrl(value)) return path.join(rootDir, EMBEDDED_DATABASE_DIR);
+  if (/^pglite:memory(#.*)?$/.test(value)) return null;
+  const folder = value.startsWith("pglite:") ? value.slice("pglite:".length).trim() : "";
+  if (folder) return path.resolve(rootDir, folder);
+  throw new Error(
+    "DATABASE_URL no es válida: pon la conexión de Supabase (postgresql://…), déjala vacía para la base integrada o usa pglite:<carpeta>.",
+  );
+}
+
+/**
+ * Why the installation must be prepared first, or null if it is ready: no .env.local, an empty secret, or no folder
+ * for the embedded database yet. A Supabase database is never prepared here. Throws when DATABASE_URL cannot be used.
  * @param {string} rootDir
  * @param {Record<string, string | undefined>} env
  * @returns {string | null}
@@ -55,9 +89,8 @@ export function setupReason(rootDir, env) {
   if (!local) return "falta .env.local";
   const emptySecret = REQUIRED_SECRETS.find((name) => !(env[name]?.trim() || local[name]?.trim()));
   if (emptySecret) return `falta ${emptySecret} en .env.local`;
-  const url = env.DATABASE_URL?.trim() || local.DATABASE_URL?.trim() || DEFAULT_DATABASE_URL;
-  const file = localDatabaseFile(url, rootDir);
-  if (file && !fs.existsSync(file)) return `falta la base de datos ${path.relative(rootDir, file)}`;
+  const dir = localDatabaseDir(databaseUrl(env, local), rootDir);
+  if (dir && !fs.existsSync(dir)) return `falta la base de datos ${path.relative(rootDir, dir).split(path.sep).join("/")}`;
   return null;
 }
 
@@ -189,7 +222,15 @@ async function main() {
   const require = createRequire(import.meta.url);
   const args = process.argv.slice(2);
 
-  const reason = setupReason(rootDir, process.env);
+  /** @type {string | null} */
+  let reason;
+  try {
+    reason = setupReason(rootDir, process.env);
+  } catch (error) {
+    // DATABASE_URL points at something the app cannot use (Turso's libsql://…): say why before starting anything.
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
   if (reason) {
     console.log(`Preparando la instalación (${reason})…`);
     // tsx directly, never `pnpm setup` (a pnpm command that edits PATH). Same flags as `pnpm run setup`.
@@ -203,6 +244,8 @@ async function main() {
 
   const port = resolvePort(args, process.env);
   const localEnv = readEnvFile(path.join(rootDir, ".env.local")) ?? {};
+  // The old SQLite line still works (it means data/pglite): said once per start, it can just go.
+  if (isLegacyFileDatabaseUrl(databaseUrl(process.env, localEnv))) console.log(LEGACY_DATABASE_URL_NOTICE);
   const urls = localUrlOverrides(process.env, localEnv, port);
   const adjusted = urls.APP_URL ?? urls.BETTER_AUTH_URL;
   if (adjusted) console.log(`La app usará ${adjusted} como dirección (APP_URL y BETTER_AUTH_URL siguen al puerto).`);

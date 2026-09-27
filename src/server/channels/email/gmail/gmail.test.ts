@@ -95,6 +95,17 @@ describe("Gmail: recepción ([COR-05], [CAN-11], [CAN-12])", () => {
     expect(await db.select().from(messages).where(eq(messages.conversationId, conversation.id))).toHaveLength(2);
   });
 
+  it("un correo con caracteres nulos se guarda sin ellos y la ronda sigue con el siguiente", async () => {
+    const { fake, channel, deps } = await setup();
+    await customerEmail(fake, { fromName: "Ana\u0000 Gil", subject: "Cita\u0000 del martes", text: "Hola\u0000, ¿hay hueco?", messageId: "<nulo@cliente.test>" }, { threadId: "hilo-nulo" });
+    await customerEmail(fake, { subject: "Otra", text: "¿Y el jueves?", messageId: "<otro@cliente.test>" }, { threadId: "hilo-otro" });
+    expect(await poll(channel.id, deps)).toMatchObject({ kind: "polled", report: { ingested: 2 } });
+    expect((await messagesOf(channel.id)).map((message) => message.text).sort()).toEqual(["Asunto: Cita del martes\n\nHola, ¿hay hueco?", "Asunto: Otra\n\n¿Y el jueves?"]);
+    const [conversation] = await db.select().from(conversations).where(and(eq(conversations.channelId, channel.id), eq(conversations.externalThreadId, "hilo-nulo")));
+    expect(conversation.metadata.subject).toBe("Cita del martes");
+    expect(readEmailConfig((await loadChannel(channel.id)).config).gmail.historyId).toBe(String(fake.state.historyId));
+  });
+
   it("[COR-25] cada correo guarda si el servidor que lo recibió verificó su remitente (y sus adjuntos también)", async () => {
     const { fake, channel, deps } = await setup();
     const pdf = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(3_000, 32)]);

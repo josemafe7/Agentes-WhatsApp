@@ -3,7 +3,7 @@
 // see their channels ([PER-02]); «Probar agente» conversations never appear ([PRU-05]). Changes are in
 // conversation-actions.ts.
 import "server-only";
-import { aliasedTable, and, count, desc, eq, exists, gt, inArray, isNotNull, isNull, like, lt, lte, ne, or, type SQL } from "drizzle-orm";
+import { aliasedTable, and, count, desc, eq, exists, gt, inArray, isNotNull, isNull, lt, lte, ne, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { agents, channels, contacts, conversations, handoffEvents, messages, user } from "@/db/schema";
@@ -17,6 +17,7 @@ import { parseInput } from "@/server/errors";
 import { listActiveTeam } from "@/server/team";
 import { eligibleAssignees, openHandoffOf } from "@/server/handoff/service";
 import { messageSearchCondition } from "@/server/inbound/message-search";
+import { descNullsLast, jsonTextContains } from "@/server/sql-helpers";
 import { contactSearchCondition } from "./contacts-search";
 import { loadConversationFor } from "./conversation-scope";
 import { assertCan } from "./guard";
@@ -85,8 +86,8 @@ function modeCondition(mode: "ai" | "human" | "paused", now: Date): SQL | undefi
   return and(eq(conversations.aiMode, "ai"), ne(conversations.status, "pending_human"), or(isNull(conversations.aiPausedUntil), lte(conversations.aiPausedUntil, now)));
 }
 
-/** Labels are a JSON array in text: a quoted label inside it matches (portable LIKE, no JSON functions). */
-const hasLabel = (label: string) => like(conversations.labels, `%${JSON.stringify(label)}%`);
+/** Labels are a JSON array of strings: the label in quotes inside it is exactly that label (portable LIKE, no JSON functions). */
+const hasLabel = (label: string) => jsonTextContains(conversations.labels, JSON.stringify(label));
 
 /**
  * The contact or the text of a message, without accents or case («jose» finds «José», «cancelacion» finds
@@ -151,7 +152,8 @@ export async function listConversations(actor: Actor, input: unknown = {}): Prom
     .leftJoin(contacts, eq(contacts.id, conversations.contactId))
     .leftJoin(assignee, eq(assignee.id, conversations.assignedUserId))
     .where(and(...conditions))
-    .orderBy(desc(conversations.lastMessageAt), desc(conversations.id))
+    // Without activity last, as the cursor above expects (it never reaches them).
+    .orderBy(descNullsLast(conversations.lastMessageAt), desc(conversations.id))
     .limit(filters.limit + 1);
 
   const page = rows.slice(0, filters.limit);

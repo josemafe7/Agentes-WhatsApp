@@ -1,7 +1,7 @@
-// JobQueue: background work queue (docs/decisions/0008). libSQL implementation on the `jobs` table.
-// A future Postgres implementation claims with FOR UPDATE SKIP LOCKED behind the same interface.
+// JobQueue: background work queue (docs/decisions/0008). Postgres implementation on the `jobs` table: claims lock
+// their rows with FOR UPDATE SKIP LOCKED, so parallel ticks never wait for each other nor take the same job.
 import "server-only";
-import { and, asc, count, eq, gte, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, gte, inArray, isNotNull, isNull, lte, min, ne, or, sql } from "drizzle-orm";
 import { db as defaultDb, type Executor } from "@/db";
 import { jobs } from "@/db/schema";
 import type { JobStatus } from "@/lib/enums";
@@ -79,7 +79,7 @@ function truncateError(message: string): string {
   return message.length > MAX_ERROR_LENGTH ? `${message.slice(0, MAX_ERROR_LENGTH)}…` : message;
 }
 
-export class LibsqlJobQueue implements JobQueue {
+export class PgJobQueue implements JobQueue {
   private readonly db: Executor;
   private readonly now: Clock;
 
@@ -91,7 +91,7 @@ export class LibsqlJobQueue implements JobQueue {
   async enqueue(input: EnqueueInput): Promise<EnqueueResult> {
     const id = crypto.randomUUID();
     const now = this.now();
-    const insert = this.db.insert(jobs).values({
+    const values = {
       id,
       type: input.type,
       payload: input.payload ?? {},
@@ -100,71 +100,82 @@ export class LibsqlJobQueue implements JobQueue {
       dedupeKey: input.dedupeKey ?? null,
       createdAt: now,
       updatedAt: now,
+    };
+    if (!input.dedupeKey) {
+      const [row] = await this.db.insert(jobs).values(values).returning({ id: jobs.id, runAt: jobs.runAt });
+      return { id: row.id, created: true, runAt: row.runAt };
+    }
+    // Keyed writes run under the write lock, like complete/fail/reschedule: see nextPendingStatus.
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(jobs)
+        .values(values)
+        // A pending job with this key already exists: keep it as it is and return it.
+        .onConflictDoUpdate({ target: jobs.dedupeKey, targetWhere: PENDING_DEDUPE, set: { dedupeKey: sql`excluded.dedupe_key` } })
+        .returning({ id: jobs.id, runAt: jobs.runAt });
+      return { id: row.id, created: row.id === id, runAt: row.runAt };
     });
-    const [row] = input.dedupeKey
-      ? await insert
-          // A pending job with this key already exists: keep it as it is and return it.
-          .onConflictDoUpdate({ target: jobs.dedupeKey, targetWhere: PENDING_DEDUPE, set: { dedupeKey: sql`excluded.dedupe_key` } })
-          .returning({ id: jobs.id, runAt: jobs.runAt })
-      : await insert.returning({ id: jobs.id, runAt: jobs.runAt });
-    return { id: row.id, created: row.id === id, runAt: row.runAt };
   }
 
   async upsertDebounced(input: DebounceInput): Promise<EnqueueResult> {
     const id = crypto.randomUUID();
     const now = this.now();
     const firstRunAt = input.runAt.getTime() > input.maxRunAt.getTime() ? input.maxRunAt : input.runAt;
-    const [row] = await this.db
-      .insert(jobs)
-      .values({
-        id,
-        type: input.type,
-        payload: input.payload ?? {},
-        runAt: firstRunAt,
-        maxRunAt: input.maxRunAt,
-        maxAttempts: input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
-        dedupeKey: input.dedupeKey,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: jobs.dedupeKey,
-        targetWhere: PENDING_DEDUPE,
-        set: {
-          // Later, never earlier, and never beyond the limit set by the first call.
-          runAt: sql`min(max(${jobs.runAt}, excluded.run_at), coalesce(${jobs.maxRunAt}, excluded.max_run_at))`,
-          payload: sql`excluded.payload`,
-        },
-      })
-      .returning({ id: jobs.id, runAt: jobs.runAt });
-    return { id: row.id, created: row.id === id, runAt: row.runAt };
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(jobs)
+        .values({
+          id,
+          type: input.type,
+          payload: input.payload ?? {},
+          runAt: firstRunAt,
+          maxRunAt: input.maxRunAt,
+          maxAttempts: input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
+          dedupeKey: input.dedupeKey,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: jobs.dedupeKey,
+          targetWhere: PENDING_DEDUPE,
+          set: {
+            // Later, never earlier, and never beyond the limit set by the first call.
+            runAt: sql`LEAST(GREATEST(${jobs.runAt}, excluded.run_at), coalesce(${jobs.maxRunAt}, excluded.max_run_at))`,
+            payload: sql`excluded.payload`,
+          },
+        })
+        .returning({ id: jobs.id, runAt: jobs.runAt });
+      return { id: row.id, created: row.id === id, runAt: row.runAt };
+    });
   }
 
   async ensureRecurring(input: RecurringInput): Promise<EnqueueResult> {
     const dedupeKey = `recurring:${input.key}`;
-    const [active] = await this.db
-      .select({ id: jobs.id, runAt: jobs.runAt })
-      .from(jobs)
-      .where(and(eq(jobs.dedupeKey, dedupeKey), inArray(jobs.status, ["pending", "running"])))
-      .limit(1);
-    if (active) return { id: active.id, created: false, runAt: active.runAt };
-    const now = this.now();
-    const id = crypto.randomUUID();
-    const [row] = await this.db
-      .insert(jobs)
-      .values({
-        id,
-        type: input.type,
-        payload: input.payload ?? {},
-        runAt: input.firstRunAt ?? now,
-        dedupeKey,
-        intervalMs: input.intervalMs,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({ target: jobs.dedupeKey, targetWhere: PENDING_DEDUPE, set: { dedupeKey: sql`excluded.dedupe_key` } })
-      .returning({ id: jobs.id, runAt: jobs.runAt });
-    return { id: row.id, created: row.id === id, runAt: row.runAt };
+    return this.db.transaction(async (tx) => {
+      const [active] = await tx
+        .select({ id: jobs.id, runAt: jobs.runAt })
+        .from(jobs)
+        .where(and(eq(jobs.dedupeKey, dedupeKey), inArray(jobs.status, ["pending", "running"])))
+        .limit(1);
+      if (active) return { id: active.id, created: false, runAt: active.runAt };
+      const now = this.now();
+      const id = crypto.randomUUID();
+      const [row] = await tx
+        .insert(jobs)
+        .values({
+          id,
+          type: input.type,
+          payload: input.payload ?? {},
+          runAt: input.firstRunAt ?? now,
+          dedupeKey,
+          intervalMs: input.intervalMs,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({ target: jobs.dedupeKey, targetWhere: PENDING_DEDUPE, set: { dedupeKey: sql`excluded.dedupe_key` } })
+        .returning({ id: jobs.id, runAt: jobs.runAt });
+      return { id: row.id, created: row.id === id, runAt: row.runAt };
+    });
   }
 
   async claim(limit: number, lockMs: number, workerId: string): Promise<Job[]> {
@@ -185,13 +196,16 @@ export class LibsqlJobQueue implements JobQueue {
       and(eq(jobs.status, "pending"), lte(jobs.runAt, now)),
       and(eq(jobs.status, "running"), lte(jobs.lockedUntil, now)),
     );
+    // Rows another claim (or a complete/fail in progress) holds are skipped, never waited for.
     const candidates = this.db
       .select({ id: jobs.id })
       .from(jobs)
       .where(claimable)
       .orderBy(asc(jobs.runAt), asc(jobs.createdAt))
-      .limit(limit);
-    // One statement: two concurrent ticks can never take the same job.
+      .limit(limit)
+      .for("update", { skipLocked: true });
+    // One statement: two concurrent ticks can never take the same job. `= ANY(ARRAY(…))` runs the subquery exactly
+    // once; as an `IN (…)` semi-join Postgres may run it again and lock more than `limit` rows.
     const claimed = await this.db
       .update(jobs)
       .set({
@@ -201,7 +215,7 @@ export class LibsqlJobQueue implements JobQueue {
         lockedBy: workerId,
         updatedAt: now,
       })
-      .where(and(inArray(jobs.id, candidates), claimable))
+      .where(and(sql`${jobs.id} = ANY(ARRAY${candidates})`, claimable))
       .returning();
     // RETURNING has no defined order: run the oldest first.
     return claimed.sort((a, b) => a.runAt.getTime() - b.runAt.getTime() || a.createdAt.getTime() - b.createdAt.getTime());
@@ -309,7 +323,8 @@ export class LibsqlJobQueue implements JobQueue {
       const [job] = await tx
         .select()
         .from(jobs)
-        .where(and(eq(jobs.id, jobId), eq(jobs.status, "failed")));
+        .where(and(eq(jobs.id, jobId), eq(jobs.status, "failed")))
+        .for("update");
       if (!job) return false;
       if ((await nextPendingStatus(tx, job, "cancelled")) === "cancelled") return false;
       const now = this.now();
@@ -325,7 +340,7 @@ export class LibsqlJobQueue implements JobQueue {
     const now = this.now();
     const byStatus = await this.db.select({ status: jobs.status, n: count() }).from(jobs).groupBy(jobs.status);
     const [due] = await this.db
-      .select({ n: count(), oldest: sql<number | null>`min(${jobs.runAt})` })
+      .select({ n: count(), oldest: min(jobs.runAt) })
       .from(jobs)
       .where(and(eq(jobs.status, "pending"), lte(jobs.runAt, now)));
     const stats: JobQueueStats = {
@@ -335,7 +350,7 @@ export class LibsqlJobQueue implements JobQueue {
       failed: 0,
       cancelled: 0,
       due: due?.n ?? 0,
-      oldestDueAt: due?.oldest != null ? new Date(due.oldest) : null,
+      oldestDueAt: due?.oldest ?? null,
     };
     for (const row of byStatus) stats[row.status] = row.n;
     return stats;
@@ -350,15 +365,24 @@ export class LibsqlJobQueue implements JobQueue {
   }
 }
 
+/**
+ * The job, if `workerId` still holds it. FOR UPDATE: a claim taking it over after its lock expired either finished
+ * first (then it is not ours any more) or skips it until this transaction ends.
+ */
 async function findClaimed(tx: Executor, jobId: string, workerId: string): Promise<Job | undefined> {
   const [job] = await tx
     .select()
     .from(jobs)
-    .where(and(eq(jobs.id, jobId), eq(jobs.status, "running"), eq(jobs.lockedBy, workerId)));
+    .where(and(eq(jobs.id, jobId), eq(jobs.status, "running"), eq(jobs.lockedBy, workerId)))
+    .for("update");
   return job;
 }
 
-/** "pending", unless another pending job with the same key exists (then this one gives way). */
+/**
+ * "pending", unless another pending job with the same key exists (then this one gives way). Callers run in a
+ * transaction, which holds the write lock, and keyed enqueues take it too: no pending job with the key can appear
+ * between this check and the update (it would break the unique index jobs_dedupe_pending_uq).
+ */
 async function nextPendingStatus<T extends JobStatus>(tx: Executor, job: Job, whenSuperseded: T): Promise<"pending" | T> {
   if (!job.dedupeKey) return "pending";
   const [other] = await tx
@@ -371,8 +395,8 @@ async function nextPendingStatus<T extends JobStatus>(tx: Executor, job: Job, wh
 
 let sharedQueue: JobQueue | undefined;
 
-/** The queue of this installation (libSQL today). */
+/** The queue of this installation (Postgres: Supabase or the embedded PGlite). */
 export function getJobQueue(): JobQueue {
-  sharedQueue ??= new LibsqlJobQueue();
+  sharedQueue ??= new PgJobQueue();
   return sharedQueue;
 }

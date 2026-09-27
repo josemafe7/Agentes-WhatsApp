@@ -1,4 +1,4 @@
-// Fase 5 acceptance with the restaurant demo, its own server (data/e2e-restaurante.db, `pnpm seed --sector=restaurante`,
+// Fase 5 acceptance with the restaurant demo, its own server (data/e2e-restaurante-pglite, `pnpm seed --sector=restaurante`,
 // e2e/support/env.ts): the agenda by capacity ([AGD-06], [AGD-11]). The Terraza seats 24 and a «Reserva de mesa» takes
 // 1 to 8 people for 90 minutes (src/lib/sectors/restaurante.ts): groups fit at the same time while seats are left, a
 // group larger than the seats left is refused with other times ([AGD-13], [HER-06]), and the capacity view shows the

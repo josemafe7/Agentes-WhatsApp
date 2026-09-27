@@ -17,6 +17,7 @@ import { MIN_JOB_BUDGET_MS, tick } from "@/server/jobs/tick";
 import { notify, resolveRecipients } from "@/server/notifications/notify";
 import { publishConversationEvent } from "@/server/realtime/events";
 import { safeErrorMessage } from "@/server/redact";
+import { storableJson } from "@/server/storable-text";
 import { upsertContactForSender } from "./contacts";
 import { messageSearchText } from "./message-search";
 import { applyStatusUpdate, type AppliedStatus } from "./status";
@@ -224,7 +225,7 @@ async function notifyNewConversation(channel: ChannelRecord, conversationId: str
 async function saveRawWebhook(channel: ChannelRecord, raw: RawWebhook, now: Date): Promise<string> {
   const [row] = await db
     .insert(webhookEvents)
-    .values({ source: raw.source, channelId: channel.id, signatureValid: true, payload: raw.payload, receivedAt: raw.receivedAt ?? now, createdAt: now, updatedAt: now })
+    .values({ source: raw.source, channelId: channel.id, signatureValid: true, payload: storableJson(raw.payload), receivedAt: raw.receivedAt ?? now, createdAt: now, updatedAt: now })
     .returning({ id: webhookEvents.id });
   return row.id;
 }
@@ -232,6 +233,8 @@ async function saveRawWebhook(channel: ChannelRecord, raw: RawWebhook, now: Date
 /**
  * Runs the pipeline for the events of one channel. With `raw` (a webhook), each event's failure is recorded on the
  * raw row and the rest go on, so the route can still answer 200; without it (widget, simulator) errors are thrown.
+ * What came from outside is made storable first (src/server/storable-text.ts): a NUL character in a message never
+ * makes it fail.
  */
 export async function ingestEvents(channel: ChannelRecord, events: readonly NormalizedEvent[], options: IngestOptions = {}): Promise<IngestResult> {
   const now = options.now ?? new Date();
@@ -239,8 +242,9 @@ export async function ingestEvents(channel: ChannelRecord, events: readonly Norm
   const result: IngestResult = { webhookEventId, messages: [], statuses: [], accountEvents: [], replyRunAt: null };
   const errors: string[] = [];
 
-  for (const event of events) {
+  for (const received of events) {
     try {
+      const event = storableJson(received);
       if (event.kind === "inbound_message") {
         const { schedule, optOut, opened, ...ingested } = await ingestInbound(channel, event, now);
         result.messages.push(ingested);

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { LibsqlRateLimiter } from "./rate-limiter";
+import { PgRateLimiter } from "./rate-limiter";
 
 let nowMs = new Date("2026-09-26T10:00:00Z").getTime();
-const limiter = new LibsqlRateLimiter({ now: () => new Date(nowMs) });
+const limiter = new PgRateLimiter({ now: () => new Date(nowMs) });
 const MINUTE = 60_000;
 
 describe("RateLimiter [SEG-07] [USU-13]", () => {
@@ -23,6 +23,22 @@ describe("RateLimiter [SEG-07] [USU-13]", () => {
     const fresh = await limiter.hit(key, 1, MINUTE);
     expect(fresh).toMatchObject({ allowed: true, remaining: 0 });
     expect(fresh.resetAt.getTime()).toBe(nowMs + MINUTE);
+  });
+
+  it("the window rolls over exactly at its end, not a millisecond before", async () => {
+    const key = "login:ip:9.9.9.9";
+    const start = nowMs;
+    await limiter.hit(key, 1, MINUTE);
+    nowMs = start + MINUTE - 1;
+    const last = await limiter.hit(key, 1, MINUTE);
+    expect(last).toMatchObject({ allowed: false, remaining: 0 });
+    expect(last.resetAt.getTime()).toBe(start + MINUTE);
+    expect(await limiter.isLimited(key, 1, MINUTE)).toBe(true);
+    nowMs = start + MINUTE;
+    expect(await limiter.isLimited(key, 1, MINUTE)).toBe(false);
+    const fresh = await limiter.hit(key, 1, MINUTE);
+    expect(fresh).toMatchObject({ allowed: true, remaining: 0 });
+    expect(fresh.resetAt.getTime()).toBe(start + 2 * MINUTE);
   });
 
   it("keys are independent", async () => {

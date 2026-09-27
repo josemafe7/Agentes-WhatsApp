@@ -25,6 +25,7 @@ import { PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
 import { addDays, daysBetween, instantToLocal, isLocalDate, localToInstant } from "@/server/booking/time";
 import { parseInput, ValidationError } from "@/server/errors";
+import { ascNullsFirst } from "@/server/sql-helpers";
 import { DEFAULT_TERMINOLOGY } from "./agenda-config";
 import { assertCan } from "./guard";
 import { loadBusinessSettings } from "./settings";
@@ -333,7 +334,7 @@ function loadReasons(range: Range, channelId: string | null) {
     .innerJoin(conversations, eq(handoffEvents.conversationId, conversations.id))
     .where(handoffsRequestedIn(range, channelId))
     .groupBy(handoffEvents.trigger, handoffEvents.rule, handoffEvents.reason)
-    .orderBy(desc(total), asc(handoffEvents.reason))
+    .orderBy(desc(total), ascNullsFirst(handoffEvents.reason))
     .limit(REASONS_LIMIT);
 }
 

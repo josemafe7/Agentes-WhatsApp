@@ -87,7 +87,7 @@ export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET,
   trustedOrigins: trustedOrigins(),
   database: drizzleAdapter(db, {
-    provider: "sqlite",
+    provider: "pg",
     // Keys are Better Auth's model names; values are our Drizzle tables.
     schema: { user, session, account, verification, twoFactor: twoFactorTable, rateLimit },
   }),

@@ -282,6 +282,18 @@ describe("images [MED-05]", () => {
     expect(callsTo(fake, "/chat/completions")).toHaveLength(1);
   });
 
+  it("a transcript or a description with a NUL character (or half a surrogate pair) is saved without it", async () => {
+    const audio = await mediaMessage("audio", OGG, "audio/ogg; codecs=opus");
+    const image = await mediaMessage("image", PNG_1X1, "image/png");
+    const fake = openRouter({
+      transcription: [() => jsonResponse({ text: "Quería\u0000 una cita\ud800", usage: { seconds: 3, cost: 0.00001 } })],
+      chat: [() => jsonResponse(chatCompletion({ content: "Foto de\u0000 un recogido.", model: DEFAULT_MODELS.imageDescription }))],
+    });
+    await prepareMessagesForModel(await load([audio.id, image.id]), context(fake, { support: TEXT_ONLY }));
+    expect((await row(audio.id)).transcript).toBe("Quería una cita�");
+    expect((await row(image.id)).metadata).toMatchObject({ imageDescription: "Foto de un recogido." });
+  });
+
   it("the model's abilities come from the catalogue when not given", async () => {
     const message = await mediaMessage("image", PNG_1X1, "image/png");
     const fake = openRouter();

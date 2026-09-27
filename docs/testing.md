@@ -29,26 +29,41 @@ Qué se prueba y cómo, para demostrar que el código funciona.
   asíncronos: esos se prueban con Playwright.
 - `server-only` impide cargar un módulo fuera de Next.js: la configuración de Vitest lo sustituye por un
   módulo vacío, para poder probar `src/data/` y `src/server/`.
-- Cada archivo de pruebas de Vitest trabaja con su propia base libSQL temporal, una copia vacía de una base
-  con las migraciones aplicadas que se prepara una vez por ejecución (`src/test/global-setup.ts` y
-  `src/test/setup.ts`), y crea solo los datos que necesita: nunca `data/local.db`. Así las pruebas no dependen
-  unas de otras ni de la demo. Las pruebas usan Better Auth y la base de verdad, así que el tiempo máximo de
-  cada una es de 30 s.
+- Cada archivo de pruebas de Vitest trabaja con su propia base Postgres en memoria (PGlite, el mismo motor que la
+  demo), copia vacía de una plantilla con las migraciones aplicadas que se prepara una vez por ejecución:
+  `src/test/global-setup.ts` la migra y la guarda en un archivo temporal (`dumpDataDir`), y `src/test/setup.ts` abre
+  con ella una base en memoria para cada archivo (`loadDataDir`, unos 0,4 s, más con el ordenador cargado) y la cierra
+  al terminar. Cada prueba
+  crea solo los datos que necesita, y `emptyDatabase()` (`scripts/lib/testing.ts`) vacía todas las tablas de una vez
+  entre pruebas del mismo archivo. Nunca tocan `data/pglite` ni Supabase: `src/test/env.ts` quita `DATABASE_URL`,
+  `SUPABASE_URL` y `SUPABASE_SECRET_KEY` del entorno. Así las pruebas no dependen unas de otras ni de la demo. Las
+  pruebas usan Better Auth y la base de verdad, así que el tiempo máximo de cada una es de 30 s.
+- Lo propio de Postgres (la búsqueda con `es_unaccent` y `halfvec`, el candado de escritura, la cola con
+  `SKIP LOCKED`, Row Level Security en cada tabla) se prueba contra PGlite. Lo que PGlite no puede demostrar (Supabase
+  es Postgres 17 y PGlite, 18; el pooler; Storage) se comprueba una vez contra un proyecto de Supabase, como pide la
+  fase 8, y en cada publicación con el Security Advisor.
+- El orden de los textos cambia según la base: PGlite (como SQLite antes) ordena byte a byte (mayúsculas antes que
+  minúsculas y las letras con tilde al final), y Supabase ordena según el idioma (`en_US.UTF-8`), así que allí los
+  nombres de los contactos salen en orden alfabético. Las pruebas no deben depender de cómo se ordenan nombres con
+  tildes o con mayúsculas y minúsculas mezcladas.
 - Playwright, en `e2e/` y con Chromium (`pnpm exec playwright install chromium` la primera vez). Arranca él
   solo (`webServer`) el servidor que simula los servicios externos (`e2e/mocks/`, puerto 3101) y, como
-  recomienda Next.js, la versión compilada de la app (`pnpm build` y `next start`) tres veces: la demo en el
-  puerto 3100 con `data/e2e.db` (migraciones, demo de la peluquería, dos usuarios propios de las pruebas y la cita
-  del recordatorio, `e2e/support/create-agenda-fixtures.ts`), una instalación vacía en el 3102 con
-  `data/e2e-fresh.db`, para el asistente de arranque, y la demo del restaurante en el 3103 con
-  `data/e2e-restaurante.db` (`pnpm seed --sector=restaurante`), solo para la agenda por aforo (proyecto
+  recomienda Next.js, la versión compilada de la app (`pnpm build` y `next start`) tres veces, cada una con su propia
+  base integrada: la demo en el puerto 3100 con `data/e2e-pglite` (migraciones, demo de la peluquería, dos usuarios
+  propios de las pruebas y la cita del recordatorio, `e2e/support/create-agenda-fixtures.ts`), una instalación vacía
+  en el 3102 con `data/e2e-fresh-pglite`, para el asistente de arranque, y la demo del restaurante en el 3103 con
+  `data/e2e-restaurante-pglite` (`pnpm seed --sector=restaurante`), solo para la agenda por aforo (proyecto
   `restaurant`, `e2e/restaurant/`; sus pruebas entran por el formulario y el servidor tiene la clave de prueba de
-  OpenRouter simulado en su entorno). Las bases se preparan antes de compilar
-  (`e2e/support/prepare-databases.mjs`, que solo borra archivos `data/e2e*.db`) y los secretos de prueba (también
-  el código de instalación que la versión compilada pide en el asistente) se generan en cada ejecución: nunca toca
-  `data/local.db` ni `.env.local`.
+  OpenRouter simulado en su entorno). Las bases se preparan antes de compilar (`e2e/support/prepare-databases.mjs`,
+  que solo borra esas tres carpetas de `data/`) y los secretos de prueba (también el código de instalación que la
+  versión compilada pide en el asistente) se generan en cada ejecución: nunca toca `data/pglite` ni `.env.local`. Los
+  servidores de las pruebas llevan `SUPABASE_URL` y `SUPABASE_SECRET_KEY` vacías (`next start` también lee
+  `.env.local`, pero lo que ya está en el entorno manda), así que los archivos van al disco y nunca a un Storage real.
+  Como cada base integrada solo la abre un proceso, las preparaciones que la usan (`create-e2e-users.ts`,
+  `create-agenda-fixtures.ts`) terminan antes de que arranquen los servidores.
 - Se entra siempre por el formulario, como una persona: el inicio de sesión de Better Auth no responde por HTTP
   (`src/server/auth.ts`). En Vitest, las pruebas usan `auth.api.*`, como las Server Actions.
-- Las pruebas de Playwright van de una en una, porque comparten los archivos de base de datos.
+- Las pruebas de Playwright van de una en una, porque comparten las bases de datos de esos servidores.
 - Respuestas de la IA en Playwright: la app de las pruebas espera `REPLY_DEBOUNCE_MS` (2 s, en
   `e2e/support/env.ts`) en vez de 4–8 s, lo justo para que tres mensajes escritos seguidos en el chat web caigan en
   la misma respuesta. Las pruebas esperan la respuesta ejecutando además la cola con `/api/cron/tick`
@@ -80,7 +95,7 @@ Qué se prueba y cómo, para demostrar que el código funciona.
   (`.env.example`, [ARR-04]). Solo comprueban que está lo que la regla pide, no la redacción.
 - Las pruebas no dependen unas de otras ni del orden en que se ejecutan.
 - Datos inventados y usuarios de prueba: los del seed (ver `docs/conventions.md`). Las pruebas nunca se
-  ejecutan contra una base de datos con datos reales (tampoco la de Turso de producción): si la del
+  ejecutan contra una base de datos con datos reales (tampoco la de Supabase de producción): si la del
   proyecto ya los tiene, antes se separan desarrollo y producción, como dice `docs/security.md`.
 - Los servicios externos nunca se llaman de verdad: ni los de pago (IA, OCR) ni los demás. En Vitest,
   `src/test/setup.ts` hace fallar cualquier `fetch` a otra máquina, así que una prueba que olvida su `fetch`

@@ -38,7 +38,7 @@ export function DatabaseSection({ database }: { database: DiagnosticsView["datab
     .join(" · ");
   return (
     <Section title="Base de datos">
-      <StatusLight status={database.status} label="Conexión" detail={database.status === "ok" ? detail : "No responde. Revisa DATABASE_URL y que la base exista."} />
+      <StatusLight status={database.status} label="Conexión" detail={database.status === "ok" ? detail : database.hint} />
       <StatusLight
         status={database.migrationsStatus}
         label="Migraciones"

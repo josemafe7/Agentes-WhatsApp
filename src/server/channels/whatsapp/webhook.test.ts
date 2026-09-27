@@ -232,6 +232,25 @@ describe("messages in [CAN-09] [CAN-10] [CAN-11] [CAN-13] [WA-35] [WA-39]", () =
     expect(await pendingJobs(REPLY_JOB)).toHaveLength(1);
   });
 
+  it("a text or a name with a NUL character (or half a surrogate pair) is stored without it, and the next message too", async () => {
+    type TextBody = { entry: { changes: { value: { contacts: { profile: { name: string } }[]; messages: { id: string; text?: { body: string } }[] } }[] }[] };
+    const body = JSON.parse(fixtureText("text")) as TextBody;
+    const { value } = body.entry[0].changes[0];
+    value.contacts[0].profile.name = "Ana\u0000 Pruebas";
+    const [first] = value.messages;
+    value.messages = [{ ...first, text: { body: "Hola\u0000, ¿hay hueco\ud800 mañana?" } }, { ...first, id: "wamid.TEST_IN_TEXT_0002", text: { body: "¿Y el jueves?" } }];
+    const text = JSON.stringify(body);
+    const result = await processWhatsAppWebhook(bytes(text), signWebhook(text), { now: T0 });
+    expect(result).toMatchObject({ status: 200, channelIds: [channel.id] });
+    expect((await inboundMessages()).map((message) => message.text).sort()).toEqual(["Hola, ¿hay hueco� mañana?", "¿Y el jueves?"]);
+    const [contact] = await db.select().from(contacts);
+    expect(contact.name).toBe("Ana Pruebas");
+    const [raw] = await db.select().from(webhookEvents);
+    expect(raw).toMatchObject({ channelId: channel.id, error: null, processedAt: expect.any(Date) });
+    expect(JSON.stringify(raw.payload)).toContain("Hola, ¿hay hueco� mañana?");
+    expect(await pendingJobs(REPLY_JOB)).toHaveLength(1);
+  });
+
   it("the same message delivered twice is stored once and answered once; both deliveries get 200", async () => {
     const [first, second] = JSON.parse(fixtureText("duplicate")) as unknown[];
     for (const body of [first, second]) {

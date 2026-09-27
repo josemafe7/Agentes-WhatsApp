@@ -4,7 +4,8 @@ Plataforma de agentes IA de atención al cliente (WhatsApp, correo y chat web) q
 negocio y se configura sin tocar código. Cada instalación es de un solo negocio, con su propia base de datos y
 sus propias claves.
 
-**Estado: construidas las fases 0 a 7, solo en local.** Todo lo del encargo funciona ya en tu ordenador: el arranque
+**Estado: construidas las fases 0 a 7, solo en local; en marcha la fase 8 (Supabase para la app publicada).** Todo lo
+del encargo funciona ya en tu ordenador: el arranque
 con la demo, el inicio de sesión con roles e invitaciones, el asistente de arranque, los ajustes, el cifrado de claves,
 los agentes de IA (plantillas, versiones, modelos, «Probar agente» y herramientas HTTP propias), el chat web para pegar
 en la web del negocio, la bandeja con traspaso a una persona, los contactos (con exportar, borrar y fusionar), los
@@ -23,7 +24,8 @@ está probado contra esos servicios simulados.
   solo la versión exacta que pide (`packageManager` en `package.json`). No uses npm ni yarn.
 - **Git**, para clonar el repositorio.
 
-No hace falta ninguna cuenta ni servidor: la base de datos es un archivo local.
+No hace falta ninguna cuenta, servidor ni Docker: la base de datos es un Postgres integrado en la propia app (PGlite),
+que se guarda en la carpeta `data/pglite`. Supabase solo se usa cuando se publica la app (ver «Despliegue»).
 
 ## Arranque rápido
 
@@ -37,8 +39,8 @@ pnpm install && pnpm dev
 Abre <http://localhost:3000> y entra con uno de los usuarios de prueba.
 
 La primera vez, `pnpm dev` prepara la instalación antes de arrancar: crea `.env.local` con secretos al azar
-(clave de cifrado, secreto de las sesiones y secreto del cron) y la demo activada, crea `data/local.db`, aplica
-las migraciones y carga la demo de una peluquería. Las siguientes veces arranca directamente. Mientras está en
+(clave de cifrado, secreto de las sesiones y secreto del cron) y la demo activada, crea la base integrada en
+`data/pglite`, aplica las migraciones y carga la demo de una peluquería. Las siguientes veces arranca directamente. Mientras está en
 marcha, lanza el trabajo en segundo plano cada 15 segundos.
 
 ¿Otro puerto? `pnpm dev -p 3200` (o `PORT=3200 pnpm dev`): las direcciones locales de la app se ajustan solas.
@@ -194,7 +196,8 @@ sector. Los tres agentes de la demo la usan en modo «Automático», con la herr
    texto» y los documentos están «Listo (solo texto)»: se encuentran por palabras desde el primer momento.
 2. **Probar búsqueda** (pestaña de la base): escribe «autobus» o «cuanto cuesta un corte». Salen los fragmentos
    numerados con su título, sección, página y puntuación, sin gastar en el modelo de chat; no distingue mayúsculas ni
-   tildes. Con algo que no está en la base sale «Nada relevante».
+   tildes y encuentra otras formas de la misma palabra («cortes» o «cortar» encuentran «corte»). Con algo que no está
+   en la base sale «Nada relevante».
 3. **Añadir contenido:** sube un PDF, Word, Excel, CSV, TXT o Markdown (hasta 25 MB), una página web (con su mapa del
    sitio, hasta 50 páginas, y lectura periódica si quieres) o una pregunta frecuente. Cada documento pasa por «En cola
    → Extrayendo → Troceando → Embeddings → Listo» en segundo plano, y el mismo archivo dos veces se rechaza. Pulsa un
@@ -368,19 +371,21 @@ revisar. La guía completa es [`docs/guia-correo.md`](docs/guia-correo.md), tamb
 | `pnpm dev` | Arranca la app en local (y la prepara si falta `.env.local` o la base de datos). Lanza el trabajo en segundo plano cada 15 s; además, cada mensaje que llega lo lanza él mismo cuando toca responder, así que las respuestas llegan sin configurar ningún cron. |
 | `pnpm run setup` | Solo la preparación. Siempre con `run`: `pnpm setup` es otra orden de pnpm que cambia el PATH del ordenador. Repetirla no cambia nada. |
 | `pnpm lint` / `pnpm typecheck` | Revisan el código y los tipos. |
-| `pnpm test` | Pruebas de Vitest (cada archivo con su propia base temporal; nunca toca `data/local.db`). |
-| `pnpm test:e2e` | Pruebas de Playwright: compila la app, la arranca en los puertos 3100 (demo de la peluquería), 3102 (instalación vacía) y 3103 (demo del restaurante, para la agenda por aforo) con sus propias bases (`data/e2e.db`, `data/e2e-fresh.db` y `data/e2e-restaurante.db`) y simula los servicios externos en el 3101. La primera vez: `pnpm exec playwright install chromium`. |
+| `pnpm test` | Pruebas de Vitest (cada archivo con su propia base en memoria; nunca toca `data/pglite` ni Supabase). |
+| `pnpm test:e2e` | Pruebas de Playwright: compila la app, la arranca en los puertos 3100 (demo de la peluquería), 3102 (instalación vacía) y 3103 (demo del restaurante, para la agenda por aforo) con sus propias bases (`data/e2e-pglite`, `data/e2e-fresh-pglite` y `data/e2e-restaurante-pglite`) y simula los servicios externos en el 3101. La primera vez: `pnpm exec playwright install chromium`. |
 | `pnpm build` / `pnpm start` | Compila la app como en producción y la arranca. En tu ordenador vale con `APP_URL=http://localhost:3000` (avisa de que solo funciona ahí) y el asistente pide el código de instalación (`SETUP_TOKEN`); publicada, `APP_URL` tiene que llevar `https://`. |
-| `pnpm db:migrate` | Pone la base de datos al día (migraciones). |
+| `pnpm db:migrate` | Pone la base de datos al día (migraciones): la integrada, en tu ordenador. Para la de Supabase, con su dirección puesta solo para esa orden, nunca en `.env.local` (`docs/guia-despliegue.md`, apartado 2). |
 | `pnpm db:generate` | Genera una migración nueva a partir del esquema (solo para desarrollar). |
 | `pnpm seed [--sector=…]` | Carga la demo de un sector en lugar de la que haya: `peluqueria` (por defecto), `clinica-dental`, `fisioterapia`, `restaurante`, `taller`, `academia`, `inmobiliaria`, `tienda` u `otro`. Se niega si la base tiene datos de un negocio real, o si `DEMO_MODE` no es `true` (salvo con `--force-demo`). |
 | `pnpm seed:embeddings` | Recalcula los embeddings de la demo de los nueve sectores con el modelo por defecto (`openai/text-embedding-3-small`, 1536 dimensiones) y los guarda en `seed/fixtures/embeddings.json`. Necesita `OPENROUTER_API_KEY` en `.env.local` y gasta céntimos de IA; sin la clave se niega y no cambia nada. No toca la base de datos. |
 | `pnpm db:reset [--sector=…]` | Borra todo y deja la demo como recién instalada. Pregunta antes (`--yes` para no preguntar). |
 | `pnpm db:fresh` | Borra todo y deja una instalación vacía con el asistente de arranque. Pregunta antes (`--yes`). |
-| `pnpm worker` | Ejecuta el trabajo en segundo plano en bucle, para un servidor propio (VPS), con las mismas comprobaciones de arranque que la app. Con `EMAIL_IMAP_IDLE=true`, además lee al momento los buzones IMAP que tengan «Leer al momento». |
+| `pnpm worker` | Ejecuta el trabajo en segundo plano en bucle, para un servidor propio (VPS) con la base en Supabase (la integrada no la pueden abrir dos procesos a la vez), con las mismas comprobaciones de arranque que la app. Con `EMAIL_IMAP_IDLE=true`, además lee al momento los buzones IMAP que tengan «Leer al momento». |
 
-`db:reset` y `db:fresh` borran datos: para antes la app, y nunca los uses con datos reales. Con una base que no
-es un archivo local se niegan salvo con `--remote-i-know`.
+`db:reset` y `db:fresh` borran datos: para antes la app, y nunca los uses con datos reales. Con una base de Supabase
+se niegan salvo con `--remote-i-know`. La base integrada (`data/pglite`) solo la abre un programa a la vez: mientras
+`pnpm dev` la tiene abierta, `pnpm seed`, `pnpm db:reset`, `pnpm db:fresh` y `pnpm worker` se niegan con un mensaje
+que lo explica; para antes `pnpm dev`.
 
 **Embeddings de la demo.** Un embedding es la versión en números de un trozo de texto, que permite buscar por
 significado y no solo por palabras. La demo trae su base de conocimiento «Información del negocio» ya procesada:
@@ -405,8 +410,7 @@ Están todas explicadas en `.env.example`. En local no tienes que tocar ninguna:
 
 | Variable | Para qué |
 |---|---|
-| `DATABASE_URL` | Base de datos: `file:./data/local.db` en local; la URL de Turso al publicar. |
-| `DATABASE_AUTH_TOKEN` | Token de Turso (vacío en local). |
+| `DATABASE_URL` | Base de datos. Vacía en local: la base integrada, en `data/pglite`. Al publicar, la dirección del «Transaction pooler» de Supabase (puerto 6543), que lleva la contraseña: solo en las variables de Vercel (Sensitive), nunca en `.env.local`. |
 | `APP_URL`, `BETTER_AUTH_URL` | Dirección de la app, para los enlaces de los correos y el inicio de sesión. Con `APP_URL` se hacen también la dirección de avisos de WhatsApp (`https://<dominio>/api/webhooks/whatsapp`) y las de vuelta de Google y Microsoft: publicada, tiene que ser el dominio de producción con HTTPS (la versión compilada no arranca con `http://`, salvo `localhost` en tu ordenador). |
 | `TRUSTED_PROXY_HOPS` | Opcional: cuántos proxies hay delante de la app (1 por defecto: Vercel o Traefik), para leer bien la IP de cada petición en los límites. |
 | `BETTER_AUTH_SECRET` | Firma las sesiones. |
@@ -415,7 +419,7 @@ Están todas explicadas en `.env.example`. En local no tienes que tocar ninguna:
 | `SETUP_TOKEN` | Código de instalación: en una instalación publicada, el primer paso del asistente lo pide para crear el propietario. En local, vacío. |
 | `DEMO_MODE` | `true` en local: aviso «Modo demo» y canales de demo que nunca llaman a servicios reales. |
 | `OPENROUTER_API_KEY` | Clave de OpenRouter (opcional; mejor en Ajustes › IA). |
-| `BLOB_READ_WRITE_TOKEN` (y `BLOB_STORE_ID`) | Almacén privado de Vercel Blob al publicar (Vercel pone las dos al conectar el almacén); en local los archivos van a `data/uploads/`. |
+| `SUPABASE_URL` y `SUPABASE_SECRET_KEY` | Archivos al publicar, en el bucket privado `dominia-archivos` de Supabase Storage, que la app crea sola: la dirección del proyecto («Project URL») y una clave secreta (`sb_secret_…`, solo en el servidor y marcada Sensitive). Solo en las variables de Vercel, nunca en `.env.local`: en local, vacías, y los archivos van a `data/uploads/`. |
 | `FFMPEG_BIN` | Opcional: otro FFmpeg para convertir notas de voz a MP3. Sin ella se usa el que trae el proyecto. |
 | `ALLOW_PRIVATE_MAIL_HOSTS` | Opcional: `true` permite conectar un buzón «Otro (IMAP/SMTP)» a un servidor de correo de la red local (uno propio junto a la app). Sin ella, la app solo se conecta a servidores con dirección pública. |
 | `EMAIL_IMAP_IDLE` | Opcional, solo en un servidor propio con `pnpm worker`: `true` mantiene abierta la conexión IMAP de los buzones que tengan activado «Leer al momento» y lee el correo nuevo en cuanto llega. Sin ella, cada buzón se lee cada minuto. |
@@ -496,24 +500,36 @@ buzón se lee mientras la app está arrancada. Publicada, la dirección de redir
 ## Despliegue
 
 La app todavía no está publicada: de momento funciona solo en local. Cuando toque, la guía paso a paso es
-[`docs/guia-despliegue.md`](docs/guia-despliegue.md) (también dentro de la app, en Ayuda): Vercel con Turso (base
-de datos), Vercel Blob privado (archivos), el código de instalación (`SETUP_TOKEN`) y un cron externo cada minuto,
-porque el plan gratuito de Vercel solo admite uno al día. `vercel.json` ya trae ese cron diario a `/api/cron/tick`
-y la región de las funciones en la UE. Los datos técnicos de cada servicio están en
-`docs/plataforma-despliegue.md`. Con un agente de código, la skill `desplegar` (`.agents/skills/desplegar/`) sigue esa
-guía, y `actualizar` pasa a una versión nueva con una copia de seguridad antes.
+[`docs/guia-despliegue.md`](docs/guia-despliegue.md) (también dentro de la app, en Ayuda): Vercel para la app y
+Supabase para la base de datos (Postgres), los archivos (un bucket privado de Supabase Storage) y el cron de cada
+minuto (Supabase Cron, porque el plan gratuito de Vercel solo admite uno al día), con el código de instalación
+(`SETUP_TOKEN`). `vercel.json` ya trae ese cron diario a `/api/cron/tick` y las funciones en Londres (`lhr1`), en la
+misma ciudad que la base de Supabase. Los datos técnicos de cada servicio están en `docs/plataforma-despliegue.md`, y
+el porqué, en `docs/decisions/0024-datos-y-archivos-en-supabase.md`.
+
+Supabase es solo para la app publicada: `DATABASE_URL`, `SUPABASE_URL` y `SUPABASE_SECRET_KEY` van en las variables
+de Vercel, nunca en `.env.local`, y tu ordenador sigue con la base integrada. Las migraciones se aplican desde tu
+ordenador con la dirección de la base puesta solo para esa orden (o con Claude Code y el conector de Supabase). La
+instalación publicada empieza vacía, con el asistente de arranque, o con la demo si la cargas para enseñar la app;
+entonces cambia enseguida las contraseñas de prueba, que están en este README, y vacíala con
+`pnpm db:fresh --remote-i-know` antes de trabajar con clientes (la guía lo explica, apartado 2).
+
+Con un agente de código, la skill `desplegar` (`.agents/skills/desplegar/`) sigue esa guía, y `actualizar` pasa a una
+versión nueva con una copia de seguridad antes.
 
 ## Paso a un negocio real
 
 Un negocio real nunca usa `pnpm dev`, que es el modo de desarrollo (más lento y más permisivo: por ejemplo, deja a las
-herramientas HTTP llamar a la red local). Usa la app publicada (ver «Despliegue»: con una base nueva ya está vacía y
-empiezas en el paso 4) o, instalada en un ordenador, la versión compilada:
+herramientas HTTP llamar a la red local). Un negocio real va publicado, en Vercel con Supabase (ver «Despliegue»): la
+instalación publicada empieza vacía y empiezas en el paso 4. Antes, si quieres, pruébalo en tu ordenador con la base
+integrada y la versión compilada:
 
 1. Para la app y ejecuta `pnpm db:fresh`: borra la demo y deja la instalación vacía.
 2. En `.env.local`, cambia `DEMO_MODE=true` por `DEMO_MODE=false` y pon en `SETUP_TOKEN` un código largo al azar
    (se crea como explica `docs/guia-despliegue.md`, apartado «4. Las variables de entorno»).
-3. Arranca la versión compilada con `pnpm build && pnpm start` y, en otra terminal, `pnpm worker`, que hace el trabajo
-   en segundo plano (respuestas de la IA, correo y recordatorios).
+3. Arranca la versión compilada con `pnpm build && pnpm start`. Es para probar: en tu ordenador no llegan WhatsApp ni
+   correos reales, y `pnpm worker` (el trabajo en segundo plano en bucle) es para un servidor propio con Supabase.
+   Para volver a la demo, `DEMO_MODE=true` y `pnpm db:reset`.
 4. Abre la app: el asistente de arranque te pide el código de instalación, la cuenta de propietario, el negocio y su
    sector, el horario y la clave de OpenRouter.
 5. Guarda `APP_ENCRYPTION_KEY` en un gestor de contraseñas.
@@ -535,7 +551,14 @@ de código, la skill `nuevo-negocio` (`.agents/skills/nuevo-negocio/`) te acompa
 - **El puerto 3000 está ocupado:** `pnpm dev -p 3200`.
 - **Después de actualizar el proyecto falla la base de datos:** `pnpm db:migrate` (o `pnpm run setup`), que
   aplica las migraciones nuevas sin borrar nada.
-- **«La base de datos está en uso» al usar `db:reset` o `db:fresh`:** para antes `pnpm dev` y `pnpm worker`.
+- **«La base de datos está en uso» al usar `db:reset` o `db:fresh`, o «La base local (data/pglite) está abierta en
+  otro proceso»:** la base integrada solo la abre un programa a la vez. Para antes el otro `pnpm dev`, `pnpm start`,
+  `pnpm worker` o `db:reset` que la esté usando y vuelve a probar.
+- **Aviso de que la línea `DATABASE_URL=file:./data/local.db` ya no se usa:** es de una versión anterior, con SQLite.
+  Borra esa línea de `.env.local` (o déjala vacía). La demo está ahora en `data/pglite`, y `data/local.db` ya no se usa:
+  puedes borrarlo.
+- **«Turso ya no se usa»:** tu `DATABASE_URL` es una dirección antigua (`libsql://…`). En tu ordenador, déjala vacía;
+  publicada, pon la de Supabase en Vercel (`docs/guia-despliegue.md`).
 - **«APP_ENCRYPTION_KEY falta o no es válida» y la app no arranca:** falta la clave en `.env.local`. En local,
   `pnpm run setup` la crea; si la tenías y la has perdido, las claves guardadas en la app hay que volver a
   escribirlas.
@@ -645,7 +668,8 @@ Guías para el negocio (también dentro de la app, en Ayuda):
   el número de prueba de Meta y los problemas frecuentes.
 - [Conectar el correo](docs/guia-correo.md): Gmail con el proyecto de Google Cloud del negocio, Outlook o Microsoft
   365 con su app de Microsoft Entra u otro buzón por IMAP/SMTP; modos de respuesta, filtros y problemas frecuentes.
-- [Publicar la app en Vercel](docs/guia-despliegue.md).
+- [Publicar la app en Vercel](docs/guia-despliegue.md): con Supabase para la base de datos, los archivos y el cron,
+  paso a paso.
 - [Lista de puesta en marcha](docs/checklist-puesta-en-marcha.md): de `pnpm db:fresh` a la primera conversación de un
   negocio real.
 
@@ -653,4 +677,6 @@ Para el negocio, fuera de la app: la [plantilla de contrato de encargo del trata
 (revísala con un abogado).
 
 Skills para un agente de código (en `.agents/skills/`, con su puente en `.claude/skills/`): `nuevo-negocio`,
-`conectar-whatsapp`, `conectar-correo`, `crear-agente`, `desplegar`, `actualizar` y `diagnostico`.
+`conectar-whatsapp`, `conectar-correo`, `crear-agente`, `desplegar`, `actualizar` y `diagnostico`. Las instaladas desde
+fuera (`frontend-design`, `supabase` y `supabase-postgres-best-practices`) están anotadas en `skills-lock.json`, con su
+origen, y conservan su propio formato.

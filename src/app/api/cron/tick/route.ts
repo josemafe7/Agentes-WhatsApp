@@ -1,4 +1,4 @@
-// Runs background work (docs/decisions/0008). Vercel Cron calls it with GET, an external cron or the local
+// Runs background work (docs/decisions/0008). Vercel Cron calls it with GET, Supabase Cron (every minute) or the local
 // ticker of `pnpm dev` with POST; all send `Authorization: Bearer <CRON_SECRET>`. It answers at once (202) and
 // works in after(), within this route's maxDuration (Hobby: 300 s, docs/plataforma-despliegue.md).
 import { after } from "next/server";

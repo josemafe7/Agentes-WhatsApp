@@ -80,6 +80,15 @@ describe("Outlook: recepción por consulta delta ([COR-08])", () => {
     expect(await messagesOf(channel.id)).toHaveLength(1);
   });
 
+  it("un cuerpo sin citas con caracteres nulos se guarda sin ellos y la ronda sigue con el siguiente", async () => {
+    const { fake, channel, deps } = await setup();
+    fake.addMessage("inbox", await buildRawEmail({ to: OWN, subject: "Cita", messageId: "<o-nulo@cliente.test>" }), { conversationId: "conv-N", uniqueBody: "¿El jueves\u0000 por la tarde?" });
+    fake.addMessage("inbox", await buildRawEmail({ to: OWN, subject: "Otra", messageId: "<o-otro@cliente.test>" }), { conversationId: "conv-O", uniqueBody: "¿Y el viernes?" });
+    expect(await poll(channel.id, deps)).toMatchObject({ kind: "polled", report: { ingested: 2 } });
+    expect((await messagesOf(channel.id)).map((message) => message.text).sort()).toEqual(["Asunto: Cita\n\n¿El jueves por la tarde?", "Asunto: Otra\n\n¿Y el viernes?"]);
+    expect(readEmailConfig((await loadChannel(channel.id)).config).outlook.inboxDeltaLink).toContain("deltatoken=inbox-");
+  });
+
   it("[COR-19] el tamaño se mira antes de descargar: uno demasiado grande no se descarga, se guarda con sus cabeceras", async () => {
     const { fake, channel, deps } = await setup();
     fake.addMessage("inbox", await buildRawEmail({ to: OWN, subject: "Vídeo de la boda", messageId: "<big@cliente.test>" }), { size: 45 * 1024 * 1024 });

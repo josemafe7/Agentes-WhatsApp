@@ -8,15 +8,22 @@ antes de cambiar ninguno de los dos. Aquí no se copia el esquema: se explica qu
 
 ## Reglas comunes
 
-Vienen de la decisión 0003 y valen para todas las tablas:
+Vienen de la decisión 0024 (que conserva las de 0003) y valen para todas las tablas, en Postgres: la base integrada
+(PGlite) en local y en las pruebas, y Supabase al publicar.
 
 - **Ids:** UUID v4 en texto, también en las tablas de Better Auth.
-- **Fechas:** en UTC, como entero en milisegundos. Las horas locales (horarios, tramos) se guardan como hora
-  del día sin fecha y se interpretan en la zona horaria del negocio.
-- **JSON** en columnas de texto con su tipo; **booleanos** en enteros.
+- **Fechas:** en UTC, `timestamp with time zone` con milisegundos (Drizzle las entrega como `Date`). Las horas
+  locales (horarios, tramos) se guardan como hora del día sin fecha y se interpretan en la zona horaria del negocio.
+- **JSON** en `jsonb` con su tipo, salvo los objetos que se enseñan en el orden en que se escribieron (los campos
+  personalizados de un contacto, los parámetros y las cabeceras de una herramienta HTTP), que van en `json` porque
+  `jsonb` ordena las claves. **Booleanos** en `boolean`; importes y temperaturas en `double precision`; y en `bigint`
+  los números que pueden pasar de 2^31 (`rate_limit.last_request`, en milisegundos; `realtime_events.seq`;
+  `jobs.interval_ms`; `kb_documents.size_bytes`).
 - **Borrados explícitos:** los hijos se borran en la misma transacción, antes que el padre, sin depender de
-  `ON DELETE CASCADE`. El libSQL local sí aplica las claves ajenas en cada conexión (comprobado en la fase 0 con
-  `@libsql/client` 0.18.0), así que un borrado en mal orden falla; en Turso no se da por hecho.
+  `ON DELETE CASCADE`. Postgres aplica siempre las claves ajenas, así que un borrado en mal orden falla.
+- **Row Level Security** en todas las tablas, activado en la migración que crea cada una y sin políticas (0024): la
+  app entra desde el servidor como propietaria de las tablas, a la que no se aplica, y por la API de datos de
+  Supabase no se ve nada. Una tabla nueva también lo lleva (`.enableRLS()` en su esquema); una prueba lo comprueba.
 - **Secretos aparte:** lo secreto va en columnas cifradas (`secrets_enc` o un campo `*_enc`) con AES-256-GCM y
   `APP_ENCRYPTION_KEY`, nunca en `config` ni en otra columna en claro (ver «Qué se cifra»).
 - **Autoría que sobrevive:** mensajes, notas y citas guardan el id de quien los escribió y una copia de su
@@ -103,7 +110,7 @@ variables y el id de Meta. Único por canal + nombre + idioma. Sirve a [WA-22], 
 | `knowledge_bases` | Nombre, descripción, modelo y dimensiones de los embeddings (1536) y versión del índice en uso y en construcción. | [CON-03], [CON-11], [CON-13], [AJU-05] |
 | `agent_knowledge_bases` | Qué bases usa cada agente. Único agente + base. | [CON-03] |
 | `kb_documents` | Documento de una base: tipo (archivo, página web o pregunta frecuente), título, origen (archivo, URL o sitemap), estado `queued`, `extracting`, `chunking`, `embedding`, `ready` o `error` con su motivo, huella del contenido (no se repite dentro de la base), páginas, resumen, fecha de lectura y refresco de las URL. | [CON-04]–[CON-09], [CON-14], [CON-15], [CON-22] |
-| `kb_chunks` | Fragmentos: documento, base, versión del índice, título, sección, página, texto, tokens y embedding (`F32_BLOB(1536)`, vacío hasta que hay clave). Su tabla FTS5 y su índice vectorial están en `docs/busqueda-hibrida.md`. | [CON-10]–[CON-13], [CON-16]–[CON-19] |
+| `kb_chunks` | Fragmentos: documento, base, versión del índice, título, sección, página, texto, tokens, embedding (`halfvec(1536)`, vacío hasta que hay clave) y `search_vector` (columna `tsvector` que calcula la propia base con `es_unaccent` a partir del título, la sección y el texto). Sus índices (HNSW para el embedding y GIN para el texto) están en `docs/busqueda-hibrida.md`. | [CON-10]–[CON-13], [CON-16]–[CON-19] |
 | `message_retrievals` | Fragmentos usados en cada respuesta, con su posición y puntuación y una copia del título, la sección y la página: si se borra el fragmento, el documento o la base, su enlace queda vacío y la fuente se sigue viendo. | [CON-20], [PRU-02] |
 
 Detalles del conocimiento que salieron al construirlo (fase 4, sin cambiar el esquema):
@@ -126,8 +133,8 @@ Detalles del conocimiento que salieron al construirlo (fase 4, sin cambiar el es
 - `contacts`: nombre, teléfono y email (solo como datos, nunca para identificar), etiquetas, campos
   personalizados y notas. Al fusionar, las identidades, conversaciones, citas y consentimientos pasan al que
   queda ([CTO-01]–[CTO-05]). `search_text` guarda nombre, teléfono y email en minúsculas y sin tildes para buscar
-  sin tildes en Contactos y en la Bandeja («jose» encuentra «José»); se escribe con cada cambio de esos campos y, en
-  una base anterior a la columna, lo rellena una vez el arranque del servidor. Es una copia de datos personales:
+  sin tildes en Contactos y en la Bandeja («jose» encuentra «José»); se escribe con cada cambio de esos campos y, si
+  faltara en contactos antiguos, lo rellena una vez el arranque del servidor. Es una copia de datos personales:
   quien borra o anonimiza esos campos la borra también.
 - `contact_identities`: `contact_id`, `channel_type`, `external_id` y `phone` opcional. **Única por
   `channel_type` + `external_id`** ([CTO-03], [CAN-13]). `external_id` es el BSUID en WhatsApp (o el `wa_id`
@@ -171,9 +178,9 @@ Detalles del conocimiento que salieron al construirlo (fase 4, sin cambiar el es
   `downloadStatus`) y `transcript` ([WA-36], [MED-04]). La clave del archivo es siempre generada; el nombre del
   cliente solo se guarda para mostrarlo y descargarlo.
 - `search_text`: el texto en minúsculas y sin tildes, para buscar en la Bandeja sin tildes («cancelacion» encuentra
-  «cancelación», [BAN-02]); se escribe con el texto (al llegar, al enviar, al aprobar un borrador editado) y, en una
-  base anterior a la columna (migración 0005), lo rellena una vez el arranque del servidor. Es una copia de lo que se
-  dijo: la limpieza lo vacía con el texto y borrar el contacto lo borra con el mensaje.
+  «cancelación», [BAN-02]); se escribe con el texto (al llegar, al enviar, al aprobar un borrador editado) y, si
+  faltara en mensajes antiguos, lo rellena una vez el arranque del servidor. Es una copia de lo que se dijo: la
+  limpieza lo vacía con el texto y borrar el contacto lo borra con el mensaje.
 - `status`: `received`, `queued`, `sent`, `delivered`, `read`, `played`, `failed` o `draft`, y `error`.
   Los estados de salida solo avanzan (`queued` < `sent` < `delivered` < `read` < `played`) y `failed` solo
   sustituye a `queued` o `sent` ([WA-38]). `played` no está en el §4 del encargo: Meta lo envía desde el
@@ -205,9 +212,9 @@ Detalles del conocimiento que salieron al construirlo (fase 4, sin cambiar el es
 |---|---|---|
 | `notifications` | Avisos de la app por usuario: suceso, enlace, si está leído. | [PWA-06], [TRA-05], [AJU-08] |
 | `push_subscriptions` | Suscripciones push de cada dispositivo: usuario, `endpoint` (único) y sus claves. Se borran cuando el servicio de push dice que caducaron. | [PWA-03], [PWA-05] |
-| `jobs` | Cola: tipo, datos, `run_at`, `attempts`, `locked_until`, `status`, `last_error` y una clave para no duplicar (una respuesta pendiente por conversación). | [MOT-01], [MOT-02], [MOT-15], [MOT-16] (0008) |
+| `jobs` | Cola: tipo, datos, `run_at`, `attempts`, `locked_until`, `status`, `last_error` y una clave para no duplicar (una respuesta pendiente por conversación). Una ronda reclama sus trabajos con `FOR UPDATE SKIP LOCKED`, así dos rondas a la vez nunca cogen el mismo (0024). | [MOT-01], [MOT-02], [MOT-15], [MOT-16] (0008) |
 | `audit_log` | Registro de actividad: quién (persona, IA o sistema), qué, sobre qué y cuándo, sin datos personales. Solo se añade: nadie lo edita ni lo borra a mano. | [AJU-10], [SEG-10], [HER-03], [CUM-06] |
-| `realtime_events` | Cambios para las pantallas, con un cursor que crece. Se borran pronto. No está en el §4: la pide el sondeo (0009). | [BAN-03], [WEB-06] |
+| `realtime_events` | Cambios para las pantallas, con un cursor que crece (`seq`: estrictamente creciente en el orden en que se confirma cada cambio y sin repetidos, gracias a su propio candado, 0024). Se borran pronto. No está en el §4: la pide el sondeo (0009). | [BAN-03], [WEB-06] |
 | `rate_limits` | Contadores de límites de peticiones por clave (IP, visitante, email) y ventana. Better Auth usa además su propia tabla para el inicio de sesión. | [SEG-07], [USU-13], [WEB-08] |
 | `app_kv` | Almacén pequeño de clave y valor: el catálogo de modelos de OpenRouter ya normalizado (`ai.model_catalog`, se renueva a las 12 h), el agente que creó el asistente y sus preguntas frecuentes (`setup.first_agent`), el chat web del paso 6 (`setup.webchat_channel`), el «alquiler» de la respuesta en preparación de cada conversación (`reply.lease:<conversación>`, 5 min), el turno de asignación de cada canal (`handoff.round_robin:<canal>`), la última ronda del trabajo en segundo plano y otros cursores. | [MOD-01], [MOD-06], [ASI-09], [ASI-11], [MOT-02], [TRA-04], [AJU-11] |
 
@@ -223,7 +230,7 @@ Detalles del conocimiento que salieron al construirlo (fase 4, sin cambiar el es
 | `bookings` | Contacto, servicio, recurso, inicio y fin, franja ocupada (inicio − margen, fin + margen), personas, estado `pending`, `confirmed`, `cancelled`, `completed` o `no_show`, origen `ai` (con su canal), `human` o `web`, conversación, notas, autor con la copia del nombre, `is_test` y cuándo se envió el recordatorio. | [AGD-13], [AGD-14], [AGD-17], [AGD-19], [AGD-25], [PRU-04] |
 | `booking_events` | Historial de cada cita: quién (persona, IA, cliente o sistema), qué cambió y cuándo. Acciones: `created`, `moved`, `updated`, `status_changed`, `cancelled`, `notice_sent` (aviso al cliente), `reminder_sent` y `reminder_failed` (con el motivo). | [AGD-15], [AGD-23], [AGD-25] |
 | `reminder_settings` | Recordatorio: activado (no, por defecto), antelación, canal (plantilla de WhatsApp con sus variables asignadas, o email) y texto. | [AGD-20], [AGD-24], [AGD-25] |
-| `service_secondary_resources` y `booking_secondary_resources` | Preparadas, sin uso todavía (fase 5, migración `0004`): el segundo tipo de recurso que necesita un servicio a la vez (por ejemplo, profesional y sala) y el que ocupa cada cita durante la misma franja. Únicos servicio + recurso y cita + recurso. El motor de disponibilidad ya rechaza esos servicios. | [AGD-07] |
+| `service_secondary_resources` y `booking_secondary_resources` | Preparadas, sin uso todavía (fase 5; hoy en la migración inicial de Postgres, `0001_initial`): el segundo tipo de recurso que necesita un servicio a la vez (por ejemplo, profesional y sala) y el que ocupa cada cita durante la misma franja. Únicos servicio + recurso y cita + recurso. El motor de disponibilidad ya rechaza esos servicios. | [AGD-07] |
 
 Solo ocupan hueco las citas `pending` y `confirmed`: las canceladas y los no presentados lo liberan
 ([AGD-09]). Al borrar un contacto, sus citas se anonimizan en vez de borrarse, para que los informes cuadren
@@ -244,20 +251,25 @@ Detalles de la agenda que salieron al construirla (fase 5, sin cambiar las tabla
 
 ### Sin dobles reservas
 
-- **Ahora (libSQL):** la cita se crea en una transacción corta que vuelve a comprobar que el hueco sigue libre
-  (con los márgenes y, en aforo, la suma de personas) antes de guardar. SQLite admite un solo escritor a la
-  vez, así que dos reservas simultáneas del último hueco no pueden entrar las dos; la segunda recibe «Ese hueco
-  ya no está libre» con alternativas ([AGD-13], [HER-06]). En Turso, una transacción interactiva bloquea las
-  escrituras hasta 5 s: dentro no se llama a ningún servicio externo (0003).
-- **Futuro (Postgres), capacidad 1:** una restricción de exclusión con la extensión `btree_gist` sobre el
-  recurso (igual) y el rango de la franja ocupada (solapa), limitada a las citas `pending` y `confirmed`.
+- **Cómo se evita (Postgres, 0024):** cada escritura de una cita (crear, mover, volver a confirmar) va en una
+  transacción corta que, antes de nada, toma el candado de escritura de toda la base (`pg_advisory_xact_lock`: un
+  escritor a la vez, como hacía SQLite). Dentro, vuelve a leer las citas y ausencias del recurso y pasa el hueco por el
+  mismo motor que lo ofreció (con los márgenes y, en aforo, la suma de personas) antes de guardar. Dos reservas
+  simultáneas del último hueco no pueden entrar las dos: la segunda espera a que termine la primera, encuentra el hueco
+  ocupado y recibe «Ese hueco ya no está libre» con alternativas ([AGD-13], [HER-06]). Vale igual en la base
+  integrada, en Supabase y entre procesos distintos (la web y `pnpm worker`), porque el candado es de la base. Dentro
+  no se llama a ningún servicio externo, y si el candado tarda más de 15 s, la escritura falla con un error y se
+  puede repetir.
+- **Refuerzo posible, no necesario hoy (capacidad 1):** una restricción de exclusión con la extensión `btree_gist`
+  sobre el recurso (igual) y el rango de la franja ocupada (solapa), limitada a las citas `pending` y `confirmed`.
   `btree_gist` hace falta para comparar con `=` el id del recurso en un índice GiST, y admite `uuid` y `text`.
   El rango sin tercer argumento es cerrado al inicio y abierto al final, así que una cita que acaba a las
   10:00 no choca con otra que empieza a las 10:00. La franja incluye los márgenes del servicio porque también
-  ocupan el recurso: por eso se guardan aparte del inicio y el fin visibles (propuesta de diseño). En Supabase
-  las extensiones se crean en el esquema `extensions`.
-- **Futuro (Postgres), aforo:** la restricción no sirve; se bloquea la fila del recurso y se suman las plazas
-  dentro de la transacción.
+  ocupan el recurso: por eso se guardan aparte del inicio y el fin visibles. En Supabase las extensiones se crean en
+  el esquema `extensions`. Sería una segunda barrera dentro de la propia base; haría falta si algún día se quitara el
+  candado único de escritura.
+- **Aforo:** esa restricción no sirve (varias citas pueden compartir franja); lo cubre la comprobación con el
+  candado, que suma las plazas dentro de la transacción.
 
 ## Qué se cifra
 
@@ -313,4 +325,6 @@ da, así que nunca comparten contacto ni conversación con un cliente real ([AJU
 - Restricción de exclusión, `btree_gist` y rangos (consultado el 2026-09-26):
   https://www.postgresql.org/docs/current/btree-gist.html, https://www.postgresql.org/docs/current/rangetypes.html
   y https://www.postgresql.org/docs/current/sql-createtable.html
+- Candados de aplicación (`pg_advisory_xact_lock`): https://www.postgresql.org/docs/current/functions-admin.html
 - Extensiones en Supabase (esquema `extensions`): https://supabase.com/docs/guides/database/extensions
+- Por qué Postgres, la base integrada y Row Level Security sin políticas: `docs/decisions/0024-datos-y-archivos-en-supabase.md`.

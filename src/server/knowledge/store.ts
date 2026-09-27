@@ -1,17 +1,19 @@
 // System reads and writes of the knowledge tables for the pipeline and the search (no actor: the callers in
-// src/data check permissions). Chunks are never selected with their embedding (6 KB each), never INSERT OR REPLACE
-// (it would break the FTS triggers), and deleting them first clears the message_retrievals that point to them:
-// nothing relies on cascades (docs/conventions.md).
+// src/data check permissions). Chunks are never selected with their embedding (3 KB each), and deleting them first
+// clears the message_retrievals that point to them: nothing relies on cascades (docs/conventions.md). Text is written
+// storable (src/server/storable-text.ts): Postgres refuses NUL characters, and text extracted from files and web pages
+// may carry some.
 import "server-only";
 import { and, asc, count, eq, inArray, isNull, ne, type SQL } from "drizzle-orm";
 import { db, type Executor } from "@/db";
 import { kbChunks, kbDocuments, knowledgeBases, messageRetrievals } from "@/db/schema";
+import { storableJson, storableText } from "@/server/storable-text";
 import type { ChunkDraft } from "./chunking";
 
 export type KnowledgeBaseRow = typeof knowledgeBases.$inferSelect;
 export type DocumentRow = typeof kbDocuments.$inferSelect;
 
-/** Rows inserted per statement (SQLite's variable limit stays far away). */
+/** Rows inserted per statement (Postgres' limit of 65,535 parameters stays far away). */
 const INSERT_BATCH = 50;
 
 export async function loadKnowledgeBaseRow(kbId: string, executor: Executor = db): Promise<KnowledgeBaseRow | null> {
@@ -27,7 +29,7 @@ export async function loadDocumentRow(documentId: string, executor: Executor = d
 export async function updateDocument(documentId: string, changes: Partial<typeof kbDocuments.$inferInsert>, executor: Executor = db): Promise<void> {
   await executor
     .update(kbDocuments)
-    .set({ ...changes, updatedAt: new Date() })
+    .set({ ...storableJson(changes), updatedAt: new Date() })
     .where(eq(kbDocuments.id, documentId));
 }
 
@@ -35,7 +37,7 @@ export async function updateDocument(documentId: string, changes: Partial<typeof
 export async function replaceDocumentTitle(documentId: string, from: string, to: string, executor: Executor = db): Promise<boolean> {
   const rows = await executor
     .update(kbDocuments)
-    .set({ title: to, updatedAt: new Date() })
+    .set({ title: storableText(to), updatedAt: new Date() })
     .where(and(eq(kbDocuments.id, documentId), eq(kbDocuments.title, from)))
     .returning({ id: kbDocuments.id });
   return rows.length > 0;
@@ -82,10 +84,10 @@ export async function insertChunks(input: { kbId: string; documentId: string; ve
         documentId: input.documentId,
         indexVersion: input.version,
         ord: chunk.ord,
-        title: chunk.title,
-        section: chunk.section,
+        title: storableText(chunk.title),
+        section: chunk.section === null ? null : storableText(chunk.section),
         page: chunk.page,
-        content: chunk.content,
+        content: storableText(chunk.content),
         tokenCount: chunk.tokenCount,
         embedding: null,
         contentHash: chunk.contentHash,

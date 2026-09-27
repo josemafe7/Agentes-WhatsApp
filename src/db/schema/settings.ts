@@ -1,6 +1,6 @@
 // Business-wide settings (single rows), opening hours, closures, WhatsApp rates and a small key/value store.
 import { sql } from "drizzle-orm";
-import { check, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, doublePrecision, index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { AGENDA_MODES, CHANNEL_TYPES, SECTORS } from "@/lib/enums";
 import { bool, EMPTY_JSON_ARRAY, EMPTY_JSON_OBJECT, id, json, timestamp, timestamps } from "./columns";
 
@@ -28,11 +28,11 @@ export type HandoffSettings = { assignment: "round_robin" | "unassigned" };
 export const DEFAULT_HANDOFF: HandoffSettings = { assignment: "round_robin" };
 
 /** A JSON constant as a SQL default literal (constants only, never user input). */
-const jsonDefault = (value: unknown) => sql.raw(`'${JSON.stringify(value)}'`);
+const jsonDefault = (value: unknown) => sql.raw(`'${JSON.stringify(value)}'::jsonb`);
 /** Which events notify and who by default ([AJU-08]). Keys are event names. */
 export type NotificationSettings = Record<string, { enabled: boolean; roles: string[] }>;
 
-export const businessSettings = sqliteTable(
+export const businessSettings = pgTable(
   "business_settings",
   {
     id: id(),
@@ -70,7 +70,7 @@ export const businessSettings = sqliteTable(
     ...timestamps(),
   },
   () => [check("business_settings_singleton_ck", sql`singleton = 1`)],
-);
+).enableRLS();
 
 /** SMTP of the system mail ([AJU-06]); the password goes in `smtp_password_enc`. */
 export type SmtpSettings = {
@@ -92,7 +92,7 @@ export type DefaultModels = {
   rerank?: string;
 };
 
-export const integrationSettings = sqliteTable(
+export const integrationSettings = pgTable(
   "integration_settings",
   {
     id: id(),
@@ -117,10 +117,10 @@ export const integrationSettings = sqliteTable(
     ...timestamps(),
   },
   () => [check("integration_settings_singleton_ck", sql`singleton = 1`)],
-);
+).enableRLS();
 
 /** Weekly opening hours: several ranges per day, local minutes from 00:00 ([AJU-03]). weekday: 1 = Monday … 7 = Sunday. */
-export const businessHours = sqliteTable(
+export const businessHours = pgTable(
   "business_hours",
   {
     id: id(),
@@ -130,10 +130,10 @@ export const businessHours = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("business_hours_weekday_idx").on(t.weekday)],
-);
+).enableRLS();
 
 /** Holidays and closures as local calendar dates "YYYY-MM-DD", both ends included ([AGD-05]). */
-export const closures = sqliteTable(
+export const closures = pgTable(
   "closures",
   {
     id: id(),
@@ -143,13 +143,13 @@ export const closures = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("closures_start_date_idx").on(t.startDate)],
-);
+).enableRLS();
 
 /**
  * Editable per-message rates ([AJU-09], [WA-47]); never hard-coded. docs/modelo-de-datos.md calls it
  * `whatsapp_rates`: `channel_type` keeps it usable for other paid channels.
  */
-export const pricingRates = sqliteTable(
+export const pricingRates = pgTable(
   "pricing_rates",
   {
     id: id(),
@@ -158,20 +158,20 @@ export const pricingRates = sqliteTable(
     country: text("country").notNull(),
     /** Meta pricing category (marketing, utility, authentication, service…). */
     category: text("category").notNull(),
-    price: real("price").notNull(),
+    price: doublePrecision("price").notNull(),
     currency: text("currency").notNull().default("USD"),
     /** Demo rates are flagged «ejemplo». */
     isExample: bool("is_example").notNull().default(false),
     ...timestamps(),
   },
   (t) => [uniqueIndex("pricing_rates_channel_country_category_uq").on(t.channelType, t.country, t.category)],
-);
+).enableRLS();
 
 /** Small key/value store: sync cursors, round-robin pointer, model catalogue cache, last tick… */
-export const appKv = sqliteTable("app_kv", {
+export const appKv = pgTable("app_kv", {
   id: id(),
   key: text("key").notNull().unique(),
   value: json<unknown>("value"),
   expiresAt: timestamp("expires_at"),
   ...timestamps(),
-});
+}).enableRLS();

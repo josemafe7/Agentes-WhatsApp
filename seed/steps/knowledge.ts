@@ -1,6 +1,6 @@
 // Demo knowledge ([ARR-06], [ARR-12], [ARR-14], [CON-03], [CON-20], [AGE-07]): the base «Información del negocio» of
 // the sector (seed/knowledge), already processed and «listo» as the pipeline would leave it without a key: chunks
-// searchable by words at once (the FTS triggers index them as they are inserted) and, for every chunk whose key is in
+// searchable by words at once (Postgres fills their search_vector on insert) and, for every chunk whose key is in
 // seed/fixtures/embeddings.json for the base's model and size, its stored vector, so search by meaning works as soon
 // as there is a key, without processing anything again. The base goes to every demo agent, and a few demo AI answers
 // get the fragments they «used» for «¿Por qué respondió esto?», with buscar_conocimiento in their AI run as it would be
@@ -132,7 +132,8 @@ export function buildDemoKnowledgeRows(knowledge: DemoKnowledge, input: DemoKnow
 async function insertDemoKnowledge(tx: Transaction, rows: DemoKnowledgeRows): Promise<void> {
   await tx.insert(knowledgeBases).values(rows.base);
   await tx.insert(kbDocuments).values(rows.documents);
-  // Plain inserts (never INSERT OR REPLACE): the FTS triggers index each chunk ([CON-12]).
+  // Plain inserts: Postgres writes each chunk's search_vector (a generated column), so the words search finds it at
+  // once ([CON-12]); the vectors go in as halfvec.
   for (let start = 0; start < rows.chunks.length; start += INSERT_BATCH) await tx.insert(kbChunks).values(rows.chunks.slice(start, start + INSERT_BATCH));
   if (rows.links.length > 0) await tx.insert(agentKnowledgeBases).values(rows.links);
 }

@@ -38,7 +38,7 @@ async function add(kbId: string, title: string, text: string, fetchImpl?: typeof
 }
 
 const PRICES = "## Precios\n\nEl tinte completo cuesta 40 euros. El corte de pelo cuesta 25 euros.";
-const DEPILATION = "## Depilación\n\nLa depilación láser de piernas completas se hace en cabina privada.";
+const DEPILATION = "## Depilación\n\nLa depilación láser de piernas enteras se hace en cabina privada.";
 const HOURS = "## Horario\n\nAbrimos de lunes a sábado de 9 a 20 horas.";
 
 describe("without an OpenRouter key the search is only by words [ARR-14] [CON-12]", () => {

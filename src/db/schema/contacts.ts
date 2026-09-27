@@ -1,12 +1,12 @@
 // Customers, their per-channel identities and consents ([CTO-*], [CUM-03], [CUM-13]).
 // The phone is data, never a key: identities are unique by channel type + external id ([CAN-13]).
-import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { CHANNEL_TYPES, CONSENT_TYPES } from "@/lib/enums";
 import { user } from "./auth";
 import { channels } from "./channels";
-import { EMPTY_JSON_ARRAY, EMPTY_JSON_OBJECT, id, json, timestamps } from "./columns";
+import { EMPTY_JSON_ARRAY, EMPTY_ORDERED_JSON_OBJECT, id, json, orderedJson, timestamps } from "./columns";
 
-export const contacts = sqliteTable(
+export const contacts = pgTable(
   "contacts",
   {
     id: id(),
@@ -14,7 +14,8 @@ export const contacts = sqliteTable(
     phone: text("phone"),
     email: text("email"),
     labels: json<string[]>("labels").notNull().default(EMPTY_JSON_ARRAY),
-    customFields: json<Record<string, string>>("custom_fields").notNull().default(EMPTY_JSON_OBJECT),
+    /** Shown in the order they were written: json, not jsonb. */
+    customFields: orderedJson<Record<string, string>>("custom_fields").notNull().default(EMPTY_ORDERED_JSON_OBJECT),
     notes: text("notes"),
     /**
      * Name, phone and email in lower case and without accents, for the searches of Contactos and the Bandeja («jose»
@@ -29,9 +30,9 @@ export const contacts = sqliteTable(
     index("contacts_email_idx").on(t.email),
     index("contacts_phone_idx").on(t.phone),
   ],
-);
+).enableRLS();
 
-export const contactIdentities = sqliteTable(
+export const contactIdentities = pgTable(
   "contact_identities",
   {
     id: id(),
@@ -52,9 +53,9 @@ export const contactIdentities = sqliteTable(
     index("contact_identities_contact_id_idx").on(t.contactId),
     index("contact_identities_phone_idx").on(t.phone),
   ],
-);
+).enableRLS();
 
-export const consents = sqliteTable(
+export const consents = pgTable(
   "consents",
   {
     id: id(),
@@ -72,4 +73,4 @@ export const consents = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("consents_contact_channel_idx").on(t.contactId, t.channelId)],
-);
+).enableRLS();

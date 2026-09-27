@@ -1,7 +1,7 @@
 // RateLimiter: fixed-window request counters by key (IP, visitor, email, user…) ([SEG-07], [USU-13], [WEB-08]).
-// libSQL implementation on `rate_limits`: one atomic upsert per hit, the same in local, Vercel and a VPS.
+// Postgres implementation on `rate_limits`: one atomic upsert per hit, the same in local, Vercel and a VPS.
 import "server-only";
-import { eq, lt, sql } from "drizzle-orm";
+import { eq, lt, lte, sql } from "drizzle-orm";
 import { db as defaultDb, type Executor } from "@/db";
 import { rateLimits } from "@/db/schema";
 
@@ -18,7 +18,7 @@ export interface RateLimiter {
   deleteBefore(date: Date): Promise<number>;
 }
 
-export class LibsqlRateLimiter implements RateLimiter {
+export class PgRateLimiter implements RateLimiter {
   private readonly db: Executor;
   private readonly now: () => Date;
 
@@ -29,8 +29,8 @@ export class LibsqlRateLimiter implements RateLimiter {
 
   async hit(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
     const now = this.now();
-    const nowMs = now.getTime();
-    const expired = sql`${rateLimits.windowStart} + ${windowMs} <= ${nowMs}`;
+    // The stored window is over once window_start + windowMs <= now, that is, window_start <= now - windowMs.
+    const expired = lte(rateLimits.windowStart, new Date(now.getTime() - windowMs));
     const [row] = await this.db
       .insert(rateLimits)
       .values({ key, count: 1, windowStart: now, createdAt: now, updatedAt: now })
@@ -38,7 +38,8 @@ export class LibsqlRateLimiter implements RateLimiter {
         target: rateLimits.key,
         set: {
           count: sql`CASE WHEN ${expired} THEN 1 ELSE ${rateLimits.count} + 1 END`,
-          windowStart: sql`CASE WHEN ${expired} THEN ${nowMs} ELSE ${rateLimits.windowStart} END`,
+          // excluded.window_start is `now`, the window this hit would open.
+          windowStart: sql`CASE WHEN ${expired} THEN excluded.window_start ELSE ${rateLimits.windowStart} END`,
         },
       })
       .returning({ count: rateLimits.count, windowStart: rateLimits.windowStart });
@@ -68,6 +69,6 @@ export class LibsqlRateLimiter implements RateLimiter {
 let shared: RateLimiter | undefined;
 
 export function getRateLimiter(): RateLimiter {
-  shared ??= new LibsqlRateLimiter();
+  shared ??= new PgRateLimiter();
   return shared;
 }

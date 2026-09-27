@@ -1,4 +1,4 @@
-// Serves stored files (FileStorage: disk or private Vercel Blob) after checking who asks ([SEG-04], [MED-08]).
+// Serves stored files (FileStorage: disk or a private Supabase Storage bucket) after checking who asks ([SEG-04], [MED-08]).
 // Files never have public URLs: this route is the only way to read them. Rules and headers: ./serve.ts. Audio and
 // video also answer byte ranges (206), which Safari and iOS ask for before playing them; always after the checks.
 import { z } from "zod";

@@ -2,49 +2,44 @@
 //   demo        (DATABASE_URL)                 delete → migrate → demo seed → e2e-only users → agenda fixtures
 //   fresh       (E2E_FRESH_DATABASE_URL)       delete → migrate (empty install: the setup wizard)
 //   restaurant  (E2E_RESTAURANT_DATABASE_URL)  delete → migrate → restaurant demo seed (the agenda by capacity)
+// Each one is an embedded database (PGlite): a folder under data/ that only its app server opens. The steps run one
+// after another, because a PGlite folder is open in one process at a time.
 // It runs as the first part of the demo server's webServer command because Playwright starts its webServers
-// before globalSetup: preparing the files there would delete databases the servers already hold open.
-// Only files called data/e2e*.db are ever deleted: never data/local.db.
+// before globalSetup: preparing the folders there would delete databases the servers already hold open.
+// Only folders called data/e2e*-pglite are ever deleted: never data/pglite.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-const RETRY_DELAY_MS = 250;
-const DELETE_ATTEMPTS = 20;
+const RETRY_DELAY_MS = 100;
+const DELETE_RETRIES = 10;
 
 function log(message) {
   process.stderr.write(`[e2e] ${message}\n`);
 }
 
-function databaseFile(url, variable) {
-  if (!url?.startsWith("file:")) throw new Error(`${variable} debe ser un archivo local (file:…), no «${url ?? ""}».`);
-  const file = path.resolve(process.cwd(), url.slice("file:".length).split("?")[0]);
+/** Folder of a `pglite:./data/e2e…-pglite` URL. Anything else is refused (the message never repeats the URL). */
+function databaseDir(url, variable) {
+  if (!url?.startsWith("pglite:")) throw new Error(`${variable} debe ser una base integrada de las pruebas (pglite:./data/e2e…-pglite).`);
+  const dir = path.resolve(process.cwd(), url.slice("pglite:".length).trim());
   const dataDir = path.resolve(process.cwd(), "data");
-  if (path.dirname(file) !== dataDir || !/^e2e[\w-]*\.db$/.test(path.basename(file))) {
-    throw new Error(`${variable} debe apuntar a data/e2e*.db; se niega a borrar ${file}.`);
+  if (path.dirname(dir) !== dataDir || !/^e2e[\w-]*-pglite$/.test(path.basename(dir))) {
+    throw new Error(`${variable} debe apuntar a data/e2e…-pglite; se niega a borrar ${dir}.`);
   }
-  return file;
+  return dir;
 }
 
-function sleep(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-/** Deletes the database and its WAL/SHM/journal files. Windows keeps them locked briefly after a server stops. */
-function deleteDatabase(file) {
-  for (const target of [file, `${file}-wal`, `${file}-shm`, `${file}-journal`]) {
-    for (let attempt = 1; ; attempt += 1) {
-      try {
-        fs.rmSync(target, { force: true });
-        break;
-      } catch (error) {
-        const code = error && typeof error === "object" && "code" in error ? error.code : "";
-        if ((code === "EBUSY" || code === "EPERM") && attempt < DELETE_ATTEMPTS) {
-          sleep(RETRY_DELAY_MS);
-          continue;
-        }
-        throw new Error(`No se pudo borrar ${target} (${code}). ¿Sigue abierta otra app de pruebas en los puertos 3100, 3102 o 3103?`);
-      }
+/**
+ * Deletes the database folder and its lock file (`<folder>.lock`, src/db/index.ts). Windows keeps files locked
+ * briefly after a server stops: rmSync retries for a while.
+ */
+function deleteDatabase(dir) {
+  for (const target of [dir, `${dir}.lock`]) {
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: DELETE_RETRIES, retryDelay: RETRY_DELAY_MS });
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error ? error.code : "";
+      throw new Error(`No se pudo borrar ${target} (${code}). ¿Sigue abierta otra app de pruebas en los puertos 3100, 3102 o 3103?`);
     }
   }
 }
@@ -62,17 +57,17 @@ function main() {
   const demoUrl = process.env.DATABASE_URL;
   const freshUrl = process.env.E2E_FRESH_DATABASE_URL;
   const restaurantUrl = process.env.E2E_RESTAURANT_DATABASE_URL;
-  const demoFile = databaseFile(demoUrl, "DATABASE_URL");
-  const freshFile = databaseFile(freshUrl, "E2E_FRESH_DATABASE_URL");
-  const restaurantFile = databaseFile(restaurantUrl, "E2E_RESTAURANT_DATABASE_URL");
-  if (new Set([demoFile, freshFile, restaurantFile]).size !== 3) {
-    throw new Error("La base de la demo, la vacía y la del restaurante deben ser archivos distintos.");
+  const demoDir = databaseDir(demoUrl, "DATABASE_URL");
+  const freshDir = databaseDir(freshUrl, "E2E_FRESH_DATABASE_URL");
+  const restaurantDir = databaseDir(restaurantUrl, "E2E_RESTAURANT_DATABASE_URL");
+  if (new Set([demoDir, freshDir, restaurantDir]).size !== 3) {
+    throw new Error("La base de la demo, la vacía y la del restaurante deben ser carpetas distintas.");
   }
 
   log("Preparando las bases de datos de las pruebas…");
-  deleteDatabase(demoFile);
-  deleteDatabase(freshFile);
-  deleteDatabase(restaurantFile);
+  deleteDatabase(demoDir);
+  deleteDatabase(freshDir);
+  deleteDatabase(restaurantDir);
 
   run("pnpm run db:migrate", { DATABASE_URL: demoUrl });
   run("pnpm run seed", { DATABASE_URL: demoUrl, DEMO_MODE: "true" });
@@ -83,7 +78,7 @@ function main() {
 
   run("pnpm run db:migrate", { DATABASE_URL: restaurantUrl });
   run("pnpm run seed --sector=restaurante", { DATABASE_URL: restaurantUrl, DEMO_MODE: "true" });
-  log("Bases de datos listas: demo en data/e2e.db, vacía en data/e2e-fresh.db y restaurante en data/e2e-restaurante.db.");
+  log("Bases de datos listas: demo en data/e2e-pglite, vacía en data/e2e-fresh-pglite y restaurante en data/e2e-restaurante-pglite.");
 }
 
 try {

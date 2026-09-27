@@ -1,15 +1,17 @@
 // Search without accents in Contactos and the Bandeja ([CTO-01], [BAN-02]): «jose» finds «José» and «munoz» finds
 // «Muñoz». Each contact keeps its name, phone and email in lower case and without accents in `contacts.search_text`,
 // written with every change of those fields, and the lists compare the search, normalized the same way, with it.
-// Portable: a plain LIKE on a column, no functions of SQLite (docs/conventions.md). The contacts written before the
-// column existed are filled once by backfillContactSearchText(), which the server starts in the background
-// (src/instrumentation.ts). System helpers: the callers check permissions.
+// Portable: a plain LIKE on a column, with what the person typed escaped so it matches literally
+// (src/server/sql-helpers.ts). The contacts written before the column existed are filled once by
+// backfillContactSearchText(), which the server starts in the background (src/instrumentation.ts). System helpers:
+// the callers check permissions.
 import "server-only";
-import { and, asc, eq, gt, isNull, like, or, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, ilike, isNull, like, or, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { contacts } from "@/db/schema";
 import { normalizeForMatch } from "@/server/engine/rules";
 import { getKv, setKv } from "@/server/kv";
+import { containing } from "@/server/sql-helpers";
 
 type SearchableContact = { name?: string | null; phone?: string | null; email?: string | null };
 
@@ -21,17 +23,17 @@ export function contactSearchText(contact: SearchableContact): string | null {
 }
 
 /**
- * A contact matches a search by its search text, and also by its plain name, phone or email as before: a contact the
- * one-time backfill has not reached yet is still found, just not without accents.
+ * A contact matches a search by its search text, and also by its plain name, phone or email as before (without case,
+ * ILIKE): a contact the one-time backfill has not reached yet is still found, just not without accents.
  */
 export function contactSearchCondition(search: string): SQL {
-  const plain = `%${search}%`;
+  const plain = containing(search);
   const normalized = normalizeForMatch(search);
   return or(
-    ...(normalized ? [like(contacts.searchText, `%${normalized}%`)] : []),
-    like(contacts.name, plain),
-    like(contacts.phone, plain),
-    like(contacts.email, plain),
+    ...(normalized ? [like(contacts.searchText, containing(normalized))] : []),
+    ilike(contacts.name, plain),
+    ilike(contacts.phone, plain),
+    ilike(contacts.email, plain),
   ) as SQL;
 }
 

@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
 import { jobs } from "@/db/schema";
-import { backoffMs, BACKOFF_BASE_MS, LibsqlJobQueue } from "./job-queue";
+import { backoffMs, BACKOFF_BASE_MS, PgJobQueue } from "./job-queue";
 
 const START = new Date("2026-09-26T10:00:00Z").getTime();
 let nowMs = START;
@@ -12,7 +12,7 @@ const advance = (ms: number) => {
 };
 const at = (offsetMs: number) => new Date(START + offsetMs);
 
-const queue = new LibsqlJobQueue({ now: clock });
+const queue = new PgJobQueue({ now: clock });
 const LOCK_MS = 60_000;
 
 async function getJob(id: string) {
@@ -94,6 +94,17 @@ describe("claim", () => {
     expect(claimed[0]).toMatchObject({ status: "running", attempts: 1, lockedBy: "w1" });
     expect(claimed[0].lockedUntil).toEqual(at(LOCK_MS));
     expect((await getJob(later.id)).status).toBe("pending");
+  });
+
+  it("two consecutive claims never return the same job, and each takes at most its limit", async () => {
+    for (let i = 0; i < 3; i++) await queue.enqueue({ type: "t", runAt: at(-i * 1_000) });
+    const first = await queue.claim(2, LOCK_MS, "w1");
+    const second = await queue.claim(2, LOCK_MS, "w2");
+    expect(first).toHaveLength(2);
+    expect(second).toHaveLength(1);
+    expect(second[0].id).not.toBe(first[0].id);
+    expect(second[0].id).not.toBe(first[1].id);
+    expect(await queue.claim(2, LOCK_MS, "w3")).toHaveLength(0);
   });
 
   it("never gives the same job to two concurrent claims", async () => {

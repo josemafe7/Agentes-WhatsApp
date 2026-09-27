@@ -1,7 +1,7 @@
-// Column helpers shared by every table (docs/decisions/0003): UUID text ids, UTC epoch-ms timestamps,
-// JSON in text columns and booleans as integers. Defaults live in JS so the SQL stays portable to Postgres.
+// Column helpers shared by every table (docs/decisions/0003): UUID text ids, UTC timestamps with milliseconds,
+// JSON in jsonb columns and real booleans. Ids and timestamps are set in JS, so raw inserts and both drivers agree.
 import { sql } from "drizzle-orm";
-import { customType, integer, text } from "drizzle-orm/sqlite-core";
+import { boolean, customType, jsonb, json as pgJson, timestamp as pgTimestamp, text } from "drizzle-orm/pg-core";
 
 /** Fixed embedding size of the product (docs/decisions/0013). */
 export const EMBEDDING_DIMENSIONS = 1536;
@@ -11,8 +11,8 @@ export const newId = (): string => crypto.randomUUID();
 /** `id` text primary key with a random UUID v4. */
 export const id = () => text("id").primaryKey().$defaultFn(newId);
 
-/** UTC instant stored as integer milliseconds (`Date` in TypeScript). */
-export const timestamp = (name: string) => integer(name, { mode: "timestamp_ms" });
+/** UTC instant as `timestamp(3) with time zone` (`Date` in TypeScript, milliseconds like JS). */
+export const timestamp = (name: string) => pgTimestamp(name, { withTimezone: true, precision: 3, mode: "date" });
 
 export const createdAt = () =>
   timestamp("created_at")
@@ -28,30 +28,24 @@ export const updatedAt = () =>
 /** `created_at` + `updated_at`, spread into every table. */
 export const timestamps = () => ({ createdAt: createdAt(), updatedAt: updatedAt() });
 
-export const bool = (name: string) => integer(name, { mode: "boolean" });
+export const bool = (name: string) => boolean(name);
 
-/** JSON document in a text column. */
-export const json = <T>(name: string) => text(name, { mode: "json" }).$type<T>();
+/** JSON document in a jsonb column. */
+export const json = <T>(name: string) => jsonb(name).$type<T>();
 
 /** SQL default for JSON arrays (`'[]'`) and objects (`'{}'`), so raw inserts in adapters get valid JSON too. */
-export const EMPTY_JSON_ARRAY = sql`'[]'`;
-export const EMPTY_JSON_OBJECT = sql`'{}'`;
+export const EMPTY_JSON_ARRAY = sql`'[]'::jsonb`;
+export const EMPTY_JSON_OBJECT = sql`'{}'::jsonb`;
 
 /**
- * libSQL vector column `F32_BLOB(n)` (docs/busqueda-hibrida.md §2 and §4). Written with `vector32(json)`.
- * Never select it in normal queries (6 KB per row); the adapters read ids and distances only.
+ * JSON kept exactly as written, in a json column: jsonb sorts object keys, and some objects are shown back in the
+ * order the person typed them (a contact's custom fields, a tool's parameters and headers).
  */
-export const f32Vector = customType<{
-  data: number[];
-  config: { dimensions: number };
-  configRequired: true;
-  driverData: ArrayBuffer | Uint8Array;
-}>({
-  dataType: (config) => `F32_BLOB(${config.dimensions})`,
-  toDriver: (value) => sql`vector32(${JSON.stringify(value)})`,
-  fromDriver: (value) => {
-    const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : value;
-    // Copy into a fresh, aligned buffer: the driver's buffer may be shared or unaligned.
-    return Array.from(new Float32Array(bytes.slice().buffer));
-  },
-});
+export const orderedJson = <T>(name: string) => pgJson(name).$type<T>();
+export const EMPTY_ORDERED_JSON_OBJECT = sql`'{}'::json`;
+
+/**
+ * Postgres full-text vector (docs/busqueda-hibrida.md). Only as a generated column: the database writes it, the
+ * app never does, and the adapters search it with `@@`.
+ */
+export const tsvector = customType<{ data: string }>({ dataType: () => "tsvector" });

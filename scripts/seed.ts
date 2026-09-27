@@ -12,7 +12,7 @@ async function main(): Promise<void> {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
   } finally {
-    closeDb();
+    await closeDb();
   }
 }
 

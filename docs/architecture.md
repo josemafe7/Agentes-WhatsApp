@@ -1,9 +1,10 @@
 # Arquitectura
 
-> Describe cómo está pensado el sistema según las decisiones de `docs/decisions/` (0001 a 0023) y qué hay ya
+> Describe cómo está pensado el sistema según las decisiones de `docs/decisions/` (0001 a 0024) y qué hay ya
 > construido. Las fases 0 (base), 1 (agentes y OpenRouter), 2 (bandeja, chat web y motor), 3 (WhatsApp), 4
 > (conocimiento), 5 (agenda), 6 (correo) y 7 (cumplimiento y producción) están construidas: «Lo que ya está
-> construido» dice dónde vive cada pieza. Lo que queda para después (Telegram, Supabase, Dokploy…) está en «Fases» de
+> construido» dice dónde vive cada pieza. La fase 8 (Supabase, decisión 0024) cambia la base de datos, los archivos y
+> el cron, y este documento ya lo describe así. Lo que queda para después (Telegram, Dokploy…) está en «Fases» de
 > `docs/spec.md` y se corrige aquí cuando se construya.
 
 ## Visión general
@@ -16,8 +17,9 @@ Las pantallas y las rutas son finas: validan lo que llega y piden el trabajo a d
 a datos comprueba siempre quién pide qué (0004) y los servicios hacen el resto: canales, motor de respuesta,
 conocimiento, agenda, avisos y cumplimiento. Lo que depende del motor de base de datos o del sitio donde se
 publica va detrás de interfaces con adaptadores (búsqueda vectorial, búsqueda de texto, cola, tiempo real,
-archivos y límites de peticiones), para que el mismo código sirva en local, en Vercel y en un VPS, hoy con
-libSQL y mañana con Supabase (0003).
+archivos y límites de peticiones), para que el mismo código sirva en local, en Vercel y en un VPS. La base es Postgres
+en todas partes: la integrada (PGlite, dentro del propio proceso) en local y en las pruebas, sin cuentas, y Supabase
+solo en la app publicada, con sus archivos en Supabase Storage y el cron de cada minuto en Supabase Cron (0024).
 
 Nada lento ocurre mientras se atiende una petición: los avisos de los canales se guardan, se contesta enseguida
 y la IA trabaja después, en una cola que avanza a trozos cortos (0008). La pantalla se entera de los cambios
@@ -36,8 +38,8 @@ pruebas usen un simulador y nunca los servicios reales.
 | Rutas de entrada | `src/lib/auth-paths.ts` | Rutas públicas y `sanitizeNextPath()`, la única comprobación de a dónde se vuelve tras entrar: solo rutas de la app, sin barras invertidas ni trucos con `//` ni puntos. |
 | Permisos | `src/lib/permissions.ts` | `PERMISSIONS` (38 acciones), `can(actor, acción, alcance)` y `channelFilter()`, con la tabla de roles de la especificación. |
 | Acceso a datos | `src/data/` | Uno por tema: `settings`, `business`, `business-hours`, `notification-settings`, `users`, `invitations`, `setup` (y `setup-agent`, el paso 5 «Primer agente», que guarda el id del agente en `app_kv` › `setup.first_agent` para el paso 6), `activity`, `diagnostics` (y `diagnostics-connections`, las pruebas de conexión de Diagnóstico, que reutilizan las de cada pantalla), `system-mail` y `audit`. Todos con `server-only`, reciben el actor y comprueban con `assertCan()` (`guard.ts`). |
-| Base de datos | `src/db/` y `drizzle/` | 54 tablas en `src/db/schema/`. Migraciones `0000_initial` (generada), `0001_kb_search_indexes` (a medida: índice vectorial y FTS5), `0002_ai_runs_cached_tokens` (fase 1, añade una columna), `0003_handoff_closed_at` (fase 2), `0004_agenda_secondary_resources` (fase 5: las dos tablas preparadas de los servicios con dos recursos, [AGD-07], que nada usa todavía) y `0005_search_text` (fase 7: `contacts.search_text` y `messages.search_text`, la búsqueda sin tildes). Las fases 3, 4 y 6 no cambiaron el esquema: la agenda, el correo, los avisos push y las herramientas HTTP usan tablas que ya existían desde la fase 0. `db` se abre en el primer uso, nunca al importar. |
-| Adaptadores | `src/server/adapters/` | `job-queue`, `realtime`, `rate-limiter`, `file-storage` (disco o Vercel Blob), `text-search` (FTS5), `vector-search`, y `database-health`/`database-info` para Diagnóstico. Único sitio con SQL propio de SQLite. |
+| Base de datos | `src/db/` y `drizzle/` | 54 tablas en `src/db/schema/` (Drizzle con `pg-core`), todas con Row Level Security y sin políticas. Migraciones de Postgres (fase 8): `0000_extensions` (a medida: el esquema `extensions`, `vector`, `unaccent` y la configuración de texto `es_unaccent`) y `0001_initial` (generada: tablas, Row Level Security, índices, el HNSW de los embeddings y la columna generada del texto con su GIN). Sustituyen a las seis de SQLite de las fases 0 a 7, sin datos que pasar (0024): lo que añadió cada fase ya está en la inicial. `src/db/index.ts` elige la base por `DATABASE_URL` (vacía, la integrada en `data/pglite`; `postgresql://…`, Supabase por postgres.js sin sentencias preparadas; `pglite:…`, las pruebas), pone el candado de un solo proceso de la base integrada (`data/pglite.lock`) y hace que cada transacción de primer nivel tome el candado de escritura (un escritor a la vez). `db` se abre en el primer uso, nunca al importar. `src/db/migrate.ts` aplica `drizzle/` con el migrador de Drizzle. |
+| Adaptadores | `src/server/adapters/` | `job-queue` (`PgJobQueue`), `realtime` (`PgRealtime`), `rate-limiter` (`PgRateLimiter`), `file-storage` (disco o Supabase Storage), `text-search` (`PgTextSearch`: `tsvector` con `es_unaccent`), `vector-search` (`PgVectorSearch`: `halfvec` con HNSW), y `database-health`/`database-info` para Diagnóstico. Con `drizzle/`, el único sitio con SQL propio de Postgres (y lo imprescindible de la conexión en `src/db/`). |
 | Trabajo en segundo plano | `src/server/jobs/` | `tick()` y el registro de trabajos (`handlers/index.ts`): correos del sistema, `reply` (motor de respuesta), `conversation.summary` (resumen acumulado), `channel.demo_status`, `notifications.deliver`, los de WhatsApp (fase 3) y los del conocimiento (fase 4: `knowledge.process`, `knowledge.reindex`, `knowledge.sitemap`, `knowledge.embeddings` y `knowledge.refresh`, en `src/server/knowledge/jobs.ts`) el de los recordatorios de citas (fase 5: `booking.reminders`, cada 5 minutos mientras estén activados, en `src/server/booking/jobs.ts`), la lectura de cada buzón (fase 6: `email.poll`, cada minuto, en `src/server/channels/email/jobs.ts`) y los de la fase 7: `compliance.retention` (la limpieza diaria), `compliance.opt_out_confirmation` (la confirmación de una baja), `webchat.upload_cleanup` (archivos del chat web que nunca se enviaron) y `ai.model_catalog_refresh` (la lista de modelos cada 12 h, con los avisos de modelos que se retiran, [MOD-06]). Se lanza con `after()` + `kickTick()` desde la API del chat web, el simulador, reactivar la IA de una conversación y las acciones del conocimiento, con el cron (`/api/cron/tick`), con el lanzador de `pnpm dev` cada 15 s y con `pnpm worker`, que al arrancar también programa la lectura de cada buzón y, con `EMAIL_IMAP_IDLE=true`, escucha los IMAP con «Leer al momento». |
 | Usuarios | `src/server/auth.ts`, `src/server/accounts.ts` | Better Auth (email y contraseña, sin registro público, verificación en dos pasos, límite de peticiones en base de datos). Por HTTP solo responde a `get-session`, `sign-out` y el enlace de recuperación (`httpAllowlist`); el resto va por Server Actions con `auth.api.*`. Las cuentas solo se crean en `accounts.ts`: asistente (con el código de instalación `SETUP_TOKEN` al publicar), invitaciones y demo. |
 | Correo del sistema | `src/server/mailer.ts`, `src/server/email-templates.ts` | SMTP de Ajustes › Correo del sistema, con el nombre, el logo y el color del negocio en cada correo ([AJU-01]). La contraseña guardada solo se envía al mismo servidor, puerto, seguridad y usuario. Sin SMTP, en local o con la demo, cada correo se guarda como `.eml` en `data/outbox/`; publicado, da un error claro. Todos quedan anotados para Diagnóstico. |
@@ -73,7 +75,7 @@ pruebas usen un simulador y nunca los servicios reales.
 | Conocimiento: datos (fase 4) | `src/data/knowledge.ts`, `knowledge-documents.ts`, `knowledge-search.ts`, `knowledge-faq.ts`, `knowledge-context-files.ts`, `knowledge-retrievals.ts`, `message-reason.ts` | Bases (crear, cambiar, borrar escribiendo el nombre, reindexar, cambiar el modelo, reindexar todas desde Ajustes › IA) y las bases de cada agente; documentos (archivo, web con mapa del sitio y refresco, pregunta frecuente, texto; cambiar el título, que vuelve a procesar sus fragmentos con el nuevo prefijo; reprocesar y borrar con sus fragmentos y su archivo; un archivo idéntico se rechaza); «Probar búsqueda» (20 por minuto y persona); «Convertir en FAQ» desde la respuesta de una persona (con el límite de altas de contenido y su proceso al momento); archivos de contexto del agente (tope de 30.000 tokens); los fragmentos de cada respuesta (`message_retrievals`) y «¿Por qué respondió esto?» (`getMessageReason`: fragmentos y herramientas de la respuesta). Todas con actor, permiso y Zod. `canViewKnowledgeFile()` deja a `/api/files` servir los originales (Conocimiento: `knowledge.view`; archivos de contexto: `agents.view`). |
 | Conocimiento: pantallas (fase 4) | `src/app/(app)/conocimiento/`, `src/app/api/knowledge/bases/[id]/files/`, `src/app/(app)/agentes/[id]/conocimiento/`, `src/app/(app)/bandeja/[id]/_sources/`, `src/app/(app)/agentes/[id]/probar/` | Lista de bases, cada base con Documentos, Preguntas frecuentes, Probar búsqueda y Ajustes, y la página de cada documento con sus fragmentos; la página se recarga sola cada 4 s mientras algo se procesa. La pestaña Conocimiento del agente (archivos de contexto con su barra de tokens, bases con «Usar» y el modo). En la bandeja, «Ver fuentes» abre «¿Por qué respondió esto?» y «Convertir en FAQ» bajo la respuesta de una persona. «Probar agente» enseña la base de cada fragmento. Las acciones que dejan trabajo en la cola lo lanzan al momento con `kickTick()`. |
 | Páginas legales (fase 3) | `src/app/legal/` | `/legal/privacidad`, `/legal/terminos` y `/legal/eliminacion-datos`, públicas, con los datos del negocio y los textos por defecto: Meta pide sus direcciones para publicar la app ([CUM-08]). |
-| Agenda: motor y servicio (fase 5) | `src/server/booking/` | Entrada única `index.ts`. `availability.ts`: el motor de disponibilidad, una función pura (`computeAvailability`) que recibe servicio, recursos con su horario y ausencias, citas, horario del negocio, cierres, zona horaria, modo, rango, personas, intervalo y la hora actual, y devuelve los huecos libres o el motivo de que no haya ninguno; también `bookingTimes` (inicio, fin y franja ocupada con los márgenes), `pickSuggestions` (2 o 3 huecos repartidos) y `closestSlots` (alternativas). `time.ts`: la hora local del negocio y el instante UTC en los dos sentidos, con los cambios de hora resueltos a propósito (una hora que no existe avanza; una que se repite se ofrece dos veces, cada una con su desfase). `load.ts` lee de la base lo que el motor necesita. `service.ts`: crear, mover, cambiar el estado, cancelar y editar citas, ausencias y bloqueos, cada escritura en una transacción que vuelve a comprobar el hueco con el motor ([AGD-13]); `write-queue.ts` pone en fila las escrituras de citas del mismo proceso. `events.ts` (historial en `booking_events`), `views.ts` (la cita con nombres y horas locales), `notices.ts` (aviso al cliente por su conversación cuando una persona confirma, mueve o cancela, y aviso al equipo `booking_pending` de una cita pendiente), `reminders.ts`, `reminder-fields.ts` y `jobs.ts` (recordatorios), `agent-tools.ts` (lo común de las herramientas de citas del agente), `format.ts` y `test-helpers.ts` (negocios de prueba para Vitest). |
+| Agenda: motor y servicio (fase 5) | `src/server/booking/` | Entrada única `index.ts`. `availability.ts`: el motor de disponibilidad, una función pura (`computeAvailability`) que recibe servicio, recursos con su horario y ausencias, citas, horario del negocio, cierres, zona horaria, modo, rango, personas, intervalo y la hora actual, y devuelve los huecos libres o el motivo de que no haya ninguno; también `bookingTimes` (inicio, fin y franja ocupada con los márgenes), `pickSuggestions` (2 o 3 huecos repartidos) y `closestSlots` (alternativas). `time.ts`: la hora local del negocio y el instante UTC en los dos sentidos, con los cambios de hora resueltos a propósito (una hora que no existe avanza; una que se repite se ofrece dos veces, cada una con su desfase). `load.ts` lee de la base lo que el motor necesita. `service.ts`: crear, mover, cambiar el estado, cancelar y editar citas, ausencias y bloqueos, cada escritura en una transacción que toma el candado de escritura de la base y vuelve a comprobar el hueco con el motor ([AGD-13]). `events.ts` (historial en `booking_events`), `views.ts` (la cita con nombres y horas locales), `notices.ts` (aviso al cliente por su conversación cuando una persona confirma, mueve o cancela, y aviso al equipo `booking_pending` de una cita pendiente), `reminders.ts`, `reminder-fields.ts` y `jobs.ts` (recordatorios), `agent-tools.ts` (lo común de las herramientas de citas del agente), `format.ts` y `test-helpers.ts` (negocios de prueba para Vitest). |
 | Agenda: datos (fase 5) | `src/data/bookings.ts`, `bookings-time-off.ts`, `agenda-config.ts` | Calendario con filtros, ficha con historial, huecos libres, crear (desde la agenda, un contacto o una conversación), mover, editar, estados con aviso opcional al cliente, citas de un contacto y la próxima de cada contacto, citas de prueba (contar y borrar todas); ausencias y bloqueos; palabras, modo e intervalo, servicios, recursos con horario semanal y servicios, y los recordatorios. Todas con actor, permiso (`agenda.view`, `agenda.bookings` —un Agente, solo para contactos y conversaciones de sus canales—, `agenda.block`, `agenda.configure` y `agenda.delete_test_bookings`), Zod y registro de actividad. |
 | Agenda: pantallas (fase 5) | `src/app/(app)/agenda/`, `agenda/configuracion/`, `ajustes/recordatorios/`, `contactos/[id]/_bookings/`, `bandeja/[id]/_bookings/`, `src/lib/booking-display.ts` | Calendario por día, semana, mes y recursos con filtros en la URL, «Nueva cita» (solo huecos del motor), arrastrar para mover y alargar (con «Cambiar» en la ficha como alternativa de teclado), «Bloquear hueco», la ficha de la cita en un panel (`/agenda?cita=<id>`) y «Citas de prueba». Configuración: General (modo, intervalo y palabras), Servicios y Recursos (horario y ausencias; el supervisor solo ausencias). Ajustes › Recordatorios. La ficha del contacto (sus citas y «Nueva cita») y el panel del contacto en la bandeja (próximas citas y «Nueva cita» unida a la conversación) comparten `contactos/[id]/_bookings/`; la lista de Contactos enseña la próxima cita. «Probar agente» tiene «Borrar citas de prueba». Los estados, los orígenes y los colores de recurso de las citas son los mismos en todas (`src/lib/booking-display.ts`). |
 | Cumplimiento: bajas, aviso de IA y conservación (fase 7) | `src/server/compliance/` (`opt-out.ts`, `opt-out-confirmation.ts`, `jobs.ts`, `retention.ts`), `src/data/consents.ts`, `src/server/jobs/handlers/retention.ts` | Bajas ([CUM-03], [CUM-04], [CUM-13]): un mensaje que es solo «BAJA» o «STOP» (sin distinguir mayúsculas, tildes, signos ni emojis) guarda la baja en los consentimientos del contacto para ese canal dentro de la misma transacción de `ingestEvents()` y, en vez de la respuesta de la IA, pone en cola una sola confirmación (`compliance.opt_out_confirmation`, que no se repite aunque el trabajo corra dos veces). Desde entonces, por ese canal, solo le llega lo que escribe una persona ([CUM-04]), avisada sobre el cuadro de escribir de que la IA, los recordatorios y las plantillas están parados (`isConversationOptedOut()` de `src/data/consents.ts`): en `sendOutbound()` lo que envía la plataforma sola (la IA, un aviso, una plantilla) queda «fallido» con el motivo, «Reintentar» solo reenvía el mensaje de una persona y aprobar un borrador de la IA se rechaza (`OptedOutError`); la confirmación sí pasa. En el correo, «BAJA» es la primera línea del cuerpo (sin el asunto ni el texto citado), la baja es de quien envía ese correo, y las comprobaciones miran al contacto al que va la respuesta: el remitente del último correo del hilo. La baja se quita con `liftOptOut()` (propietario, administrador y supervisor, [CTO-08]): un «alta» con quién, cuándo y por qué, y el registro de actividad. Aviso de IA ([CUM-01]): `withAiDisclosure()` lo pone mientras ninguna respuesta de la IA ha llegado al cliente (un borrador pendiente no cuenta). Conservación ([CUM-05], [CUM-06]): trabajo diario `compliance.retention`, pedido al arrancar el servidor (`src/instrumentation.ts`, `ensureRetentionJob()`), que avanza por tandas mientras le queda tiempo y sigue en la siguiente ronda; al terminar deja un resumen en el registro de actividad (`retention.cleanup`). Ver «Conservación» en `docs/modelo-de-datos.md`. Reactivar la IA a mano programa la respuesta a lo que el cliente dejó sin contestar ([BAN-16], `scheduleReplyToUnanswered()` en `src/server/engine/schedule.ts`) y la acción de la bandeja lanza la cola en cuanto vence (`kickTick`). Si la limpieza borró el audio de una nota de voz, la bandeja dice «El audio se borró por la política de conservación» y sigue enseñando su transcripción. |
@@ -89,12 +91,39 @@ pruebas usen un simulador y nunca los servicios reales.
 
 Detalles que salieron al construir y que conviene saber:
 
-- **Claves foráneas:** el libSQL local (`@libsql/client` 0.18) las aplica en cada conexión. Aun así ningún borrado
-  depende de cascadas: el código borra antes los datos dependientes.
-- **Bloqueos de SQLite:** con el cliente local, una espera síncrona de bloqueo puede dejar colgado el proceso
-  cuando una transacción espera a otra del mismo proceso. Por eso no se usa y `src/db/busy-retry.ts` reintenta
-  sin bloquear durante 15 s. Las transacciones son cortas, usan solo `tx` y nunca llaman a servicios externos.
-- **WAL:** lo activan las migraciones (`src/db/migrate.ts`), no el cliente.
+- **Claves foráneas:** Postgres las aplica siempre. Aun así ningún borrado depende de cascadas: el código borra antes
+  los datos dependientes.
+- **Un escritor a la vez (fase 8):** la app se construyó sobre el único escritor de SQLite, y Postgres admite muchos.
+  Para no cambiar lo que dependía de ello (citas sin dobles reservas, cola, orden de los eventos de las pantallas,
+  comprobaciones de la demo), cada transacción de primer nivel fija `lock_timeout` a 15 s y toma
+  `pg_advisory_xact_lock(727252001)`, un candado de toda la base que se suelta al terminar (`src/db/index.ts`); las
+  anidadas no lo vuelven a pedir, las de solo lectura (`accessMode: "read only"`) no lo toman, y también lo toman las
+  transacciones de Better Auth. Es de transacción, así que funciona con el pooler de Supabase en modo transacción. Las
+  transacciones son cortas, usan solo `tx` y nunca llaman a servicios externos: con la base integrada, una consulta
+  con `db` dentro de una transacción espera a que esta termine y se queda colgada (decisión 0024).
+- **Base integrada (PGlite):** la abre un solo proceso; `src/db/index.ts` deja junto a la carpeta un candado con el
+  número del proceso (`data/pglite.lock`) y un segundo proceso se niega con «La base local (data/pglite) está abierta
+  en otro proceso (¿pnpm dev en marcha?)». No guarda el `search_path`: se fija al abrirla (`public, extensions`). Solo
+  sirve para la demo y las pruebas; publicada, la base es Supabase, y en Vercel sin su conexión la app se niega
+  («Falta DATABASE_URL de Supabase») y `/api/health` responde 503.
+- **Orden y comparaciones de Postgres:** los vacíos (`NULL`) van al final al ordenar en ascendente y al principio en
+  descendente, al revés que SQLite, así que las listas que dependían de ello (la bandeja por último mensaje, los
+  contactos) lo dicen explícito (`nulls last`); y `LIKE` distingue mayúsculas, así que donde se contaba con que no,
+  va `ilike`. Esos fragmentos comunes (los patrones de `LIKE` con el texto buscado escapado, un `jsonb` leído como texto
+  y dónde van los vacíos al ordenar) están en `src/server/sql-helpers.ts`, el único SQL a mano fuera de los adaptadores
+  y de `drizzle/`.
+- **Texto que la base no admite:** Postgres rechaza el carácter nulo (NUL) en el texto y en `jsonb`, y la mitad suelta
+  de un carácter compuesto (como medio emoji) en `jsonb`; SQLite los aceptaba. Todo lo que entra (el lector de
+  correos, el aviso de WhatsApp, la entrada común de mensajes y el texto que se pega en el conocimiento) pasa antes por
+  `src/server/storable-text.ts`, que quita los NUL y cambia la mitad suelta por «�»: así ningún mensaje se pierde ni
+  bloquea un buzón. El texto extraído de los documentos se guarda también sin NUL (`src/server/knowledge/store.ts`).
+- **Errores de la base:** de un error de Postgres solo se registra «Error de la base de datos (SQLSTATE,
+  restricción).», nunca su mensaje ni su detalle, que pueden llevar datos (`src/server/redact.ts`, que además tapa las
+  claves de Supabase, `sb_secret_…` y `sb_publishable_…`, y el usuario y la contraseña de una dirección
+  `postgres://…`). Un duplicado se reconoce por el código `23505` (`isUniqueViolation`), no por el texto del error.
+- **Diagnóstico de la base:** Ajustes › Diagnóstico la llama «Supabase (Postgres)», «Postgres» (otro servidor) o
+  «Postgres integrado (PGlite) · data/pglite», con su tamaño (`pg_database_size`) y las migraciones aplicadas (de
+  `drizzle.__drizzle_migrations`).
 - **Scripts y `server-only`:** las órdenes de `package.json` que usan código del servidor se lanzan con
   `tsx --conditions=react-server`, para que `import "server-only"` funcione fuera de Next.js.
 - **Nada se lee de la base al compilar:** las páginas y metadatos que leen la base sin otra API de la petición
@@ -164,9 +193,9 @@ Detalles que salieron al construir y que conviene saber:
   el archivo y su nombre va en la cabecera `x-file-name`), que comprueba el origen, la sesión, el permiso, 60 altas
   por persona cada 10 minutos y los 25 MB antes de leerlo entero. No va por una Server Action porque estas admiten
   4 MB (`next.config.ts`) y porque `src/proxy.ts`, que sí pasa por las páginas, solo conserva los primeros 10 MB de
-  un cuerpo. En Vercel el límite de 4,5 MB por petición manda: subir directo del navegador a Blob (lo que pide
-  `docs/plataforma-despliegue.md`) queda para cuando se publique. Los archivos de contexto de un agente, más
-  pequeños, van por Server Action (hasta 3,5 MB).
+  un cuerpo. En Vercel el límite de 4,5 MB por petición manda: subir directo del navegador a Supabase Storage con una
+  dirección firmada de subida (`docs/plataforma-despliegue.md`) queda para cuando se publique. Los archivos de
+  contexto de un agente, más pequeños, van por Server Action (hasta 3,5 MB).
 - **Estados del conocimiento:** «Listo (solo texto)» no se guarda: es un documento listo con fragmentos del índice en
   uso sin embedding (`documentsWithPendingEmbeddings()`). Sin clave de OpenRouter, o si OpenRouter rechaza la clave,
   un documento queda listo para buscar por palabras y el trabajo `knowledge.embeddings` rellena los embeddings
@@ -208,15 +237,13 @@ Detalles que salieron al construir y que conviene saber:
   línea recortada de espacios con `trimLineEnds`), y un DOCX o XLSX se descomprime primero con tope (100 MB) antes de
   dárselo a su lector (`src/server/knowledge/extract/zip.ts`).
 - **Sin dobles reservas ([AGD-13]):** cada escritura de una cita (crear, mover, volver a confirmar) abre una transacción
-  (en libSQL, `BEGIN IMMEDIATE`: un solo escritor a la vez), vuelve a leer las citas y ausencias del recurso y pasa el
-  hueco por el mismo motor que ofreció los huecos antes de guardar; si ya no está libre, responde «Ese hueco ya no está
-  libre» con los huecos más cercanos. Además, las escrituras de citas del mismo proceso van en fila
-  (`src/server/booking/write-queue.ts`): con `@libsql/client` 0.18 y un archivo local, una sentencia que falla con
-  `SQLITE_BUSY` deja su conexión del grupo leyendo datos antiguos hasta que se recoge (comprobado el 2026-09-27), y en
-  fila la segunda reserva espera a la primera y encuentra el hueco ocupado, como debe. La garantía sigue siendo la
-  transacción, también entre procesos. Queda pendiente llevar ese cuidado a `src/db/busy-retry.ts` para el resto de la
-  app: con el archivo local, dos escrituras a la vez de procesos distintos (la web y `pnpm worker`) pueden acabar en un
-  error de base de datos ocupada y lecturas antiguas en esa conexión (Turso no lo tiene).
+  que primero toma el candado de escritura de toda la base (`pg_advisory_xact_lock` de `src/db/index.ts`: un escritor a
+  la vez; las transacciones de solo lectura no lo toman), vuelve a leer las citas y
+  ausencias del recurso y pasa el hueco por el mismo motor que ofreció los huecos antes de guardar; si ya no está libre,
+  responde «Ese hueco ya no está libre» con los huecos más cercanos. La segunda de dos reservas simultáneas espera a la
+  primera y encuentra el hueco ocupado, como debe, también entre procesos (la web y `pnpm worker`), porque el candado es
+  de la base. Una restricción de exclusión en la tabla sería un refuerzo posible (`docs/modelo-de-datos.md`, «Sin
+  dobles reservas»), no necesario con el candado.
 - **Horas de la agenda:** la base guarda instantes UTC; las pantallas, el agente y los mensajes usan la hora del negocio
   (`src/server/booking/time.ts`). Los huecos salen de una rejilla de tiempo transcurrido desde cada medianoche local,
   así que el día que se atrasa el reloj la hora repetida sale dos veces (cada una con su desfase y, en pantalla, «antes
@@ -242,8 +269,10 @@ Detalles que salieron al construir y que conviene saber:
   proxy, que no se recomienda) no se fía de ninguna cabecera y todos comparten los límites por IP; los límites por
   email, visitante y usuario siguen funcionando. Un valor no válido no deja arrancar la app.
 - **Búsqueda sin tildes:** `contacts.search_text` y `messages.search_text` guardan el texto en minúsculas y sin
-  tildes, y la búsqueda compara con un `LIKE` normal (portable a Postgres, sin funciones de SQLite). Lo escrito antes de
-  la migración 0005 se rellena una vez al arrancar (marca en `app_kv`); mientras tanto se encuentra por su texto exacto.
+  tildes, y la búsqueda compara con un `LIKE` sobre esa columna; lo que aún no la tenga se busca por su texto con
+  `ILIKE`, que no distingue mayúsculas. En los dos casos, lo que escribe la persona va escapado (`%`, `_` y `\` son
+  texto, no comodines: `src/server/sql-helpers.ts`). El arranque rellena una vez lo que no tenga `search_text` (marca
+  en `app_kv`).
 - **Clics y teclas antes de que la página sea interactiva:** hasta que React toma la página, un botón con `onClick` no
   hace nada y lo escrito en un campo se puede pisar. El panel entero va dentro de un `<fieldset disabled>` que se
   habilita en cuanto la página es interactiva (`src/components/hydration-gate.tsx`, con `display: contents`, sin rol
@@ -266,17 +295,17 @@ Detalles que salieron al construir y que conviene saber:
 | Inicio de sesión | Sesiones, contraseña, recuperación, verificación en dos pasos e invitaciones | Better Auth con el adaptador de Drizzle (0004) |
 | Permisos | Decide si un usuario puede hacer algo con un dato concreto | Función pura `can()` con la tabla de roles de `docs/spec.md` |
 | Acceso a datos | Consultas por tema que siempre reciben al usuario y comprueban sus permisos | Drizzle, solo en el servidor |
-| Base de datos | Todo lo que guarda la app; sus tablas, en `docs/modelo-de-datos.md` | libSQL: archivo en local, Turso al publicar; Supabase en el futuro (0003) |
-| Adaptadores | Búsqueda vectorial, búsqueda de texto, cola, tiempo real, archivos y límites de peticiones | libSQL (vectores, FTS5, tablas), disco o Vercel Blob |
+| Base de datos | Todo lo que guarda la app; sus tablas, en `docs/modelo-de-datos.md` | Postgres: la base integrada (PGlite, en `data/pglite`) en local y en las pruebas; Supabase en la app publicada (0024) |
+| Adaptadores | Búsqueda vectorial, búsqueda de texto, cola, tiempo real, archivos y límites de peticiones | Postgres (pgvector, `tsvector`, tablas), disco o Supabase Storage |
 | Canales | Un adaptador común por tipo (WhatsApp, Gmail, Outlook, IMAP/SMTP, chat web, Telegram): conectar, revisar, recibir, enviar y descargar medios | Clientes propios con `fetch`, ImapFlow y Nodemailer (0011, 0012); mailparser para leer los correos de los tres conectores y ffmpeg-static para convertir notas de voz (ver «Lectores de documentos y correo») |
 | Simulador | Inyecta mensajes de WhatsApp, correo o web (texto, audio, imagen o documento) en cualquier canal; sus respuestas nunca salen de la app aunque el canal sea real | La misma entrada que los canales reales (`src/data/simulator.ts`), con las respuestas por `DemoAdapter` |
 | Motor de respuesta | Decide si la IA contesta, prepara el prompt, llama al modelo con herramientas y envía una sola respuesta | Cliente propio de OpenRouter (0005) |
 | Herramientas del agente | Buscar en el conocimiento, consultar huecos, crear o cambiar citas, guardar datos del contacto, pasar a una persona y herramientas HTTP del negocio | Funciones con esquema Zod que usan el acceso a datos |
-| Conocimiento | Procesa documentos por pasos (extraer, trocear, embeddings) y busca de forma híbrida | unpdf (PDF), mammoth (DOCX), read-excel-file (XLSX), papaparse (CSV), Readability, linkedom y turndown (páginas web), Mistral OCR opcional, vectores de 1536 dimensiones (0013) y FTS5 (ver «Lectores de documentos y correo») |
+| Conocimiento | Procesa documentos por pasos (extraer, trocear, embeddings) y busca de forma híbrida | unpdf (PDF), mammoth (DOCX), read-excel-file (XLSX), papaparse (CSV), Readability, linkedom y turndown (páginas web), Mistral OCR opcional, vectores de 1536 dimensiones en `halfvec` (0013) y la búsqueda de texto de Postgres con `es_unaccent` (ver «Lectores de documentos y correo» y `docs/busqueda-hibrida.md`) |
 | Agenda | Calcula huecos libres y crea citas sin dobles reservas | Función pura de disponibilidad, `date-fns` con zona horaria |
 | Trabajo en segundo plano | Cola de trabajos y `tick()` idempotente | Tabla `jobs` (0008) |
 | Tiempo real | Avisa a las pantallas de lo que ha cambiado | Sondeo cada 3–5 s con cursor (0009) |
-| Archivos | Guarda y sirve medios y documentos, siempre con permisos | Disco o Vercel Blob privado (0010) |
+| Archivos | Guarda y sirve medios y documentos, siempre con permisos | Disco en local o el bucket privado `dominia-archivos` de Supabase Storage (0024) |
 | Avisos | Avisos en la app, push y email al equipo | Web Push con claves VAPID y el SMTP del sistema |
 | Cifrado de secretos | Cifra tokens, claves y contraseñas de servicios externos | AES-256-GCM con `APP_ENCRYPTION_KEY` |
 | Cumplimiento | Aviso de IA, bajas, conservación y limpieza diaria, exportar y borrar datos de un contacto | Trabajos de la cola |
@@ -370,8 +399,8 @@ conversación se pausa (12 horas por defecto) y vuelve sola, salvo que alguien l
 ### Trabajo en segundo plano
 
 `tick()` se lanza desde cuatro sitios: `after()` al contestar un aviso, `/api/cron/tick` (con el secreto del
-cron, desde Vercel Cron o un cron externo), el lanzador de `pnpm dev` cada unos 15 s en local y `pnpm worker`
-en bucle en el VPS. Cada ronda reclama trabajos vencidos, los ejecuta mientras le quede tiempo y deja el resto
+cron, desde Supabase Cron cada minuto y el cron diario de Vercel), el lanzador de `pnpm dev` cada unos 15 s en local y
+`pnpm worker` en bucle en el VPS (con la base en Supabase). Cada ronda reclama trabajos vencidos, los ejecuta mientras le quede tiempo y deja el resto
 para la siguiente; si dos rondas coinciden, cada trabajo se hace una sola vez. El trabajo largo va por pasos y
 los trabajos periódicos se vuelven a programar solos.
 
@@ -384,16 +413,19 @@ de preguntar.
 ### Archivos
 
 Lo que sube el equipo se valida en el servidor (tipo, por su contenido, y tamaño) y se guarda con una clave
-aleatoria: hoy pasa por el servidor, que lo guarda en disco o en Blob; cuando la app esté en Vercel, los archivos
-grandes irán directos del navegador a Blob, con un permiso que da el servidor tras comprobar la sesión. Los medios de los canales se descargan en un trabajo nada más llegar. Todo se sirve por `/api/files/…`,
-que comprueba el permiso sobre ese archivo concreto antes de devolverlo.
+aleatoria: pasa por el servidor, que lo guarda en disco (en local) o en el bucket privado de Supabase Storage (en la
+app publicada). En Vercel, los archivos de más de 4,5 MB tendrán que ir directos del navegador a Storage, con una
+dirección firmada de subida que dé el servidor tras comprobar la sesión (pendiente). Los medios de los canales se
+descargan en un trabajo nada más llegar. Todo se sirve por `/api/files/…`, que comprueba el permiso sobre ese archivo
+concreto antes de devolverlo.
 
 ### Conocimiento
 
 Un documento subido pasa por pasos en la cola, con su estado a la vista: extraer a Markdown con páginas,
 trocear, calcular embeddings y quedar listo. Al buscar, se piden 40 resultados por significado (solo con clave
-de OpenRouter: la pregunta necesita su embedding) y 40 por palabras (FTS5 sin tildes ni mayúsculas, con prefijos y
-plurales), se mezclan con RRF (k = 60) y se quedan los 8 mejores (6 si está activada la reordenación de Ajustes > IA,
+de OpenRouter: la pregunta necesita su embedding) y 40 por palabras (la búsqueda de texto de Postgres con
+`es_unaccent`: sin tildes ni mayúsculas y con las raíces del español, así «tintes» encuentra «tinte»), se mezclan con
+RRF (k = 60) y se quedan los 8 mejores (6 si está activada la reordenación de Ajustes > IA,
 que vale para toda la instalación), con su título, sección y página. Sin clave, la búsqueda es solo por palabras. Si
 nada es relevante, la respuesta es `SIN_RESULTADOS`.
 
@@ -431,5 +463,5 @@ lugar. Los detalles verificados están en los documentos de cada integración.
 | Telegram Bot API (opcional, después de la v1) | Canal de Telegram | `docs/integracion-telegram.md` |
 | Servicios de push de los navegadores | Entregar los avisos push de la PWA | `docs/notificaciones-push.md` |
 | Herramientas HTTP del negocio | Lo que el negocio conecte a sus agentes (n8n, un CRM…) | `docs/spec.md` |
-| Al publicar: Vercel, Vercel Blob, Turso y un cron externo | Alojar la app, los archivos y la base de datos, y lanzar `tick()` cada minuto | `docs/plataforma-despliegue.md`; los pasos, en `docs/guia-despliegue.md` y `vercel.json` (región UE y cron diario) |
-| En el futuro: Supabase, Dokploy y GitHub | Base de datos y archivos en Postgres, VPS propio e imágenes | `docs/plataforma-despliegue.md`, `docs/busqueda-hibrida.md` |
+| Al publicar: Vercel y Supabase (Postgres, Storage y Cron) | Alojar la app, la base de datos y los archivos, y lanzar `tick()` cada minuto | `docs/plataforma-despliegue.md`; los pasos, en `docs/guia-despliegue.md` y `vercel.json` (funciones en Londres, junto a la base, y cron diario) |
+| En el futuro: Dokploy y GitHub | VPS propio e imágenes | `docs/plataforma-despliegue.md` |

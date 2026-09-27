@@ -12,7 +12,7 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { and, eq, inArray, like, or, type SQL } from "drizzle-orm";
+import { and, eq, inArray, or, type SQL } from "drizzle-orm";
 import { writeAudit, type AuditEntry } from "@/data/audit";
 import { deleteFileQuietly } from "@/data/knowledge";
 import { db, type Transaction } from "@/db";
@@ -39,6 +39,7 @@ import { replyDedupeKey } from "@/server/engine/schedule";
 import { summaryDedupeKey } from "@/server/engine/summary";
 import { OUTBOX_DIR } from "@/server/mailer";
 import { publishConversationEvent } from "@/server/realtime/events";
+import { jsonTextContains } from "@/server/sql-helpers";
 
 /** What was erased, in numbers only: this goes to the activity log, which never holds personal data ([SEG-10]). */
 export type ContactErasure = { conversations: number; messages: number; files: number; bookingsAnonymized: number };
@@ -73,7 +74,7 @@ async function stillUsed(fileKey: string): Promise<boolean> {
   const rows = await db
     .select({ media: messages.media })
     .from(messages)
-    .where(like(messages.media, `%${JSON.stringify(fileKey)}%`))
+    .where(jsonTextContains(messages.media, JSON.stringify(fileKey)))
     .limit(20);
   return rows.some((row) => row.media?.fileKey === fileKey);
 }
@@ -142,7 +143,7 @@ function noticeLinks(found: Pick<Found, "conversationIds" | "bookingIds">): stri
 /** The raw webhooks that name one of the contact's WhatsApp or Telegram identifiers (their quoted value). */
 async function webhooksNaming(identifiers: string[]): Promise<string[]> {
   if (identifiers.length === 0) return [];
-  const conditions: SQL[] = identifiers.map((value) => like(webhookEvents.payload, `%${JSON.stringify(value)}%`));
+  const conditions: SQL[] = identifiers.map((value) => jsonTextContains(webhookEvents.payload, JSON.stringify(value)));
   const rows = await db
     .select({ id: webhookEvents.id })
     .from(webhookEvents)
@@ -155,16 +156,16 @@ async function webhooksNaming(identifiers: string[]): Promise<string[]> {
  * of their identifiers as a whole value. LIKE only narrows the candidates; each payload is then checked as text.
  */
 async function jobsNaming(ids: readonly string[], values: readonly string[]): Promise<{ id: string; status: string; type: string; payload: unknown }[]> {
-  const terms = [...ids.map((id) => ({ pattern: `%${id}%`, needle: id })), ...values.map((value) => ({ pattern: `%${JSON.stringify(value)}%`, needle: JSON.stringify(value) }))];
+  const needles = [...ids, ...values.map((value) => JSON.stringify(value))];
   const found = new Map<string, { id: string; status: string; type: string; payload: unknown }>();
-  for (const chunk of chunked(terms, TERMS_PER_QUERY)) {
+  for (const chunk of chunked(needles, TERMS_PER_QUERY)) {
     const rows = await db
       .select({ id: jobs.id, status: jobs.status, type: jobs.type, payload: jobs.payload })
       .from(jobs)
-      .where(or(...chunk.map((term) => like(jobs.payload, term.pattern))));
+      .where(or(...chunk.map((needle) => jsonTextContains(jobs.payload, needle))));
     for (const row of rows) {
       const text = JSON.stringify(row.payload);
-      if (!TEAM_ONLY_JOB_TYPES.has(row.type) && chunk.some((term) => text.includes(term.needle))) found.set(row.id, row);
+      if (!TEAM_ONLY_JOB_TYPES.has(row.type) && chunk.some((needle) => text.includes(needle))) found.set(row.id, row);
     }
   }
   return [...found.values()];

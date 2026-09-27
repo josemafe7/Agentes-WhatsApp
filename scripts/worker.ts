@@ -2,7 +2,8 @@
 // (docs/decisions/0008). Ctrl+C or SIGTERM lets the current job finish; a second one stops at once. It makes the same
 // start-up checks as the web server (src/server/startup-checks.ts), and those of a published app always, whatever
 // NODE_ENV says (a server may not set it): with an unsafe configuration it does not start.
-import { closeDb } from "../src/db";
+import { closeDb, isServerDatabase } from "../src/db";
+import { pingDatabase } from "../src/server/adapters/database-health";
 import { assertProductionConfig, productionConfigWarnings } from "../src/server/app-url";
 import { runImapIdleWatchers } from "../src/server/channels/email/imap/idle";
 import { ensureEmailPollingForAll } from "../src/server/channels/email/jobs";
@@ -34,6 +35,18 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  // The embedded database (data/pglite) opens in one process at a time: with pnpm dev running (which already runs this
+  // work every 15 s), say so now instead of failing every round without a word.
+  if (!isServerDatabase()) {
+    try {
+      await pingDatabase();
+    } catch (error) {
+      console.error(`[worker] No puede abrir la base de datos. ${safeErrorMessage(error)}`);
+      process.exitCode = 1;
+      await closeDb();
+      return;
+    }
+  }
   const workerId = `worker-${crypto.randomUUID()}`;
   const controller = new AbortController();
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -60,7 +73,7 @@ async function main(): Promise<void> {
     await idle;
     console.log("[worker] Parado.");
   } finally {
-    closeDb();
+    await closeDb();
   }
 }
 

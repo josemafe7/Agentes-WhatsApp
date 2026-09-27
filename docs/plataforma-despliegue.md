@@ -1,8 +1,9 @@
 # Plataforma y despliegue
 
-Referencia técnica de dónde corre la app y con qué límites: Vercel, Vercel Blob, Turso, el cron externo y el
-futuro VPS con Dokploy. Todo se comprobó el 26-09-2026 contra la documentación oficial (ver «Fuentes»). Si
-una cifra cambia, se corrige aquí antes de tocar el código.
+Referencia técnica de dónde corre la app y con qué límites: Vercel, Supabase (base de datos, Storage, Cron, claves y
+copias), la base integrada de la demo (PGlite) y el futuro VPS con Dokploy. Lo de Vercel y Dokploy se comprobó el
+26-09-2026, y lo de Supabase y PGlite el 27-09-2026, contra la documentación oficial (ver «Fuentes»). Si una cifra
+cambia, se corrige aquí antes de tocar el código. El porqué de Supabase está en `docs/decisions/0024-datos-y-archivos-en-supabase.md`.
 
 Hoy la app solo corre en local (decisión del 26-09-2026): este documento prepara la configuración y las
 guías, pero no se publica nada. La guía paso a paso está aparte (`docs/guia-despliegue.md`, también en la app, en
@@ -15,12 +16,15 @@ Ayuda) y la configuración de Vercel, en `vercel.json`.
 | Vercel Hobby | Solo uso personal y no comercial | Solo pruebas. Un negocio real va en Pro o en el VPS |
 | Duración de las funciones | Hobby: 300 s por defecto y como máximo. Pro: 300 s por defecto, hasta 800 s (1.800 s en beta) | `tick()` trabaja con presupuesto de tiempo y trocea |
 | `after()` | Corre dentro de la misma invocación y comparte su tope de duración | Lo que se hace tras responder también tiene límite |
-| Cuerpo de petición y de respuesta | 4,5 MB | Los webhooks de Meta caben. Las subidas grandes van directas a Blob y los archivos se sirven en streaming |
-| Vercel Cron | Hobby: una vez al día y con ±59 min de margen. Pro: cada minuto | En Hobby, cron externo cada minuto |
-| Deployment Protection | «Standard Protection» protege todo menos los dominios de producción | Webhooks y OAuth apuntan siempre al dominio de producción |
-| Vercel Blob | Existen almacenes privados | Almacén privado y archivos servidos por `/api/files/…` |
-| Turso | `turso db create` crea libSQL; `--tursodb` crea el motor nuevo, sin FTS5 | Se crea siempre una base libSQL |
-| Turso Free | 5 GB, 500 M filas leídas y 10 M escritas al mes; se archiva tras 10 días sin uso; sin DPA | Vale para pruebas. Con datos reales, un plan con DPA |
+| Cuerpo de petición y de respuesta | 4,5 MB | Los webhooks de Meta caben. Los archivos se sirven en streaming. Las subidas de más de 4,5 MB necesitarán ir directas a Storage (pendiente) |
+| Vercel Cron | Hobby: una vez al día y con ±59 min de margen. Pro: cada minuto | El de cada minuto lo lanza Supabase Cron |
+| Deployment Protection | «Standard Protection» protege todo menos los dominios de producción | Webhooks, OAuth y el cron apuntan siempre al dominio de producción |
+| Supabase Free | 500 MB de base, 1 GB de archivos, 50 MB por archivo, sin copias automáticas; se pausa tras una semana con poca actividad | Solo pruebas |
+| Supabase Pro | 25 USD al mes; copias diarias guardadas 7 días; archivos de hasta 500 GB | El plan de un negocio real |
+| Conexión con Supabase | Modo transacción (puerto 6543) sin sentencias preparadas; modo sesión (5432) por IPv4; la directa, por IPv6 | Vercel: 6543. Un VPS o un ordenador: 5432 |
+| Claves de Supabase | Las secretas (`sb_secret_…`) son solo para el servidor y se saltan Row Level Security; `anon` y `service_role` se retiran a finales de 2026 | La app usa una sola clave secreta, en el servidor, para Storage |
+| Región de Supabase | Se elige al crear el proyecto y no se puede cambiar | En la misma ciudad que las funciones: Londres (`eu-west-2` y `lhr1`, lo preparado) o Irlanda (`eu-west-1` y `dub1`) |
+| Base integrada (PGlite) | Postgres 18.3 dentro del proceso de Node; un solo proceso por carpeta | Solo para la demo y las pruebas |
 | Dokploy | Decenas de avisos de seguridad publicados el 21-07-2026 (versiones ≤ 0.29.8) | Instalar y mantener la última versión (0.30.7 el 18-09-2026) |
 
 ## Vercel
@@ -56,13 +60,13 @@ días.
   de forma explícita en las rutas que lanzan `tick()` (webhooks, widget y cron), para que el presupuesto no
   dependa de un valor por defecto que puede cambiar.
 - La documentación de Vercel avisa de que un cron puede no llegar o llegar dos veces, y de que dos
-  ejecuciones pueden solaparse. La reclamación atómica de jobs (`UPDATE … RETURNING`) y los handlers
+  ejecuciones pueden solaparse. La reclamación de trabajos (`FOR UPDATE SKIP LOCKED`, decisión 0024) y los handlers
   idempotentes cubren los tres casos.
 - En el VPS, `after()` funciona igual con el servidor de Node.js. Para no perder trabajo al reiniciar, el
   contenedor debe pararse con `SIGTERM` y esperar: Next.js termina las peticiones en curso y los `after()`
   pendientes, y recomienda de 10 a 30 s de margen.
 
-### Cron: Vercel Cron o cron externo
+### Cron: Vercel Cron y Supabase Cron
 
 - Vercel Cron hace un `GET` a la URL de producción, a la ruta indicada en `crons` de `vercel.json`, con el
   agente `vercel-cron/1.0` y la cabecera `x-vercel-cron-schedule`. Si el proyecto tiene la variable
@@ -76,22 +80,25 @@ días.
   minuto.
 - Consecuencia: el `vercel.json` del repositorio no lleva `* * * * *`: con él fallaría un despliegue en Hobby, y
   una prueba (`project-config.test.ts`) lo impide. Lleva un cron diario a `/api/cron/tick` (red de seguridad y
-  tareas diarias, válido en los dos planes) y el trabajo de cada minuto lo lanza un cron externo, también en Pro
-  (`docs/guia-despliegue.md`, «6. El cron cada minuto»). Si una instalación en Pro prefiere Vercel Cron cada minuto,
-  quien mantiene el código cambia a la vez la expresión de `vercel.json` y esa prueba, que protege a las de Hobby.
-- `/api/cron/tick` acepta `GET` (Vercel Cron) y `POST` (cron externo) y compara el `Bearer` en tiempo
-  constante. Las opciones de cron externo están en «Cron externo cada minuto».
+  tareas diarias, válido en los dos planes) y el trabajo de cada minuto lo lanza Supabase Cron, también en Pro
+  (ver «Supabase › Cron» y `docs/guia-despliegue.md`, «6. El cron cada minuto»). Si una instalación en Pro prefiere
+  Vercel Cron cada minuto, quien mantiene el código cambia a la vez la expresión de `vercel.json` y esa prueba, que
+  protege a las de Hobby.
+- `/api/cron/tick` acepta `GET` (Vercel Cron) y `POST` (Supabase Cron y el lanzador de `pnpm dev`), compara el
+  `Bearer` en tiempo constante y responde enseguida (202): el trabajo sigue en `after()`.
 
 ### Límite de 4,5 MB
 
 - El cuerpo de la petición y el de la respuesta de una función no pueden pasar de 4,5 MB; si no, Vercel
   devuelve 413 (`FUNCTION_PAYLOAD_TOO_LARGE`). Las respuestas en streaming no tienen ese límite.
 - Webhooks: los de WhatsApp (hasta 3 MB según la especificación) caben. Los medios no vienen en el webhook:
-  se descargan después desde Graph.
+  se descargan después desde Graph, en un trabajo en segundo plano, y la función los sube a Storage sin pasar por
+  una petición del navegador.
 - Subidas desde la interfaz (documentos de conocimiento, archivos de contexto, logos): en Vercel no pueden
-  pasar por un Route Handler ni por una Server Action si superan 4,5 MB. Van directas del navegador a Blob
-  («subidas de cliente», ver «Vercel Blob»). Además, las Server Actions de Next.js aceptan por defecto solo
-  1 MB de cuerpo (`serverActions.bodySizeLimit`), así que las subidas no deben ir por Server Actions.
+  pasar por un Route Handler ni por una Server Action si superan 4,5 MB. Hoy pasan por la app (hasta 4 MB por
+  Server Action y 25 MB por la ruta del conocimiento, que en Vercel se queda en 4,5 MB). Para más, tendrán que ir
+  directas del navegador a Supabase Storage con una dirección firmada de subida (`createSignedUploadUrl` y
+  `uploadToSignedUrl` de supabase-js), que el servidor da tras comprobar la sesión y el rol: **pendiente**.
 - Descargas: la ruta `/api/files/…` devuelve el archivo en streaming, así que no le afecta el límite.
 
 ### Dominio de producción, previews y Deployment Protection
@@ -101,9 +108,9 @@ días.
 - «Standard Protection» protege todas las URL salvo los dominios de producción; también queda protegida la
   URL generada del propio despliegue de producción (la que lleva el identificador del despliegue). Con Vercel
   Authentication, quien no ha iniciado sesión en Vercel recibe una redirección al login de Vercel: Meta,
-  Google, Microsoft y Telegram no pueden llegar a una preview. Conviene revisar en Settings › Deployment
-  Protection qué alcance tiene el proyecto, porque el equipo puede fijar otro por defecto.
-- Por eso los webhooks y las URI de redirección de OAuth usan siempre el dominio de producción
+  Google, Microsoft, Telegram y el cron de Supabase no pueden llegar a una preview. Conviene revisar en Settings ›
+  Deployment Protection qué alcance tiene el proyecto, porque el equipo puede fijar otro por defecto.
+- Por eso los webhooks, las URI de redirección de OAuth y el cron usan siempre el dominio de producción
   (`<proyecto>.vercel.app` o el dominio propio). La variable de sistema `VERCEL_PROJECT_PRODUCTION_URL` lo da
   sin protocolo y existe incluso en las previews. `VERCEL_URL` no sirve con Standard Protection.
 - Existe «Protection Bypass for Automation» (cabecera o parámetro `x-vercel-protection-bypass`). No se usa
@@ -117,25 +124,31 @@ días.
   puede crear en los entornos Production y Preview (no en Development). Para convertir una variable existente
   hay que borrarla y crearla de nuevo con la opción activada. En los logs de build, Vercel oculta los valores
   de 32 caracteres o más.
-- Se crean así: `APP_ENCRYPTION_KEY`, `BETTER_AUTH_SECRET`, `CRON_SECRET`, `DATABASE_AUTH_TOKEN` y
-  `OPENROUTER_API_KEY` si se usa. `BLOB_READ_WRITE_TOKEN` la añade Vercel al conectar el almacén (no
-  verificado si la marca como Sensitive). El propietario del equipo puede imponerlo para todas las variables
-  nuevas («Enforce Sensitive Environment Variables»).
+- Se crean así: `APP_ENCRYPTION_KEY`, `BETTER_AUTH_SECRET`, `CRON_SECRET`, `SETUP_TOKEN`, `DATABASE_URL` (lleva la
+  contraseña de la base), `SUPABASE_SECRET_KEY` y `OPENROUTER_API_KEY` si se usa. `SUPABASE_URL` no es secreta. El
+  propietario del equipo puede imponerlo para todas las variables nuevas («Enforce Sensitive Environment
+  Variables»).
 - Como no se puede volver a leer, `APP_ENCRYPTION_KEY` se guarda también en un gestor de contraseñas: si se
   pierde, los secretos cifrados de la base de datos quedan ilegibles.
+- La integración de Supabase del Marketplace de Vercel no se usa: crea el proyecto de Supabase desde Vercel (con la
+  factura en Vercel) y sincroniza variables con otros nombres (`POSTGRES_URL`, `POSTGRES_PRISMA_URL`…) y algunas
+  `NEXT_PUBLIC_` (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`). Las variables se ponen a mano.
 
 ### Región de las funciones
 
 Las funciones corren por defecto en Washington (`iad1`). En Hobby hay una sola región, que se puede cambiar
-en Settings › Functions o con `regions` en `vercel.json`. Se pone la más cercana a la base de datos: con
-Turso en Irlanda, Dublín (`dub1`). El almacén de Blob se crea también en una región de la UE, y esa región
-no se puede cambiar después.
+en Settings › Functions o con `regions` en `vercel.json`. Se pone la de la misma ciudad que la base de datos: con
+Supabase en Londres (`eu-west-2`), Londres (`lhr1`), que es lo que fija `vercel.json` (y su prueba); con Supabase en
+Irlanda (`eu-west-1`), Dublín (`dub1`).
 
-### Paquetes con binarios o módulos nativos
+### Paquetes con binarios, WebAssembly o módulos nativos
 
 - Next.js empaqueta las dependencias del servidor. `serverExternalPackages` deja fuera las que deben
-  cargarse con `require` de Node. Su lista por defecto ya incluye `@libsql/client`, `libsql`, `pino` (lo usa
-  `imapflow`), `sharp` y `better-sqlite3`. No incluye `ffmpeg-static` ni `imapflow`.
+  cargarse con `require` de Node. Su lista por defecto ya incluye, entre otros, `pg`, `pino` (lo usa `imapflow`) y
+  `sharp`, pero no `postgres` (postgres.js), `@electric-sql/pglite`, `ffmpeg-static` ni `imapflow`.
+- PGlite (0.5.8) y su extensión de pgvector cargan sus archivos de WebAssembly y de datos desde la carpeta de su
+  paquete: van en `serverExternalPackages` de `next.config.ts`. En Vercel no se abren (allí la base es Supabase).
+- postgres.js (3.4.9) es JavaScript puro y va por red (TCP con TLS).
 - `outputFileTracingIncludes` añade archivos que el trazado no detecta. Sus claves son rutas de la app
   (`/api/cron/tick`) y sus valores, patrones de archivos relativos a la raíz del proyecto. Solo afecta a
   rutas de servidor que no sean estáticas ni Edge.
@@ -154,8 +167,6 @@ no se puede cambiar después.
     él.
 - `imapflow` (2.0.7) es JavaScript puro. No se espera configuración especial (no verificado en Vercel). En
   Vercel no hay IMAP IDLE: se conecta en cada tick.
-- `@libsql/client` (0.18.0): con URL remota va por red; con `file:` usa el módulo nativo `libsql`. En Docker
-  las dependencias se instalan dentro de la imagen, para la plataforma de la imagen.
 
 ### Correo desde Vercel
 
@@ -170,167 +181,194 @@ más invocaciones gasta: una pestaña que pregunta cada 4 s hace 900 peticiones 
 pausa cuando la pestaña no está visible y se espacia cuando no hay actividad. El cron cada minuto suma unas
 43.200 invocaciones al mes.
 
-## Vercel Blob
+## Supabase
 
-### Almacén privado
+Solo para la app publicada. En local (el clon de cualquiera y el ordenador del propietario) la base es la integrada
+(ver «Base integrada»), sin Supabase ni cuentas. Sus datos (`DATABASE_URL`, `SUPABASE_URL` y `SUPABASE_SECRET_KEY`)
+van en las variables de entorno de Vercel, marcadas Sensitive las secretas, nunca en `.env.local`. La instalación
+publicada empieza vacía, con el asistente de arranque, o con la demo si se carga a propósito para enseñar la app
+(`pnpm seed` con las variables de Supabase solo para esa orden; ver la guía de publicación, apartado 2, con su aviso
+sobre las contraseñas públicas de la demo).
 
-- Vercel Blob tiene almacenes privados (disponibilidad general; requiere `@vercel/blob` 2.3 o posterior,
-  la última el 26-09-2026 es la 2.8.0). El modo privado o público se elige al crear el almacén y no se puede
-  cambiar. Se crea como **Private**: en Storage › Create › Blob › Private, o con
-  `vercel blob create-store <nombre> --access private`.
-- En un almacén privado toda lectura y escritura requiere autenticación. La URL de cada archivo
-  (`https://<id>.private.blob.vercel-storage.com/<ruta>`) no es pública.
-- La alternativa pensada al principio (almacén público con nombres imposibles de adivinar servidos por una
-  ruta autenticada) ya no hace falta. Los nombres aleatorios se mantienen igualmente como defensa extra.
+### Planes
 
-### Credenciales
+| | Free | Pro |
+|---|---|---|
+| Precio | 0 | 25 USD al mes |
+| Proyectos activos | 2 | — |
+| Base de datos | 500 MB | 8 GB de disco por proyecto incluidos |
+| Archivos (Storage) | 1 GB | 100 GB |
+| Transferencia de salida | 5 GB | 250 GB |
+| Tamaño máximo de un archivo | 50 MB | Hasta 500 GB (se sube en los ajustes de Storage) |
+| Copias automáticas | No | Diarias, guardadas 7 días |
+| Registros | 1 hora | 7 días |
+| Pausa por inactividad | Sí, tras una semana | No |
 
-- Al conectar el almacén a un proyecto, Vercel añade `BLOB_STORE_ID` y usa OIDC (un token de vida corta que
-  rota solo), además de `BLOB_WEBHOOK_PUBLIC_KEY`. También añade `BLOB_READ_WRITE_TOKEN`, de larga
-  duración, que hace falta para `handleUpload` y para código fuera de Vercel.
-- El SDK busca credenciales en este orden: la opción `token`; OIDC con el id del almacén; y
-  `BLOB_READ_WRITE_TOKEN`. Si no hay ninguna, lanza un error.
-- El adaptador `FileStorage` activa `vercel-blob` si existe `BLOB_STORE_ID` o `BLOB_READ_WRITE_TOKEN`, no
-  solo con el segundo.
+- Un proyecto Free se pausa si la base no recibe suficiente actividad en una semana (Supabase avisa antes por correo).
+  Se reactiva desde su página con «Resume project», y durante un año se puede recuperar con sus datos. Según Supabase,
+  unas pocas consultas al día suelen bastar para que no se pause; con el cron de cada minuto, la app consulta la base a
+  menudo (**no comprobado** con un proyecto real).
+- Con datos personales de clientes reales: Pro, por las copias y porque no se pausa.
 
-### API del SDK
+### Proyecto y región
 
-- `put(ruta, cuerpo, { access: 'private', … })` sube y devuelve `pathname`, `contentType`,
-  `contentDisposition`, `url`, `downloadUrl` y `etag`. Opciones útiles: `addRandomSuffix`,
-  `allowOverwrite` (por defecto, subir a una ruta que ya existe da error), `contentType`,
-  `cacheControlMaxAge`, `multipart` (recomendado por encima de 100 MB) e `ifMatch`.
-- `get(rutaOUrl, { access: 'private' })` devuelve `null` si no existe o
-  `{ statusCode, stream, headers, blob }`, con `statusCode` 200 o 304. Admite `ifNoneMatch` y
-  `useCache: false`, para leer justo después de sobrescribir.
-- `head()` devuelve los metadatos y lanza `BlobNotFoundError` si no existe. `del()` acepta una ruta o una
-  lista, no falla si no existe y es gratis; la caché puede tardar hasta un minuto en olvidar el archivo.
-  También existen `list()`, `copy()` y `rename()`.
-- Una subida desde el servidor (`put` con el archivo recibido en la función) sigue limitada a 4,5 MB.
-- Subidas de cliente: el navegador usa `upload()` de `@vercel/blob/client` y el servidor genera el permiso
-  con `handleUpload` (necesita `BLOB_READ_WRITE_TOKEN`) o con `uploadPresigned` y `handleUploadPresigned`
-  (funcionan con OIDC). La sesión y el rol se comprueban en `onBeforeGenerateToken`, que también fija los
-  tipos permitidos. Vercel avisa de que, sin esa comprobación, cualquiera puede subir.
-- El aviso `onUploadCompleted` no llega a localhost y en las previews va a la URL de la rama, protegida por
-  Deployment Protection. Por eso no se depende de él: al terminar, el navegador avisa a una ruta propia y el
-  servidor comprueba el archivo con `head()` antes de registrarlo.
-- Existen URL firmadas de vida corta (`issueSignedToken` y `presignUrl`). No se usan de momento.
+- La región se elige al crear el proyecto y **no se puede cambiar**: habría que crear otro proyecto y pasar los datos.
+- Se elige una región concreta en la misma ciudad que las funciones de Vercel: **West Europe (London)** (`eu-west-2`)
+  con `lhr1`, que es como viene preparado (el proyecto del propietario está en Londres), o **West EU (Ireland)**
+  (`eu-west-1`) con `dub1`. La región general «Europe» deja que Supabase elija, e incluye Londres y Zúrich.
+- Londres y Zúrich no son de la UE, aunque tienen un régimen de protección de datos que la UE reconoce como adecuado
+  (así lo dice Supabase en su guía del RGPD); para quedarse dentro de la UE, Irlanda (u otra región concreta de la UE,
+  con la región de Vercel más cercana). Con datos de clientes, el negocio lo revisa con su abogado.
+- La base, los usuarios de Supabase Auth (aquí no se usan) y los archivos de Storage viven en esa región. Las copias,
+  los registros y los subencargados pueden tratar datos en otros sitios: cuenta en el análisis de transferencias.
+- Supabase ofrece Postgres hasta la versión 17; la base integrada de la demo es Postgres 18 (ver «Base integrada»).
+  La versión de pgvector de un proyecto se mira con `SELECT extversion FROM pg_extension WHERE extname = 'vector';`:
+  la búsqueda necesita la 0.8.0 o posterior (`hnsw.iterative_scan`). **A comprobar** en el primer proyecto real.
 
-### Servir los archivos
+### Conexión con la base
 
-`/api/files/…` comprueba la sesión y el permiso sobre ese archivo concreto, lo lee con `get()` y lo
-devuelve en streaming con su `Content-Type`, `X-Content-Type-Options: nosniff` y
-`Cache-Control: private, no-store` (lo que Vercel recomienda para datos sensibles). Vercel desaconseja cachear
-archivos privados en su CDN (`s-maxage`) y fiarse del middleware para autorizarlos: la comprobación va en la
-propia ruta, junto a `get()`.
-
-### Límites y precio en Hobby
-
-| Recurso (al mes) | Incluido en Hobby |
-|---|---|
-| Almacenamiento (media del mes) | 1 GB |
-| Operaciones simples (`head`, lecturas que no están en caché) | 10.000 |
-| Operaciones avanzadas (`put`, `copy`, `list`, crear almacén; cada parte de una subida multiparte) | 2.000 |
-| Transferencia de Blob | 10 GB |
-
-- Si se superan no se cobra, pero Blob queda inaccesible hasta que pasan 30 días. Navegar el almacén desde el
-  panel de Vercel también cuenta como operaciones.
-- Límite de ritmo en Hobby: 1.200 operaciones simples y 900 avanzadas por minuto. Tamaño máximo por archivo:
-  5 TB; los de más de 512 MB no se cachean.
-- 2.000 subidas al mes se agotan rápido: la demo no sube su contenido a Blob en Vercel si puede evitarse.
-
-## Turso
-
-### Qué base crear: libSQL
-
-- Turso Cloud aloja dos motores compatibles con SQLite: **libSQL** (el fork de SQLite que ha movido Turso
-  Cloud durante años) y **Turso** (una reescritura desde cero, en «early preview» en Turso Cloud).
-  `turso db create <nombre>` crea una base libSQL; con `--tursodb` crea una del motor nuevo.
-- La app usa FTS5 (`unicode61 remove_diacritics 2`), `F32_BLOB(1536)`, `vector_distance_cos` y el índice
-  vectorial de libSQL. En libSQL de Turso Cloud, FTS5 viene precargado junto a JSON y R*Tree, y la búsqueda
-  vectorial es nativa, sin extensiones. El motor nuevo sustituye FTS3/4/5 por su propia búsqueda de texto
-  (basada en Tantivy, con `CREATE INDEX … USING fts`) y tiene otras funciones de vectores: las migraciones de
-  la app no funcionarían. **Nunca se usa `--tursodb`.**
-- Turso recomienda su motor nuevo para proyectos nuevos; aquí se mantiene libSQL porque Drizzle y
-  `@libsql/client` lo soportan de forma estable y porque la búsqueda depende de FTS5.
-- Vectores en libSQL: tipos `F32_BLOB` y otros, `vector_distance_cos`, `vector_top_k(índice, vector, k)` e
-  índice con `libsql_vector_idx(columna)` y opciones como `metric=cosine`; hasta 65.536 dimensiones. El
-  índice necesita una tabla con `ROWID` o con clave primaria de una sola columna. Funciona igual en Turso Cloud
-  y en libSQL local. El detalle de la búsqueda híbrida es cosa de su propio documento.
-
-### Crear la base, la URL y el token
-
-1. Instalar la CLI (en Windows, dentro de WSL) e iniciar sesión con `turso auth signup` o `turso auth login`.
-   También se puede hacer desde el panel web de Turso.
-2. Elegir la región: `turso db locations` da la lista actual. En el ejemplo de la documentación de la API,
-   la única ubicación de la UE es `aws-eu-west-1` (Irlanda); si hoy hay otras, se elige la más cercana.
-   Las bases viven en grupos con una ubicación principal, y en los planes Free y Developer solo hay un grupo
-   (crear más de uno es de Scaler en adelante). Si la cuenta es nueva, se crea primero el grupo en la UE con
-   `turso group create <grupo> --location <código>` y se comprueba con `turso group list`. No verificado: si
-   `turso db create` crea solo un grupo por defecto en la región más cercana cuando no hay ninguno.
-3. `turso db create <nombre>` (con `--group <grupo>` si hace falta), sin `--tursodb`.
-4. URL: `turso db show <nombre> --url` devuelve `libsql://<base>-<organización>.turso.io`. La misma base
-   responde en `https://` para ir por HTTP.
-5. Token: `turso db tokens create <nombre>`, con `--expiration` (`never` o una duración como `7d`) y
-   `--read-only` para tokens de solo lectura. La documentación no dice cuál es la caducidad por defecto: se
-   indica siempre de forma explícita. `turso db tokens invalidate <nombre>` anula todos los tokens de la
-   base.
-6. En Vercel: `DATABASE_URL=libsql://…` y `DATABASE_AUTH_TOKEN` (Sensitive).
-7. Las migraciones se aplican a mano, desde local o desde un flujo de CI, antes de publicar. No se lanzan en
-   el build de Vercel: el build también corre para las previews y podría migrar la base equivocada.
-
-### Plan gratuito
-
-| Free | Incluido |
-|---|---|
-| Bases de datos | 100 |
-| Almacenamiento | 5 GB |
-| Filas leídas al mes | 500 millones |
-| Filas escritas al mes | 10 millones |
-| Sincronización al mes | 3 GB |
-| Restauración a un momento anterior | 1 día |
-| Registro de auditoría, recuperar bases borradas, DPA | No |
-
-- Si se supera una cuota, las consultas fallan con el código `BLOCKED`.
-- En el plan gratuito, las bases se archivan tras 10 días sin actividad; se recuperan con
-  `turso group unarchive <grupo>`. Con el cron cada minuto no pasa, pero una instalación de pruebas parada sí
-  se archiva.
-- Cada fila que recorre una consulta cuenta como leída, aunque no se devuelva. Los `count(*)` y las consultas
-  sin índice recorren la tabla entera: las consultas del sondeo deben ir por índice.
-- El plan gratuito no incluye DPA (contrato de encargo del tratamiento). Con datos personales de clientes
-  reales, el RGPD lo exige con cada encargado: para un negocio real hace falta un plan que lo incluya
-  (Developer en adelante; la página muestra 4,99 USD al mes con pago anual). Esto es una deducción a partir
-  de la tabla de precios, no una afirmación de Turso.
-
-### Conexión y limitaciones
-
-- `createClient({ url, authToken })` de `@libsql/client` acepta `libsql://`, `https://`, `wss://` y
-  `file:`. La variante `@libsql/client/web` no admite `file:`: la app usa siempre la de Node. Por defecto hace
-  hasta 20 peticiones a la vez (`concurrency`).
-- Turso indica que WebSocket rinde mejor con muchas consultas seguidas y HTTP con consultas sueltas, y
-  recomienda medir. Si WebSocket da problemas en las funciones, se usa la URL `https://`.
-- Un `batch` es una transacción implícita. Una transacción interactiva bloquea las escrituras de la base
-  hasta que termina, con un tope de 5 s: la comprobación de citas sin doble reserva debe ser corta (leer e
-  insertar, sin llamadas externas dentro).
-- En Turso Cloud, `PRAGMA user_version` y `application_id` son de solo lectura, `busy_timeout` y
-  `journal_mode` no se admiten y `VACUUM` está desactivado.
-- Drizzle se conecta con `drizzle-orm/libsql`. Para Turso, la documentación de Turso y la de Drizzle usan
-  `dialect: 'turso'` en `drizzle.config.ts`.
-
-## Cron externo cada minuto (Hobby)
-
-| Opción | ¿Cada minuto? | Cabecera `Authorization` | Límites relevantes | Veredicto |
+| Forma | Puerto | Servidor y usuario | Red | Para qué |
 |---|---|---|---|---|
-| cron-job.org | Sí, hasta 60 veces por hora | Sí, admite cabeceras y métodos a elección | Gratis; corta a los 30 s; lee como mucho 64 KB de respuesta; desactiva el job tras más de 25 fallos seguidos | Recomendado |
-| GitHub Actions (`schedule`) | No: mínimo cada 5 min | Sí, con un secreto del repositorio | Se retrasa en horas de carga; solo la rama por defecto; en repos públicos se desactiva tras 60 días sin actividad | Solo como respaldo |
-| Upstash QStash | Sí (`* * * * *`) | Sí, con el prefijo `Upstash-Forward-` (`Upstash-Forward-Authorization`) | Free: 1.000 mensajes al día y 10 programaciones; cada reintento cuenta | El plan gratuito no llega (cada minuto son 1.440 al día); cada 2 minutos sí |
-| Vercel Cron | Solo en Pro | Automática con `CRON_SECRET` | Exige cambiar `vercel.json` y su prueba (hoy, cron diario para que Hobby despliegue) | Posible en Pro; el cron externo sirve en los dos planes |
+| Directa | 5432 | `db.<ref>.supabase.co`, usuario `postgres` | IPv6 (IPv4 con un complemento de pago) | Servidores que siguen encendidos, con IPv6 |
+| Pooler compartido, modo sesión («Session pooler») | 5432 | `aws-<n>-<región>.pooler.supabase.com`, usuario `postgres.<ref>` | IPv4 | Un VPS o un ordenador desde una red IPv4; las copias con la CLI |
+| Pooler compartido, modo transacción («Transaction pooler») | 6543 | el mismo del modo sesión | IPv4 | Funciones sin servidor, como las de Vercel |
+| Pooler dedicado (planes de pago) | 6543 | `db.<ref>.supabase.co`, usuario `postgres` | IPv6 (IPv4 con un complemento de pago) | No se usa |
 
-- Configuración: `POST https://<dominio de producción>/api/cron/tick` con
-  `Authorization: Bearer <CRON_SECRET>`.
-- Como cron-job.org corta a los 30 s, la ruta responde enseguida (202) y hace el trabajo en `after()` con el
-  presupuesto de su `maxDuration`, o termina antes de unos 25 s.
-- El secreto queda guardado en un servicio de terceros. Solo permite lanzar `tick()`, que es idempotente, pero
-  se usa uno largo y aleatorio y se cambia si se filtra.
+- Las direcciones se copian del botón **Connect** del proyecto (el número de `aws-<n>` no se deduce de la región).
+- El modo transacción no admite sentencias preparadas: postgres.js va con `prepare: false` (lo que recomienda
+  Supabase para postgres.js y Drizzle). Además, cada transacción puede ir por una conexión distinta del servidor: por
+  eso los ajustes de una consulta van con `SET LOCAL` dentro de su transacción y el candado de escritura es de
+  transacción (`pg_advisory_xact_lock`), nunca de sesión.
+- SSL obligatorio (`ssl: "require"`), salvo con un Postgres del mismo ordenador. La app abre como mucho 5 conexiones
+  por proceso, las cierra tras 20 s sin uso, espera 15 s para conectar y se presenta como `dominia-agentes`.
+- La app no fija el `search_path` en las conexiones a un servidor: el de Supabase ya incluye el esquema `extensions`
+  (donde están `vector` y `unaccent`). Un Postgres que no sea de Supabase (por ejemplo, uno propio junto al futuro VPS)
+  necesita `extensions` en su `search_path`, o `halfvec` y `<=>` no existirán.
+- La contraseña va dentro de la dirección: la dirección entera es un secreto. Con símbolos como `@`, `:` o `/` habría
+  que codificarlos; por eso la guía pide una contraseña de letras y números. Se cambia en **Database › Settings**; justo
+  después, el pooler puede rechazar la nueva unos instantes (error `28P01`): se vuelve a probar.
+- Las migraciones se aplican desde el ordenador de quien publica (`pnpm db:migrate`, con `DATABASE_URL` puesta solo
+  para esa orden en la terminal y nunca guardada en `.env.local`) o las aplica Claude Code con el conector de Supabase,
+  anotándolas en `drizzle.__drizzle_migrations` como el migrador de Drizzle. Nunca en el build de Vercel, que también
+  corre para las previews y podría migrar la base equivocada.
+
+### Claves de la API
+
+- Tipos: la publicable (`sb_publishable_…`), pensada para navegadores y apps, y la secreta (`sb_secret_…`), solo para
+  el servidor. Las antiguas `anon` y `service_role` (tokens JWT de larga duración) se retiran a finales de 2026.
+- Se crean y se ven en **Project Settings › API Keys**; la dirección del proyecto («Project URL»,
+  `https://<ref>.supabase.co`) y las claves salen también en **Connect**.
+- Una clave secreta se salta Row Level Security en todo, también en Storage. Supabase la rechaza (401) si llega desde un
+  navegador (lo detecta por la cabecera User-Agent). Supabase recomienda una por cada pieza del servidor, para cambiar
+  solo esa si se filtra. Borrar una clave secreta no se puede deshacer.
+- La app solo usa una clave secreta (`SUPABASE_SECRET_KEY`) y solo para Storage; la base la abre con `DATABASE_URL`.
+  Nunca la publicable ni variables `NEXT_PUBLIC_` de Supabase.
+
+### Row Level Security y la API de datos
+
+- La API de datos de Supabase (REST y GraphQL) deja leer y escribir tablas desde fuera con una clave. Las tablas
+  nuevas del esquema `public` dejan de exponerse solas: por defecto en los proyectos nuevos desde el 2026-05-30 y en
+  todos desde el 2026-10-30. Hasta entonces, un proyecto antiguo da permisos automáticos a `anon` y `authenticated`.
+- Todas las tablas de la app tienen Row Level Security desde su migración y ninguna política: aunque un rol tuviera
+  permiso sobre una tabla, no vería ni cambiaría ninguna fila. La app no usa esa API: entra como `postgres`, el
+  propietario de las tablas, al que Row Level Security no se aplica.
+- La API de datos se puede apagar entera en su página de integración («Enable Data API»): entonces no responde
+  ninguna de sus direcciones, tengan permisos o no. Que Storage siga funcionando con ella apagada es **no
+  verificado** (Storage es otro servicio): si se apaga, se comprueba después que se suben archivos.
+- **Advisors › Security Advisor** revisa el proyecto (también `supabase db advisors` con la CLI). Lo que importa: sin
+  errores (por ejemplo, `rls_disabled_in_public`, una tabla de `public` sin Row Level Security) ni avisos (por
+  ejemplo, `extension_in_public`: las extensiones de la app van en el esquema `extensions`). El aviso informativo
+  `rls_enabled_no_policy` («RLS Enabled No Policy») sale en cada una de las 54 tablas y es lo que se busca: nadie
+  entra por la API de datos. **Nunca se añaden políticas para quitarlo**: una política abre filas a esa API.
+
+### Storage
+
+- La app guarda los archivos en el bucket **privado** `dominia-archivos`, que crea ella la primera vez
+  (`createBucket` con `public: false`) con supabase-js (2.116.0) y la clave secreta. Sube con `upsert`, descarga y
+  borra; nunca pide direcciones públicas ni firmadas para servir un archivo: los sirve `/api/files/…` tras comprobar
+  el permiso. Si el bucket existe y es público, se niega a guardar nada en él con un error que lo explica. En Vercel
+  sin `SUPABASE_URL` y `SUPABASE_SECRET_KEY`, también se niega: el disco de una función no conserva archivos.
+- En un bucket privado todas las operaciones pasan por Row Level Security; sin políticas en `storage.objects`, Storage
+  no deja subir nada a nadie salvo a quien tiene la clave secreta, que se salta las políticas.
+- El tamaño máximo de un archivo es global del proyecto (50 MB en Free; en Pro hasta 500 GB) y cada bucket puede
+  bajarlo. Los documentos de WhatsApp llegan a 100 MB (`docs/integracion-whatsapp-mensajes.md` §10.3): en Pro conviene
+  subir el límite global a 100 MB.
+- Las copias de la base no llevan los archivos de Storage (solo sus metadatos). Pasarlos a otro proyecto se hace con un
+  script de supabase-js, como explica la guía de Supabase para migrar Storage.
+- Para las subidas grandes desde el navegador (más de 4,5 MB en Vercel), supabase-js tiene direcciones firmadas de
+  subida (`createSignedUploadUrl` y `uploadToSignedUrl`): no se usan todavía.
+
+### Cron
+
+- Supabase Cron es un módulo de Postgres sobre `pg_cron`. Se configura en **Integrations › Cron** (o con SQL) y cada
+  trabajo puede ejecutar SQL, una función de la base, una petición HTTP a cualquier dirección o una función Edge. Va
+  de cada segundo a una vez al año; Supabase recomienda como mucho 8 trabajos a la vez y que ninguno dure más de 10
+  minutos.
+- En el panel: **Create job** abre «Create a new cron job», con **Name** (no se puede cambiar después), la
+  programación (sintaxis cron o lenguaje natural) y el tipo. Con **HTTP Request**: **Method** (GET o POST),
+  **Endpoint URL**, **Timeout** (en ms; 1.000 si no se cambia) y **HTTP Headers** (**Add header**). **History**, junto al
+  trabajo, enseña cada ejecución, y su interruptor lo pausa. Comprobado en el código del panel de Supabase
+  (`apps/studio/…/Integrations/CronJobs/`), no solo en su documentación.
+- La petición la hace `pg_net`, de forma asíncrona: sale cuando termina la transacción del trabajo, y la respuesta se
+  guarda 6 horas en `net._http_response` (`status_code`, `error_msg`, `created`…). Por SQL, `net.http_post` espera 2 s
+  por defecto (`timeout_milliseconds`). Admite hasta unas 200 peticiones por segundo.
+- El trabajo de la app: `POST https://<dominio de producción>/api/cron/tick` cada minuto (`* * * * *`), cabecera
+  `Authorization: Bearer <CRON_SECRET>` y 5.000 ms de espera. La ruta responde 202 al momento y trabaja en `after()`.
+- `CRON_SECRET` queda escrito en la definición del trabajo, dentro de la base: lo ve quien entra en el proyecto (o en
+  una copia de la base). Solo permite lanzar `tick()`, que se puede repetir sin efecto; se usa uno largo y aleatorio y
+  se cambia si se filtra.
+- Otras formas, si hiciera falta (comprobadas el 26-09-2026): cron-job.org (gratis, cada minuto, admite la cabecera
+  `Authorization` y corta a los 30 s) y Vercel Cron en Pro (exige cambiar `vercel.json` y su prueba).
+
+### Copias de seguridad
+
+- **Free:** sin copias automáticas. Supabase recomienda exportar con la CLI (`supabase db dump`, que ejecuta `pg_dump`
+  en un contenedor: necesita Docker) y guardar las copias fuera. Con la dirección del «Session pooler», en tres
+  archivos: los roles (`--role-only`), el esquema y los datos (`--use-copy --data-only`, sin
+  `storage.buckets_vectors` ni `storage.vector_indexes`). Se restauran con `psql` en una sola transacción.
+- **Pro:** copias diarias de los últimos 7 días (Team, 14; Enterprise, hasta 30), que se restauran desde **Database ›
+  Backups**. El proyecto no responde mientras se restaura, más tiempo cuanto más grande es la base.
+- **PITR** (volver a un momento concreto): complemento de pago de Pro, Team y Enterprise, que además exige al menos el
+  tamaño de servidor Small; 7 días cuestan unos 100 USD al mes.
+- Los archivos de Storage no entran en ninguna de estas copias.
+
+### Servidor MCP
+
+- El servidor MCP de Supabase deja a un agente de código consultar y cambiar un proyecto. Se limita a uno solo con
+  `project_ref=<ref>` en su dirección (y entonces no ve la cuenta) y a solo lectura con `read_only=true`, que ejecuta
+  cada consulta con un usuario de Postgres de solo lectura. Por ejemplo:
+  `https://mcp.supabase.com/mcp?project_ref=<ref>&read_only=true`.
+- Supabase avisa de que lo que los usuarios escriben en la base puede traer instrucciones escondidas para el agente, y
+  recomienda conectarse a producción solo cuando haga falta, con esas dos limitaciones, y revisar cada llamada.
+
+### Contrato de encargo del tratamiento
+
+- El DPA de Supabase forma parte de su contrato: rige desde que se aceptan sus condiciones e incluye las cláusulas tipo
+  para las transferencias. Lo firma Supabase Pte. Ltd. (Singapur). Si hace falta una copia firmada aparte, se pide a
+  Supabase (**a comprobar** cómo).
+- Su lista de subencargados está publicada, con aviso de cambios por suscripción.
+
+## Base integrada (PGlite)
+
+- Es Postgres 18.3 compilado a WebAssembly (`@electric-sql/pglite` 0.5.8), dentro del proceso de Node, con pgvector
+  0.8.1 (`@electric-sql/pglite-pgvector` 0.0.9) y `unaccent`. No necesita cuentas, servidor ni Docker: con él
+  arrancan la demo de un clon limpio y todas las pruebas. Comprobado con los paquetes instalados.
+- Con `DATABASE_URL` vacía, la demo guarda la base en `data/pglite` (con el antiguo `file:./data/local.db` de SQLite,
+  también). Las pruebas de Vitest usan una en memoria por archivo, y las de Playwright, `data/e2e-pglite`,
+  `data/e2e-fresh-pglite` y `data/e2e-restaurante-pglite`.
+- **Un solo proceso por carpeta.** PGlite no lo impide por sí mismo, así que la app deja un candado junto a la carpeta
+  (`data/pglite.lock`, con el número del proceso): un segundo proceso se niega con «La base local (data/pglite) está
+  abierta en otro proceso (¿pnpm dev en marcha?). Ciérralo y vuelve a probar.». Por eso `pnpm dev`, `pnpm worker`,
+  `pnpm db:reset` y `pnpm db:fresh` no pueden usarla a la vez. Un negocio real va publicado, con Supabase (y, en un
+  servidor propio, la app y `pnpm worker` con Supabase).
+- No guarda el `search_path`: la app ejecuta `SET search_path TO public, extensions` al abrirla (sin él, `halfvec` y
+  `<=>` no existen).
+- Mientras una transacción está abierta, cualquier otra consulta de la misma instancia espera a que termine: dentro de
+  una transacción, todo con `tx` (con `db` se quedaría colgada para siempre).
+- Tiempos medidos: arrancar en memoria, ~1,1 s; copiar una base en memoria, ~230 ms; guardar su carpeta en un archivo
+  (`dumpDataDir`), ~40 ms; abrir una en memoria desde ese archivo (`loadDataDir`), ~180 ms sola y unos 0,4 s por
+  archivo de prueba (más con el ordenador cargado); una carpeta nueva en disco, ~1,4 s.
+- Se copia como cualquier carpeta, con la app parada. Nunca se abre en Vercel: allí la base es Supabase.
 
 ## Futuro: VPS con Dokploy
 
@@ -370,13 +408,15 @@ propia ruta, junto a `get()`.
 
   `web` y `worker` dependen de `migrate` con `condition: service_completed_successfully`, que Docker define
   como «la dependencia debe terminar con éxito antes de arrancar el servicio que depende de ella».
+- La base de datos es la de Supabase, por el «Session pooler» (puerto 5432, IPv4), la que Supabase propone para
+  servidores que siguen encendidos cuando no hay IPv6. Nunca la base integrada: `web` y `worker` son dos procesos.
 - Sin `ports:`: se usa `expose` y el dominio se configura en la pestaña Domains, desde donde Dokploy añade las
   etiquetas de Traefik. Sin `container_name`, porque dos instalaciones en el mismo servidor chocarían. Para
   varias instalaciones, Dokploy tiene «Isolated Deployments», que crea una red por aplicación y conecta
   Traefik a ella.
-- Los datos (`data/`: base SQLite y archivos) van en un volumen con nombre compartido por los tres servicios.
-  Las copias de volúmenes de Dokploy solo funcionan con volúmenes con nombre, y Dokploy avisa de que las rutas
-  absolutas del servidor se limpian en los despliegues.
+- Los archivos, en Supabase Storage (con `SUPABASE_URL` y `SUPABASE_SECRET_KEY`) o en un volumen con nombre para
+  `data/uploads` compartido por `web` y `worker`. Las copias de volúmenes de Dokploy solo funcionan con volúmenes con
+  nombre, y Dokploy avisa de que las rutas absolutas del servidor se limpian en los despliegues.
 - Variables: Dokploy escribe las de su pestaña Environment en un `.env`, pero **no las pasa a los
   contenedores**. Cada una se referencia en el compose con `${VAR}` (o se usa `env_file: .env`). La forma
   `${VAR:?mensaje}` hace fallar el despliegue si falta, que es mejor que arrancar sin clave.
@@ -409,25 +449,24 @@ subdominio propio con Let's Encrypt.
 
 ### Copias de seguridad
 
-- Las copias de volúmenes de Dokploy suben los volúmenes con nombre a un destino S3 (AWS S3, Cloudflare R2,
-  Backblaze B2 o Google Cloud Storage), con horario tipo cron. Tienen la opción de parar el contenedor
-  mientras copian, que Dokploy recomienda para no corromper datos. Para restaurar, el volumen de destino no
-  puede existir.
-- Una base SQLite copiada mientras se escribe puede quedar corrupta: o se para el contenedor durante la copia
-  (un rato sin servicio, de madrugada) o se hace antes una copia consistente con SQLite y se sube esa.
+- La base: las de Supabase (ver «Supabase › Copias de seguridad»).
+- Si los archivos van en un volumen del servidor: las copias de volúmenes de Dokploy suben los volúmenes con nombre a
+  un destino S3 (AWS S3, Cloudflare R2, Backblaze B2 o Google Cloud Storage), con horario tipo cron. Tienen la opción
+  de parar el contenedor mientras copian. Para restaurar, el volumen de destino no puede existir.
 - `APP_ENCRYPTION_KEY` se guarda fuera del servidor y fuera del mismo cubo que las copias: sin ella, los
   secretos de la copia son ilegibles; junto a ella, una copia filtrada lo expone todo.
 
 ### Nunca «Fresh Volumes»
 
 Desde la versión 0.30.5 (02-09-2026), los Compose de Dokploy tienen un botón «Fresh Volumes» (su diálogo se
-titula «Deploy with Fresh Volumes») que ejecuta `docker compose down --volumes` antes de desplegar: borra la
-base de datos y los archivos. La API tiene la misma opción (`freshVolumes`). No se usa nunca en una
+titula «Deploy with Fresh Volumes») que ejecuta `docker compose down --volumes` antes de desplegar: borra los volúmenes,
+y con ellos los archivos que se guarden ahí. La API tiene la misma opción (`freshVolumes`). No se usa nunca en una
 instalación real; los datos solo vuelven desde una copia.
 
 ## Fuentes
 
-Consultadas el 26-09-2026. Entre paréntesis, la fecha de actualización que indica la propia fuente.
+Consultadas el 26-09-2026 (Vercel, Next.js, pnpm, Dokploy, Docker, GitHub, Meta, Hostinger y cron-job.org) y el
+27-09-2026 (Supabase y PGlite). Entre paréntesis, la fecha de actualización que indica la propia fuente.
 
 - Vercel, plan Hobby (14-09-2026): https://vercel.com/docs/plans/hobby
 - Vercel, normas de uso justo y uso comercial (14-09-2026): https://vercel.com/docs/limits/fair-use-guidelines
@@ -447,11 +486,6 @@ Consultadas el 26-09-2026. Entre paréntesis, la fecha de actualización que ind
 - Vercel, variables Sensitive (28-08-2026): https://vercel.com/docs/environment-variables/sensitive-environment-variables
 - Vercel, regiones de las funciones (11-08-2026): https://vercel.com/docs/functions/configuring-functions/region
 - Vercel, enviar correo desde Vercel (24-09-2026): https://vercel.com/kb/guide/sending-emails-from-an-application-on-vercel
-- Vercel Blob (26-08-2026): https://vercel.com/docs/vercel-blob
-- Vercel Blob, almacenamiento privado (15-09-2026): https://vercel.com/docs/vercel-blob/private-storage
-- Vercel Blob, SDK (26-08-2026): https://vercel.com/docs/vercel-blob/using-blob-sdk
-- Vercel Blob, subidas de cliente (15-09-2026): https://vercel.com/docs/vercel-blob/client-upload
-- Vercel Blob, precios y límites (23-09-2026): https://vercel.com/docs/vercel-blob/usage-and-pricing
 - Next.js 16.3.6, `after` (13-03-2026): https://nextjs.org/docs/app/api-reference/functions/after
 - Next.js 16.3.6, `serverExternalPackages` (05-12-2025): https://nextjs.org/docs/app/api-reference/config/next-config-js/serverExternalPackages
 - Next.js 16.3.6, `output` y `outputFileTracingIncludes` (08-10-2025): https://nextjs.org/docs/app/api-reference/config/next-config-js/output
@@ -459,25 +493,31 @@ Consultadas el 26-09-2026. Entre paréntesis, la fecha de actualización que ind
 - Next.js 16.3.6, alojamiento propio (25-08-2026): https://nextjs.org/docs/app/guides/self-hosting
 - `ffmpeg-static` 5.3.0 en npm (código y `package.json`): https://registry.npmjs.org/ffmpeg-static/latest y https://github.com/eugeneware/ffmpeg-static
 - pnpm, ajustes de build (documentación de la versión 12): https://pnpm.io/settings/build
-- Turso Cloud: https://docs.turso.tech/turso-cloud
-- Turso, quickstart y `--tursodb`: https://docs.turso.tech/quickstart
-- Turso, libSQL: https://docs.turso.tech/libsql
-- Turso, extensiones precargadas (FTS5): https://docs.turso.tech/features/sqlite-extensions
-- Turso, vectores: https://docs.turso.tech/features/ai-and-embeddings
-- Turso, extensiones del motor nuevo (FTS con Tantivy): https://docs.turso.tech/sql-reference/extensions
-- Turso, CLI `db create`, `db show`, `db tokens create`, `db locations`, `group create`, `group unarchive`: https://docs.turso.tech/cli/db/create, https://docs.turso.tech/cli/db/show, https://docs.turso.tech/cli/db/tokens/create, https://docs.turso.tech/cli/db/locations, https://docs.turso.tech/cli/group/create, https://docs.turso.tech/cli/group/unarchive
-- Turso, API de ubicaciones: https://docs.turso.tech/api-reference/locations/list
-- Turso, autenticación y URL: https://docs.turso.tech/sdk/authentication
-- Turso, referencia TypeScript: https://docs.turso.tech/sdk/ts/reference
-- Turso, limitaciones de Turso Cloud: https://docs.turso.tech/cloud/limitations
-- Turso, uso y facturación (`BLOCKED`): https://docs.turso.tech/help/usage-and-billing
-- Turso, precios: https://turso.tech/pricing
-- Turso, Drizzle: https://docs.turso.tech/sdk/ts/orm/drizzle
+- Supabase, precios y planes: https://supabase.com/pricing
+- Supabase, conectar con Postgres (tipos de conexión, IPv4/IPv6, sentencias preparadas, SSL): https://supabase.com/docs/guides/database/connecting-to-postgres
+- Supabase, Drizzle (`prepare: false`, «Shared Pooler»): https://supabase.com/docs/guides/database/drizzle
+- Supabase, cambiar la contraseña de la base: https://supabase.com/docs/guides/troubleshooting/how-do-i-reset-my-supabase-database-password-oTs5sB
+- Supabase, claves de la API: https://supabase.com/docs/guides/api/api-keys
+- Supabase, API de datos y permisos: https://supabase.com/docs/guides/api/securing-your-api
+- Supabase, novedades (tablas que dejan de exponerse, 2026-04-28; Postgres 17): https://supabase.com/changelog.md y https://supabase.com/changelog/45827-deprecation-notice-support-for-postgres-14-ending-on-1st-july-2026
+- Supabase, asesores (Security Advisor y avisos `rls_enabled_no_policy`, `rls_disabled_in_public`, `extension_in_public`): https://supabase.com/docs/guides/database/database-advisors
+- Supabase, regiones: https://supabase.com/docs/guides/platform/regions y https://supabase.com/docs/guides/troubleshooting/change-project-region-eWJo5Z
+- Supabase, RGPD (región concreta de la UE, DPA): https://supabase.com/docs/guides/security/gdpr-compliance
+- Supabase, pausa del plan gratuito: https://supabase.com/docs/guides/platform/free-project-pausing
+- Supabase, copias de seguridad y PITR: https://supabase.com/docs/guides/platform/backups
+- Supabase, copiar y restaurar con la CLI: https://supabase.com/docs/guides/platform/migrating-within-supabase/backup-restore y https://supabase.com/docs/reference/cli/supabase-db-dump
+- Supabase Storage, límites de tamaño: https://supabase.com/docs/guides/storage/uploads/file-limits
+- Supabase Storage, control de acceso: https://supabase.com/docs/guides/storage/security/access-control
+- Supabase Storage, crear buckets: https://supabase.com/docs/guides/storage/buckets/creating-buckets
+- supabase-js, direcciones firmadas de subida: https://supabase.com/docs/reference/javascript/storage-from-createsigneduploadurl
+- Supabase Cron: https://supabase.com/docs/guides/cron y https://supabase.com/docs/guides/cron/quickstart
+- Panel de Supabase, formulario de los trabajos de cron (código): https://github.com/supabase/supabase/tree/master/apps/studio/components/interfaces/Integrations/CronJobs
+- Supabase, `pg_net`: https://supabase.com/docs/guides/database/extensions/pg_net
+- Supabase, servidor MCP: https://supabase.com/docs/guides/getting-started/mcp
+- Supabase, integración del Marketplace de Vercel: https://supabase.com/docs/guides/integrations/vercel-marketplace
+- Supabase, contrato de encargo (DPA) y subencargados: https://supabase.com/legal/dpa y https://supabase.com/legal/customer-resources/subprocessor-list
+- PGlite: https://pglite.dev/docs/about
 - cron-job.org, preguntas frecuentes: https://cron-job.org/en/faq/
-- GitHub Actions, evento `schedule`: https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows
-- Upstash QStash, programaciones: https://upstash.com/docs/qstash/features/schedules
-- Upstash QStash, reenviar cabeceras: https://upstash.com/docs/qstash/howto/publishing
-- Upstash QStash, precios: https://upstash.com/pricing/qstash
 - Dokploy, instalación: https://docs.dokploy.com/docs/core/installation
 - Dokploy, guía de producción: https://docs.dokploy.com/docs/core/guides/production-hardening
 - Dokploy, Docker Compose: https://docs.dokploy.com/docs/core/docker-compose

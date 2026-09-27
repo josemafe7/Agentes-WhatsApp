@@ -9,7 +9,7 @@
 // one entry in the activity log says how much went, without anything personal. System code (no actor).
 import "server-only";
 import { subMonths } from "date-fns";
-import { and, asc, eq, gt, inArray, isNotNull, isNull, like, lt, ne, notInArray, or, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, ne, notInArray, or, type SQL } from "drizzle-orm";
 import { writeAudit } from "@/data/audit";
 import { loadBusinessSettings } from "@/data/settings";
 import { db } from "@/db";
@@ -34,6 +34,7 @@ import { getRealtime, type Realtime } from "@/server/adapters/realtime";
 import { deleteKv, getKv, setKv } from "@/server/kv";
 import { transcribedAtOf } from "@/server/media/metadata";
 import { safeErrorMessage } from "@/server/redact";
+import { jsonTextContains } from "@/server/sql-helpers";
 
 export const RETENTION_JOB = "compliance.retention";
 const RETENTION_JOB_KEY = "compliance.retention";
@@ -42,7 +43,7 @@ export const RETENTION_INTERVAL_MS = 24 * 60 * 60_000;
 const ROUND_KV_KEY = "compliance.retention.round";
 /** The last round that finished, with what it did. */
 export const LAST_ROUND_KV_KEY = "compliance.retention.last_round";
-/** No batch starts with less time than this left: deleting files may go to Vercel Blob. */
+/** No batch starts with less time than this left: deleting files may go to Supabase Storage. */
 export const MIN_BATCH_MS = 10_000;
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -186,7 +187,7 @@ async function stillUsed(fileKey: string, ids: readonly string[]): Promise<boole
   const rows = await db
     .select({ media: messages.media })
     .from(messages)
-    .where(and(like(messages.media, `%${JSON.stringify(fileKey)}%`), notInArray(messages.id, [...ids])))
+    .where(and(jsonTextContains(messages.media, JSON.stringify(fileKey)), notInArray(messages.id, [...ids])))
     .limit(SHARED_FILE_LOOKUP);
   return rows.some((row) => row.media?.fileKey === fileKey);
 }

@@ -8,11 +8,6 @@ export type SearchOptions = {
   kbs: readonly KbScope[];
   /** Default 40 ([CON-16]). */
   limit?: number;
-  /**
-   * Text search only: longer words also match as prefixes, and a final «s» is dropped first, so «tintes» finds
-   * «tinte» (FTS5 has no Spanish stemming, docs/busqueda-hibrida.md §3). Off by default.
-   */
-  prefix?: boolean;
 };
 
 /** Ranked result: higher `score` is better. Only ids and scores, never the embeddings ([CON-19]). */

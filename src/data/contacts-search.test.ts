@@ -48,6 +48,16 @@ describe("buscar sin tildes en Contactos [CTO-01]", () => {
     expect(await found("jesus")).toEqual([]);
   });
 
+  it("what the person types is found as it is: «%», «_» and «\\» are not wildcards, nor an error", async () => {
+    await createContact(owner.actor, { name: "Ana 50% dto" });
+    await createContact(owner.actor, { name: "Ana 501" });
+    await createContact(owner.actor, { name: "Luis_Gil" });
+    await createContact(owner.actor, { name: "Luis Gil" });
+    expect(await found("50%")).toEqual(["Ana 50% dto"]);
+    expect(await found("LUIS_")).toEqual(["Luis_Gil"]);
+    expect(await found("\\")).toEqual([]);
+  });
+
   it("keeps it current when the contact changes, and when two contacts are merged", async () => {
     const { id } = await createContact(owner.actor, { name: "José" });
     await updateContact(owner.actor, id, { name: "María Ángeles" });

@@ -22,7 +22,8 @@ Datos comprobados el 26-09-2026:
 - `after()` es estable desde Next.js 15.1, funciona con el servidor de Node y en Docker, y en Vercel se apoya
   en `waitUntil` con el mismo tope de duración que la ruta
   (https://nextjs.org/docs/app/api-reference/functions/after; `docs/plataforma-despliegue.md`).
-- Varias piezas necesitan Node: `@libsql/client` con `file:` usa el módulo nativo `libsql`, `ffmpeg-static`
+- Varias piezas necesitan Node: `@libsql/client` con `file:` usa el módulo nativo `libsql` (ver 0024: hoy la base
+  integrada es PGlite, en WebAssembly, que también va fuera del empaquetado), `ffmpeg-static`
   ejecuta un binario, e ImapFlow y Nodemailer abren conexiones TCP. Next.js ya deja fuera del empaquetado
   `@libsql/client` y `libsql`, pero `ffmpeg-static` hay que añadirlo a `serverExternalPackages`
   (https://nextjs.org/docs/app/api-reference/config/next-config-js/serverExternalPackages;
@@ -39,7 +40,7 @@ Datos comprobados el 26-09-2026:
 
 - **Next.js con runtime de Node en todas las rutas.**
 - **Next.js con algunas rutas en runtime Edge:** el runtime Edge no puede cargar los módulos nativos ni abrir
-  las conexiones que necesitan libSQL en local, ffmpeg o ImapFlow.
+  las conexiones que necesitan libSQL en local (ver 0024), ffmpeg o ImapFlow.
 - **Otro framework:** la plantilla y toda su documentación están escritas para Next.js
   (`docs/interview.md`).
 

@@ -224,8 +224,9 @@ En el agente, pestaña **Conocimiento** › «Archivos de contexto»:
 En la base, la pestaña **«Probar búsqueda»** busca como lo hará el agente, sin gastar en el modelo de chat:
 escribe una pregunta y verás los fragmentos numerados que encontraría (título, sección y página), con su
 puntuación, o **«Nada relevante»** si no hay nada que responda a eso (entonces el agente diría que no lo sabe). No
-distingue mayúsculas ni tildes: «depilacion» encuentra «depilación». Si la búsqueda ha ido solo por palabras (sin
-clave, o con documentos sin embeddings todavía), lo dice.
+distingue mayúsculas ni tildes, y encuentra otras formas de la misma palabra: «depilacion» encuentra «depilación», y
+«tintes», «tinte». Si la búsqueda ha ido solo por palabras (sin clave, o con documentos sin embeddings todavía), lo
+dice.
 
 [Captura: «Probar búsqueda» con los resultados numerados y sus puntuaciones]
 

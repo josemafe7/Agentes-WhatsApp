@@ -3,14 +3,16 @@
 // wherever a message is stored or its text changes (inbound, outbound, drafts, mailbox replies, the demo), and the
 // inbox compares the search, normalized the same way, with it. It is a copy of what was said: retention clears it with
 // the text ([CUM-05]) and erasing a contact deletes it with the messages ([CTO-07]). Portable: a plain LIKE on a column,
-// no functions of SQLite (docs/conventions.md). The messages written before the column existed are filled once by
-// backfillMessageSearchText(), which the server starts in the background (src/instrumentation.ts).
+// with what the person typed escaped so it matches literally (src/server/sql-helpers.ts). The messages written before
+// the column existed are filled once by backfillMessageSearchText(), which the server starts in the background
+// (src/instrumentation.ts).
 import "server-only";
-import { and, asc, eq, gt, isNotNull, isNull, like, or, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, ilike, isNotNull, isNull, like, or, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { messages } from "@/db/schema";
 import { normalizeForMatch } from "@/server/engine/rules";
 import { getKv, setKv } from "@/server/kv";
+import { containing } from "@/server/sql-helpers";
 
 /** The text of a message in lower case and without accents, or null when it has none. */
 export function messageSearchText(text: string | null | undefined): string | null {
@@ -19,12 +21,12 @@ export function messageSearchText(text: string | null | undefined): string | nul
 }
 
 /**
- * A message matches a search by its search text, and also by its plain text as before: a message the one-time
- * backfill has not reached yet is still found, just not without accents.
+ * A message matches a search by its search text, and also by its plain text as before (without case, ILIKE): a message
+ * the one-time backfill has not reached yet is still found, just not without accents.
  */
 export function messageSearchCondition(search: string): SQL {
   const normalized = normalizeForMatch(search);
-  return or(...(normalized ? [like(messages.searchText, `%${normalized}%`)] : []), like(messages.text, `%${search}%`)) as SQL;
+  return or(...(normalized ? [like(messages.searchText, containing(normalized))] : []), ilike(messages.text, containing(search))) as SQL;
 }
 
 // ─── One-time backfill ──────────────────────────────────────────────────────────────────────────────────

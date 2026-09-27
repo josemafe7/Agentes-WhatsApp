@@ -110,7 +110,7 @@ describe("every call is checked and logged [HER-02] [HER-03] [SEG-10]", () => {
       description: "Falla",
       parameters: z.object({}),
       execute: async () => {
-        throw new Error("SQLITE_BUSY at /secret/path token=abc");
+        throw new Error("canceling statement due to lock timeout at /secret/path token=abc");
       },
     });
     const outcome = await executeToolCall(new Map([[failing.name, failing]]), call("falla", {}), context());

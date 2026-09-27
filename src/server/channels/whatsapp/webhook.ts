@@ -18,6 +18,7 @@ import { timingSafeEqualStr } from "@/server/crypto";
 import { ingestEvents } from "@/server/inbound/ingest";
 import { getKv, setKv } from "@/server/kv";
 import { safeErrorMessage } from "@/server/redact";
+import { storableJson } from "@/server/storable-text";
 import type { ChannelRecord, NormalizedEvent } from "../types";
 import { applyAccountChange, applyMessagesErrors, channelsForAccountChange } from "./account-events";
 import { readWhatsAppSecrets } from "./config";
@@ -174,10 +175,13 @@ async function candidateChannels(routing: { phoneNumberIds: string[]; wabaIds: s
   return db.select().from(channels).where(and(eq(channels.type, "whatsapp"), eq(channels.isDemo, false), or(...conditions)));
 }
 
-/** The JSON of verified bytes, or undefined when they are not UTF-8 JSON. */
+/**
+ * The JSON of verified bytes, or undefined when they are not UTF-8 JSON. Storable from here on
+ * (src/server/storable-text.ts): a NUL character in a customer's text or name never makes the message fail when saved.
+ */
 function parseBody(raw: Uint8Array): unknown {
   try {
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw)) as unknown;
+    return storableJson(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw)) as unknown);
   } catch {
     return undefined;
   }

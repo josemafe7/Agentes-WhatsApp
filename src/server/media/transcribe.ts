@@ -10,6 +10,7 @@ import { DEFAULT_MODELS } from "@/lib/openrouter/default-models";
 import { isOpenRouterError, type OpenRouterErrorCode } from "@/lib/openrouter/errors";
 import type { TranscriptionResult } from "@/lib/openrouter/types";
 import { safeErrorMessage } from "@/server/redact";
+import { storableText } from "@/server/storable-text";
 import { convertToMp3WithFfmpeg, FFMPEG_TIMEOUT_MS, type FfmpegRunner } from "./ffmpeg";
 import { extensionForMime, MEDIA_LIMITS, transcriptionFormat } from "./limits";
 
@@ -142,7 +143,11 @@ export async function transcribeAudio(input: TranscribeInput, deps: TranscribeDe
       const remaining = deadline - clock();
       if (remaining <= 0) return { ok: false, reason: "failed" };
       const result = await attempt(input, deps, model, audio, Math.min(TRANSCRIPTION_TIMEOUT_MS, remaining));
-      if ("text" in result) return result.text.trim() ? { ok: true, text: result.text.trim(), model } : { ok: false, reason: "empty" };
+      if ("text" in result) {
+        // Storable (src/server/storable-text.ts): a NUL character in the transcript never stops saving it.
+        const text = storableText(result.text).trim();
+        return text ? { ok: true, text, model } : { ok: false, reason: "empty" };
+      }
       if (result.error !== "unexpected" && ACCOUNT_PROBLEM.has(result.error)) return { ok: false, reason: "failed" };
       if (result.error !== "unexpected" && FORMAT_REJECTED.has(result.error) && audio.format !== "mp3") {
         audio = await toMp3();

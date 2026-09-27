@@ -53,7 +53,7 @@ describe("the README [ARR-22]", () => {
     for (const [heading, topics] of [
       ["Conectar WhatsApp real", ["docs/guia-whatsapp.md", "Meta"]],
       ["Conectar el correo real", ["docs/guia-correo.md", "Gmail", "Outlook", "IMAP"]],
-      ["Despliegue", ["docs/guia-despliegue.md", "Vercel", "Turso", "Blob", "cron"]],
+      ["Despliegue", ["docs/guia-despliegue.md", "Vercel", "Supabase", "Storage", "cron"]],
       ["Paso a un negocio real", ["pnpm db:fresh", "docs/checklist-puesta-en-marcha.md"]],
     ] as const) {
       for (const topic of topics) expect(section(README, heading), `${heading}: ${topic}`).toContain(topic);
@@ -124,7 +124,7 @@ describe("the data processing contract template [CUM-09] [ARR-23]", () => {
 
   it("has the parts of an article 28 contract, with the services that process data and OpenRouter's privacy", () => {
     for (const heading of ["## Reunidos", "## Exponen", "## Cláusulas", "## Anexo I", "## Anexo II", "## Anexo III"]) expect(CONTRACT, heading).toContain(heading);
-    for (const topic of ["artículo 28", "RESPONSABLE", "ENCARGADO", "Subencargados", "Transferencias internacionales", "Violaciones de seguridad", "OpenRouter", "Turso", "Vercel", "Meta"]) {
+    for (const topic of ["artículo 28", "RESPONSABLE", "ENCARGADO", "Subencargados", "Transferencias internacionales", "Violaciones de seguridad", "OpenRouter", "Supabase", "Vercel", "Meta"]) {
       expect(CONTRACT, topic).toContain(topic);
     }
     expect(CONTRACT).toMatch(/prohíbe a los proveedores guardar o usar los datos/);
@@ -135,6 +135,22 @@ describe("skills for a coding agent [ARR-24]", () => {
   const AGENT_SKILLS = path.join(ROOT, ".agents", "skills");
   const CLAUDE_SKILLS = path.join(ROOT, ".claude", "skills");
   const SPEC_SKILLS = ["actualizar", "conectar-correo", "conectar-whatsapp", "crear-agente", "desplegar", "diagnostico", "nuevo-negocio"];
+  /** Skills installed from outside, listed in skills-lock.json: they keep their own format and this rule does not check them. */
+  const INSTALLED_SKILLS: ReadonlySet<string> = new Set(
+    fs.existsSync(path.join(ROOT, "skills-lock.json"))
+      ? Object.keys((JSON.parse(read("skills-lock.json")) as { skills?: Record<string, unknown> }).skills ?? {})
+      : [],
+  );
+  /** The project's own skills: every folder of .agents/skills that was not installed from outside. */
+  const ownSkillFolders = () =>
+    fs
+      .readdirSync(AGENT_SKILLS)
+      .filter((entry) => fs.statSync(path.join(AGENT_SKILLS, entry)).isDirectory() && !INSTALLED_SKILLS.has(entry))
+      .sort();
+
+  it("the lock file of installed skills never covers a skill of the specification", () => {
+    for (const spec of SPEC_SKILLS) expect(INSTALLED_SKILLS.has(spec), spec).toBe(false);
+  });
 
   /** `name` and `description` of the frontmatter, and the text after it. */
   function skill(file: string): { name: string | null; description: string | null; body: string } {
@@ -150,7 +166,7 @@ describe("skills for a coding agent [ARR-24]", () => {
   }
 
   it("the project has the skills of the specification, each with its SKILL.md: name = folder, and a description", () => {
-    const folders = fs.readdirSync(AGENT_SKILLS).filter((entry) => fs.statSync(path.join(AGENT_SKILLS, entry)).isDirectory()).sort();
+    const folders = ownSkillFolders();
     expect(folders).toEqual(expect.arrayContaining(SPEC_SKILLS));
     for (const folder of folders) {
       expect(folder).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
@@ -164,7 +180,7 @@ describe("skills for a coding agent [ARR-24]", () => {
   });
 
   it("each one has its Claude Code bridge with the same name and description and only the instruction to read it", () => {
-    const folders = fs.readdirSync(AGENT_SKILLS).filter((entry) => fs.statSync(path.join(AGENT_SKILLS, entry)).isDirectory());
+    const folders = ownSkillFolders();
     for (const folder of folders) {
       const bridgeDir = path.join(CLAUDE_SKILLS, folder);
       expect(fs.readdirSync(bridgeDir), folder).toEqual(["SKILL.md"]);
@@ -173,7 +189,7 @@ describe("skills for a coding agent [ARR-24]", () => {
       expect({ name: bridge.name, description: bridge.description }, folder).toEqual({ name: original.name, description: original.description });
       expect(bridge.body.trim(), folder).toBe(`Lee \`.agents/skills/${folder}/SKILL.md\` y sigue sus instrucciones. Las rutas que aparezcan en él parten de esa carpeta.`);
     }
-    // No bridge without its skill.
-    expect(fs.readdirSync(CLAUDE_SKILLS).sort()).toEqual(folders.sort());
+    // No bridge without its skill (the installed skills keep their own copy there, not a bridge).
+    expect(fs.readdirSync(CLAUDE_SKILLS).filter((entry) => !INSTALLED_SKILLS.has(entry)).sort()).toEqual(folders);
   });
 });

@@ -1,11 +1,12 @@
 // Better Auth 1.7.5 tables (email + password, twoFactor plugin, rate limit in the database).
 // Export keys and property names must match Better Auth's model and field names: it validates them at start-up.
-// Differences with `auth generate`: JS defaults instead of unixepoch() SQL defaults, and foreign keys without
-// ON DELETE CASCADE (the app deletes children explicitly, docs/conventions.md).
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+// Differences with `auth generate`: ids and timestamps set in JS (with provider "pg" and generateId "uuid" Better
+// Auth leaves the id to the database layer: our $defaultFn), and foreign keys without ON DELETE CASCADE (the app
+// deletes children explicitly, docs/conventions.md). Row Level Security on, without policies, like every table.
+import { bigint, index, integer, pgTable, text } from "drizzle-orm/pg-core";
 import { bool, id, timestamp, timestamps } from "./columns";
 
-export const user = sqliteTable("user", {
+export const user = pgTable("user", {
   id: id(),
   name: text("name").notNull(),
   /** Always stored lower-case: Better Auth lower-cases the email on sign-in. */
@@ -14,9 +15,9 @@ export const user = sqliteTable("user", {
   image: text("image"),
   ...timestamps(),
   twoFactorEnabled: bool("two_factor_enabled").default(false),
-});
+}).enableRLS();
 
-export const session = sqliteTable(
+export const session = pgTable(
   "session",
   {
     id: id(),
@@ -30,9 +31,9 @@ export const session = sqliteTable(
       .references(() => user.id),
   },
   (t) => [index("session_user_id_idx").on(t.userId)],
-);
+).enableRLS();
 
-export const account = sqliteTable(
+export const account = pgTable(
   "account",
   {
     id: id(),
@@ -53,9 +54,9 @@ export const account = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("account_user_id_idx").on(t.userId)],
-);
+).enableRLS();
 
-export const verification = sqliteTable(
+export const verification = pgTable(
   "verification",
   {
     id: id(),
@@ -65,10 +66,10 @@ export const verification = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("verification_identifier_idx").on(t.identifier)],
-);
+).enableRLS();
 
 /** TOTP secret and backup codes, encrypted by Better Auth with BETTER_AUTH_SECRET. */
-export const twoFactor = sqliteTable(
+export const twoFactor = pgTable(
   "two_factor",
   {
     id: id(),
@@ -83,14 +84,14 @@ export const twoFactor = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("two_factor_secret_idx").on(t.secret), index("two_factor_user_id_idx").on(t.userId)],
-);
+).enableRLS();
 
 /** Better Auth's own limiter for /api/auth/* (rateLimit.storage = "database"). Ours is `rate_limits`. */
-export const rateLimit = sqliteTable("rate_limit", {
+export const rateLimit = pgTable("rate_limit", {
   id: id(),
   key: text("key").notNull().unique(),
   count: integer("count").notNull(),
-  /** Plain epoch milliseconds (Better Auth compares numbers), not timestamp_ms. */
-  lastRequest: integer("last_request").notNull(),
+  /** Plain epoch milliseconds (Better Auth compares numbers), not a timestamp: bigint read back as a number. */
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
   ...timestamps(),
-});
+}).enableRLS();

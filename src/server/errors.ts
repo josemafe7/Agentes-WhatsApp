@@ -4,6 +4,7 @@ import "server-only";
 import { z } from "zod";
 import { fail, type ActionFailure } from "@/lib/action-result";
 import { safeErrorMessage } from "./redact";
+import { storableJson } from "./storable-text";
 
 export class AppError extends Error {
   constructor(
@@ -71,9 +72,12 @@ export class RateLimitError extends AppError {
   }
 }
 
-/** Validates untrusted input with Zod or throws a ValidationError with the messages of each field ([SEG-05]). */
+/**
+ * Validates untrusted input with Zod or throws a ValidationError with the messages of each field ([SEG-05]). The input
+ * is made storable first (src/server/storable-text.ts): a NUL character pasted into any form never makes the save fail.
+ */
 export function parseInput<T extends z.ZodType>(schema: T, input: unknown): z.infer<T> {
-  const result = schema.safeParse(input);
+  const result = schema.safeParse(storableJson(input));
   if (result.success) return result.data;
   const { fieldErrors, formErrors } = z.flattenError(result.error);
   const cleaned: Record<string, string[]> = {};

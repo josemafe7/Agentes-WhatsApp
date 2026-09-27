@@ -4,7 +4,7 @@
 import "server-only";
 import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "@/db";
+import { db, isUniqueViolation } from "@/db";
 import { agentContextFiles, kbChunks, kbDocuments, knowledgeBases, messageRetrievals } from "@/db/schema";
 import type { KbDocumentStatus, KbSourceType } from "@/lib/enums";
 import { can, PERMISSIONS, type Actor } from "@/lib/permissions";
@@ -174,11 +174,6 @@ async function assertNewChecksum(kbId: string, checksum: string, message: string
 }
 
 /** The unique index (kb_id, checksum) also stops a duplicate added at the same moment ([CON-14]). */
-function isUniqueViolation(error: unknown): boolean {
-  const text = error instanceof Error ? `${error.message} ${error.cause instanceof Error ? error.cause.message : ""}` : "";
-  return /UNIQUE constraint failed/i.test(text);
-}
-
 async function insertDocument(values: typeof kbDocuments.$inferInsert, duplicateMessage: string): Promise<{ id: string }> {
   try {
     const [row] = await db.insert(kbDocuments).values(values).returning({ id: kbDocuments.id });

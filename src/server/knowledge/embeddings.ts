@@ -1,7 +1,7 @@
 // Embeddings of chunks and queries ([CON-11], decision 0013): OpenRouter embeddings() in batches, always asking for
 // 1536 dimensions and rejecting any other size with a clear error. Each call is recorded in ai_runs with its cost.
 // Also the demo fixtures' format (docs/busqueda-hibrida.md §7): SHA-256 key of model + dims + text, and the vector
-// as little-endian float32 in base64 — the binary form of F32_BLOB.
+// as little-endian float32 in base64 (kb_chunks stores it as halfvec: Postgres rounds it to half precision).
 import "server-only";
 import { createHash } from "node:crypto";
 import { recordAiRun } from "@/data/ai-runs";

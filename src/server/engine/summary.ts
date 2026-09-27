@@ -16,6 +16,7 @@ import { catalogSupport } from "@/server/ai/models";
 import { getOpenRouterClient, isZdrEnabled, resolveDefaultModels } from "@/server/ai/openrouter";
 import { DEFAULT_HISTORY_MESSAGES } from "@/server/ai/prompt";
 import { safeErrorMessage } from "@/server/redact";
+import { storableText } from "@/server/storable-text";
 
 export const SUMMARY_JOB = "conversation.summary";
 /** Messages out of the window before the summary is brought up to date (fewer calls, same result). */
@@ -158,7 +159,8 @@ export async function processSummaryJob(payload: SummaryJobPayload, deps: { fetc
     failure = isOpenRouterError(error) ? error.userMessage : "El resumen ha fallado por un error inesperado.";
     if (!isOpenRouterError(error)) console.warn(`[engine] Fallo inesperado al resumir una conversación: ${safeErrorMessage(error)}`);
   }
-  const summary = result?.content?.trim().slice(0, SUMMARY_MAX_CHARS).trim() || null;
+  // Storable (src/server/storable-text.ts): a NUL character in what the model wrote never stops the summary.
+  const summary = storableText(result?.content ?? "").trim().slice(0, SUMMARY_MAX_CHARS).trim() || null;
   await recordAiRun({
     kind: "summary",
     mode: "live",

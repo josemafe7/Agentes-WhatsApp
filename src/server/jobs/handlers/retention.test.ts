@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
 import { appKv, auditLog, jobs } from "@/db/schema";
-import { LibsqlJobQueue } from "@/server/adapters/job-queue";
+import { PgJobQueue } from "@/server/adapters/job-queue";
 import { ensureRetentionJob, RETENTION_INTERVAL_MS, RETENTION_JOB } from "@/server/compliance/retention";
 import { createBusiness } from "@/test/factories";
 import { getJobRegistration } from "../registry";
@@ -20,7 +20,7 @@ beforeEach(async () => {
 
 describe("the daily clean-up job [CUM-05] [MOT-15]", () => {
   it("there is always exactly one, and asking for it again changes nothing", async () => {
-    const queue = new LibsqlJobQueue({ now: () => NOW });
+    const queue = new PgJobQueue({ now: () => NOW });
     const first = await ensureRetentionJob({ queue, now: NOW });
     const again = await ensureRetentionJob({ queue, now: NOW });
     expect(again).toMatchObject({ id: first.id, created: false });
@@ -30,7 +30,7 @@ describe("the daily clean-up job [CUM-05] [MOT-15]", () => {
   });
 
   it("runs in the queue, leaves its summary [CUM-06] and comes back a day later", async () => {
-    const queue = new LibsqlJobQueue({ now: () => NOW });
+    const queue = new PgJobQueue({ now: () => NOW });
     await ensureRetentionJob({ queue, now: NOW });
     const summary = await tick({ budgetMs: 60_000, queue });
     expect(summary.completed).toBe(1);
@@ -40,7 +40,7 @@ describe("the daily clean-up job [CUM-05] [MOT-15]", () => {
   });
 
   it("without time for a batch it starts nothing and tries again shortly", async () => {
-    const queue = new LibsqlJobQueue({ now: () => NOW });
+    const queue = new PgJobQueue({ now: () => NOW });
     await ensureRetentionJob({ queue, now: NOW });
     const [job] = await db.select().from(jobs).where(eq(jobs.type, RETENTION_JOB));
     const registration = getJobRegistration(RETENTION_JOB);

@@ -1,9 +1,12 @@
 // One parser for the three connectors (docs/integracion-correo.md §5, [COR-19]): mailparser reads the MIME message
 // (charsets with iconv-lite, HTML turned into text with html-to-text, attachments apart), and this file keeps what
 // the app needs: threading headers, addresses, the raw header values for the filters, the text and the attachments
-// (signature logos dropped). The email is DATA for the model, never instructions ([HER-09]).
+// (signature logos dropped). The email is DATA for the model, never instructions ([HER-09]). Nothing in it may stop the
+// mailbox: its text comes out storable (src/server/storable-text.ts), and an address or a date that cannot be real is
+// left out (the database could not keep some of them).
 import "server-only";
 import { simpleParser, type AddressObject, type Attachment, type EmailAddress } from "mailparser";
+import { storableJson } from "@/server/storable-text";
 import { MAX_ATTACHMENTS, MIN_INLINE_IMAGE_BYTES } from "./constants";
 
 /** HTML bigger than this is not converted whole (mailparser's own guard against huge bodies). */
@@ -11,6 +14,11 @@ const MAX_HTML_TO_PARSE = 2_000_000;
 const MAX_HEADER_VALUES = 20;
 const MAX_HEADER_VALUE = 2_000;
 const MAX_REFERENCES = 50;
+/** No email address is longer (RFC 5321); a longer one is no address (nor fits the index that finds a contact by it). */
+const MAX_ADDRESS = 254;
+/** A Date header before 1970 or after 9999 is no real date (and Postgres cannot store some of them). */
+const EARLIEST_DATE = Date.UTC(1970, 0, 1);
+const LATEST_DATE = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
 
 export type MailAddress = { address: string; name: string | null };
 
@@ -34,6 +42,7 @@ export type ParsedEmail = {
   replyTo: MailAddress[];
   to: MailAddress[];
   cc: MailAddress[];
+  /** Null when the message has none or it cannot be a real date. */
   date: Date | null;
   /** Raw values by lower-case header name, unfolded (for the filters). */
   headers: Record<string, string[]>;
@@ -49,8 +58,13 @@ function addresses(value: AddressObject | AddressObject[] | undefined): MailAddr
   const flat = (items: EmailAddress[]): EmailAddress[] => items.flatMap((item) => (item.group ? flat(item.group) : [item]));
   return list
     .flatMap((item) => flat(item.value))
-    .filter((item): item is EmailAddress & { address: string } => typeof item.address === "string" && item.address.includes("@"))
+    .filter((item): item is EmailAddress & { address: string } => typeof item.address === "string" && item.address.includes("@") && item.address.trim().length <= MAX_ADDRESS)
     .map((item) => ({ address: item.address.trim().toLowerCase(), name: item.name?.trim() || null }));
+}
+
+function realDate(date: Date | undefined): Date | null {
+  const time = date?.getTime() ?? Number.NaN;
+  return date && !Number.isNaN(time) && time >= EARLIEST_DATE && time <= LATEST_DATE ? date : null;
 }
 
 /** «<a@b>» with brackets, trimmed; null for anything that is not a single id. */
@@ -119,7 +133,7 @@ export async function parseRawEmail(raw: Buffer | Uint8Array | string): Promise<
   const references = splitMessageIds(mail.references ?? null);
   const fromAddresses = addresses(mail.from);
   const headers = rawHeaders(mail.headerLines);
-  return {
+  return storableJson<ParsedEmail>({
     messageId: normalizeMessageId(mail.messageId),
     inReplyTo: splitMessageIds(mail.inReplyTo ?? null)[0] ?? null,
     references,
@@ -129,7 +143,7 @@ export async function parseRawEmail(raw: Buffer | Uint8Array | string): Promise<
     replyTo: addresses(mail.replyTo),
     to: addresses(mail.to),
     cc: addresses(mail.cc),
-    date: mail.date && !Number.isNaN(mail.date.getTime()) ? mail.date : null,
+    date: realDate(mail.date),
     headers,
     text: (mail.text ?? "").trim(),
     attachments: kept.slice(0, MAX_ATTACHMENTS).map((attachment) => ({
@@ -140,5 +154,5 @@ export async function parseRawEmail(raw: Buffer | Uint8Array | string): Promise<
       inline: attachment.related === true || attachment.contentDisposition === "inline",
     })),
     droppedAttachments: kept.slice(MAX_ATTACHMENTS).map((attachment) => attachment.filename ?? attachment.contentType),
-  };
+  });
 }

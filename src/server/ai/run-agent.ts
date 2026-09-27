@@ -7,6 +7,7 @@ import { recordAiRun } from "@/data/ai-runs";
 import type { AgentHandoffConfig, AgentInstructions } from "@/db/schema";
 import type { AgentKnowledgeMode } from "@/lib/enums";
 import { prefetchKnowledge, withSystemSection } from "@/server/knowledge/agent-knowledge";
+import { storableText } from "@/server/storable-text";
 import { isOpenRouterError } from "@/lib/openrouter/errors";
 import { REASONING_EFFORTS, type ChatMessage, type ReasoningEffort } from "@/lib/openrouter/types";
 import { isWithinOpeningHours } from "@/lib/opening-hours";
@@ -238,7 +239,8 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
       generationId = response.id;
 
       if (response.toolCalls.length === 0) {
-        text = response.content?.trim() || (response.refusal ? REFUSAL_REPLY : null);
+        // Storable (src/server/storable-text.ts): a NUL character in what the model wrote never stops the reply.
+        text = storableText(response.content ?? "").trim() || (response.refusal ? REFUSAL_REPLY : null);
         if (text === null) throw new AgentRunError("empty_response", "El modelo ha devuelto una respuesta vacía.", true, null);
         break;
       }

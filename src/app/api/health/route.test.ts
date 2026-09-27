@@ -16,7 +16,7 @@ describe("/api/health [ARR-21]", () => {
     vi.resetModules();
     vi.doMock("@/server/adapters/database-health", () => ({
       pingDatabase: async () => {
-        throw new Error("unreachable libsql://secret-token@host");
+        throw new Error("unreachable postgresql://postgres.abcd:secret-token@aws-0-eu-west-1.pooler.supabase.com:6543/postgres");
       },
     }));
     const { GET: failingGet } = await import("./route");

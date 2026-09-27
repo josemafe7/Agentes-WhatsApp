@@ -1,4 +1,4 @@
-// Setup wizard on an empty installation (the «fresh» server: data/e2e-fresh.db with migrations only, no demo,
+// Setup wizard on an empty installation (the «fresh» server: data/e2e-fresh-pglite with migrations only, no demo,
 // DEMO_MODE=false), as after `pnpm db:fresh` ([ARR-17], [ASI-01]–[ASI-11]).
 // One test on purpose: the installation can be set up only once, so the steps share that single history.
 import type { Page } from "@playwright/test";

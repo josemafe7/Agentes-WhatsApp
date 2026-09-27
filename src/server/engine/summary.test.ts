@@ -120,6 +120,18 @@ describe("running summary of long conversations [MOT-13]", () => {
     expect(await scheduleSummaryIfNeeded(conversation.id)).toBe(false);
   });
 
+  it("a summary with a NUL character (or half a surrogate pair) is saved without it", async () => {
+    await history(20 + SUMMARY_BATCH);
+    const fake = fakeFetch(
+      routes({
+        "GET /models/user": () => jsonResponse({ data: sampleCatalog() }),
+        "POST /chat/completions": () => jsonResponse(chatCompletion({ content: "Ana\u0000 quiere mechas\ud800." })),
+      }),
+    );
+    expect(await processSummaryJob({ conversationId: conversation.id }, { fetchImpl: fake.fetch })).toBe("updated");
+    expect((await row()).summary).toBe("Ana quiere mechas�.");
+  });
+
   it("the next reply reads the summary instead of the folded messages", async () => {
     await history(20 + SUMMARY_BATCH);
     const fake = openRouter();

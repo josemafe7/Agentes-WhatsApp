@@ -36,7 +36,7 @@ export const HELP_GUIDES: readonly HelpGuide[] = [
   {
     slug: "despliegue",
     file: "guia-despliegue.md",
-    description: "Publicar la app en Vercel con Turso, Vercel Blob y el cron, y más adelante en un servidor propio.",
+    description: "Publicar la app en Vercel con Supabase (base de datos, archivos y cron), y más adelante en un servidor propio.",
   },
   {
     slug: "puesta-en-marcha",

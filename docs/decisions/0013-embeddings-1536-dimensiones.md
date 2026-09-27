@@ -18,7 +18,7 @@ Datos comprobados el 26-09-2026:
   (`docs/integracion-openrouter.md`, §6 y §9).
 - OpenRouter acepta el campo `dimensions`, pero que lo pase a todos los proveedores está **no verificado**: la
   app comprueba siempre que el resultado tiene 1536 números (`docs/integracion-openrouter.md`, §6).
-- libSQL guarda el vector en `F32_BLOB(1536)`. Con 1536 dimensiones, el índice vectorial con los ajustes por
+- libSQL guarda el vector en `F32_BLOB(1536)` (ver 0024: hoy la base es Postgres, con `halfvec(1536)`). Con 1536 dimensiones, el índice vectorial con los ajustes por
   defecto ocupa unos 708 KiB por fragmento; con `compress_neighbors=float8` y `max_neighbors=20`, unos 36 KiB.
   La compresión `float1bit` no sirve con los embeddings de OpenAI (`docs/busqueda-hibrida.md`, §2 y §9).
 - En Postgres, `halfvec(1536)` ocupa 3.080 bytes por vector, y el índice HNSW admite `halfvec` hasta 4.000
@@ -36,19 +36,20 @@ Datos comprobados el 26-09-2026:
 
 ## Decisión
 
-- El tamaño es **1536** en toda la instalación: `F32_BLOB(1536)` ahora y `halfvec(1536)` en Postgres.
+- El tamaño es **1536** en toda la instalación: `F32_BLOB(1536)` ahora y `halfvec(1536)` en Postgres (ver 0024: ya
+  solo `halfvec(1536)`).
 - Modelo por defecto: `openai/text-embedding-3-small`. Cada base de conocimiento guarda su modelo y sus
   dimensiones; cambiar el modelo obliga a reindexar la base entera, de forma atómica (`index_version`).
 - Se pide `dimensions: 1536` cuando el modelo lo admite, y un resultado de otro tamaño se rechaza con un error
   claro en español.
-- El índice vectorial se crea con `compress_neighbors=float8` y `max_neighbors=20`, y la columna del embedding
-  nunca se lee en las consultas normales.
+- El índice vectorial se crea con `compress_neighbors=float8` y `max_neighbors=20` (ver 0024: hoy es un índice HNSW
+  de pgvector), y la columna del embedding nunca se lee en las consultas normales.
 - La demo trae los embeddings calculados con el modelo por defecto (`seed/fixtures/embeddings.json`), y
   `pnpm seed:embeddings` los vuelve a calcular con clave.
 
 ## Consecuencias
 
-- Gana: el mismo tamaño vale en libSQL y en Postgres; el índice cabe en el plan gratuito de Turso para el
+- Gana: el mismo tamaño vale en libSQL y en Postgres; el índice cabe en el plan gratuito de Turso (ver 0024) para el
   tamaño de un negocio pequeño; la demo funciona sin clave.
 - Acepta: solo se pueden usar modelos que den 1536 dimensiones; los demás se rechazan al elegirlos.
 - Acepta: cambiar el tamaño en el futuro sería una decisión nueva con migración de la columna y reindexado de

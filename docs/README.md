@@ -13,7 +13,7 @@ leyendo solo esto.
 | `DESIGN.md`, en la raíz y solo si hay diseño | Las reglas del diseño: colores, tipografía, espaciado, bordes y componentes | Cuando cambia el diseño |
 | `docs/pantallas.md` | Qué pantallas tiene la app, para quién, qué se ve y se hace en cada una y cómo se pasa de una a otra | Cuando se añade o cambia una pantalla |
 | `docs/architecture.md` | Cómo está hecho el sistema y cómo encajan sus piezas | Con la primera versión y cuando cambia cómo está hecho |
-| `docs/modelo-de-datos.md` | Qué tablas guarda la app, sus campos clave y estados, qué no se puede repetir, qué se cifra y a qué reglas de la especificación sirve cada una; también cómo se evitan las dobles reservas, ahora y en Postgres | Cuando se añade o cambia una tabla o un campo importante |
+| `docs/modelo-de-datos.md` | Qué tablas guarda la app, sus campos clave y estados, qué no se puede repetir, qué se cifra y a qué reglas de la especificación sirve cada una; también cómo se evitan las dobles reservas | Cuando se añade o cambia una tabla o un campo importante |
 | `docs/security.md` | Cómo se cumple la seguridad, qué se revisa al publicar y después, y las excepciones aprobadas | Cuando cambia una tecnología o se aprueba una excepción |
 | `docs/conventions.md` | Cómo se crea el proyecto, cómo se consulta la documentación de las librerías y cómo se escribe y se organiza el código | Cuando cambia una tecnología o la organización del código |
 | `docs/testing.md` | Qué se prueba y cómo | Cuando cambia una herramienta de pruebas |
@@ -23,12 +23,12 @@ leyendo solo esto.
 | `docs/integracion-whatsapp-mensajes.md` | Cómo llegan los mensajes y los estados de WhatsApp, cómo se descargan los medios, cómo se envía y qué límites y precios hay | Cuando cambia la API de Meta o su forma de cobrar |
 | `docs/integracion-openrouter.md` | Todo lo que la app usa de OpenRouter: clave, modelos, chat con herramientas, audio, PDF, embeddings, rerank, errores y privacidad | Cuando cambia la API de OpenRouter o los modelos recomendados |
 | `docs/integracion-correo.md` | Los conectores de correo (Gmail, Outlook / Microsoft 365 e IMAP/SMTP): acceso, recepción, envío en el mismo hilo y filtros | Cuando cambian las API de Google o Microsoft o los servidores de correo |
-| `docs/busqueda-hibrida.md` | La búsqueda del conocimiento: vectores y FTS5 en libSQL, fusión de resultados, troceado, embeddings de la demo y su paso a Supabase | Cuando cambia la búsqueda o la base de datos |
+| `docs/busqueda-hibrida.md` | La búsqueda del conocimiento en Postgres: vectores con pgvector (`halfvec` y HNSW), texto con `tsvector` y `es_unaccent`, fusión de resultados, troceado y embeddings de la demo | Cuando cambia la búsqueda o la base de datos |
 | `docs/integracion-mistral-ocr.md` | El OCR de Mistral para los PDF escaneados del conocimiento: petición, límites y precio | Cuando cambia la API de Mistral |
-| `docs/plataforma-despliegue.md` | Dónde corre la app y con qué límites: Vercel, Vercel Blob, Turso, el cron externo y el futuro VPS con Dokploy | Cuando cambia la plataforma o sus límites |
+| `docs/plataforma-despliegue.md` | Dónde corre la app y con qué límites: Vercel, Supabase (base de datos, Storage, Cron, claves y copias), la base integrada de la demo y el futuro VPS con Dokploy | Cuando cambia la plataforma o sus límites |
 | `docs/notificaciones-push.md` | Los avisos push de la app instalada (PWA) con Web Push y claves VAPID, también en iPhone | Cuando cambia la forma de avisar |
 | `docs/integracion-telegram.md` | El canal opcional de Telegram: bot, avisos con secreto, archivos y límites | Cuando cambia la Bot API o se construye el canal |
-| `docs/guia-despliegue.md` (fase 0) | Guía paso a paso para publicar una instalación: Vercel con Turso, Blob y cron, y más adelante el VPS | Cuando cambia la forma de publicar |
+| `docs/guia-despliegue.md` (fase 0, rehecha en la fase 8) | Guía paso a paso para publicar una instalación: Vercel con Supabase (base de datos, archivos y cron), y más adelante el VPS | Cuando cambia la forma de publicar |
 | `docs/guia-whatsapp.md` (fase 3) | Guía para que el negocio conecte su número: portfolio y acceso de administrador para quien implanta, app de Meta, número, token, publicación, pago, límites y cuándo verificar la empresa, tope de 15 apps, prueba con el número de Meta y problemas frecuentes (contenido mínimo en [ARR-23]) | Cuando cambia el asistente de WhatsApp o Meta |
 | `docs/guia-correo.md` (fase 6) | Guía para conectar Gmail (Google Cloud), Outlook (Microsoft Entra) u otro servidor IMAP/SMTP, paso a paso | Cuando cambia el asistente de correo, Google o Microsoft |
 | `docs/guia-agentes-y-conocimiento.md` (fases 1 y 4) | Guía para crear, ajustar y probar agentes y darles el conocimiento del negocio: archivos de contexto, bases con documentos, webs y preguntas frecuentes, «Probar búsqueda» y las fuentes de cada respuesta | Cuando cambian los agentes o el conocimiento |
@@ -69,14 +69,14 @@ Las decisiones de hoy:
 |---|---|
 | 0001 | Una instalación por negocio (single-tenant) |
 | 0002 | Next.js con el runtime de Node en todas las rutas |
-| 0003 | Datos en libSQL (archivo local y Turso), Supabase en el futuro |
+| 0003 | Datos en libSQL (archivo local y Turso), Supabase en el futuro (sustituida por 0024) |
 | 0004 | Usuarios con Better Auth y roles en una tabla propia |
 | 0005 | IA con OpenRouter y un cliente propio, sin AI SDK |
 | 0006 | Solo pnpm |
 | 0007 | Publicación: solo en local, Vercel para pruebas después y un VPS con Dokploy en el futuro |
 | 0008 | Trabajo en segundo plano con la tabla `jobs` y `tick()` |
 | 0009 | Tiempo real por sondeo |
-| 0010 | Archivos en disco en local y en Vercel Blob privado al publicar |
+| 0010 | Archivos en disco en local y en Vercel Blob privado al publicar (sustituida por 0024) |
 | 0011 | WhatsApp con la Cloud API oficial de Meta como desarrollador directo |
 | 0012 | Correo con la API de Gmail, Microsoft Graph e IMAP/SMTP, con credenciales de cada negocio |
 | 0013 | Embeddings de 1536 dimensiones fijas |
@@ -90,3 +90,4 @@ Las decisiones de hoy:
 | 0021 | Relevancia del conocimiento, embeddings pendientes al arrancar y modelos de reordenación |
 | 0022 | La firma de los avisos de WhatsApp, antes de leer el aviso |
 | 0023 | Cómo se cuentan las cifras de los informes |
+| 0024 | Datos y archivos en Supabase, con Postgres integrado (PGlite) para la demo y las pruebas |

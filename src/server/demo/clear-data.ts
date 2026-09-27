@@ -1,41 +1,20 @@
-// Empties every table of the schema, children before parents (foreign keys are enforced and never cascade).
-// Used to replace the demo (`pnpm seed`) and to empty a remote database (`--remote-i-know`).
+// Empties every table of the schema with one TRUNCATE: parents and children go together, so the foreign keys
+// (enforced, never cascading) allow it. Used to replace the demo (`pnpm seed`), to empty a server database
+// (`--remote-i-know`) and by the tests.
 import "server-only";
-import { is } from "drizzle-orm";
-import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core";
+import { is, sql } from "drizzle-orm";
+import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import type { Executor } from "@/db";
 import * as schema from "@/db/schema";
 
-function schemaTables(): SQLiteTable[] {
+/** Every table of the schema (src/db/schema/index.ts). */
+export function schemaTables(): PgTable[] {
   const exports: unknown[] = Object.values(schema);
-  return exports.filter((value): value is SQLiteTable => is(value, SQLiteTable));
+  return exports.filter((value): value is PgTable => is(value, PgTable));
 }
 
-/** Tables ordered so that no table is emptied while another one still references it. */
-export function tablesInDeleteOrder(tables: readonly SQLiteTable[] = schemaTables()): SQLiteTable[] {
-  const byName = new Map(tables.map((table) => [getTableConfig(table).name, table]));
-  const referencedBy = new Map<string, Set<string>>();
-  for (const table of tables) {
-    const { name, foreignKeys } = getTableConfig(table);
-    for (const foreignKey of foreignKeys) {
-      const parent = getTableConfig(foreignKey.reference().foreignTable).name;
-      if (parent === name) continue;
-      referencedBy.set(parent, (referencedBy.get(parent) ?? new Set()).add(name));
-    }
-  }
-  const remaining = new Set(byName.keys());
-  const order: SQLiteTable[] = [];
-  while (remaining.size > 0) {
-    const next = [...remaining].find((name) => ![...(referencedBy.get(name) ?? [])].some((child) => remaining.has(child)));
-    const table = next === undefined ? undefined : byName.get(next);
-    if (next === undefined || table === undefined) throw new Error("Las claves ajenas forman un ciclo: no se puede vaciar la base.");
-    order.push(table);
-    remaining.delete(next);
-  }
-  return order;
-}
-
-/** Deletes every row of every table (migrations are kept). Run it inside a transaction. */
+/** Deletes every row of every table (the migrations, in the `drizzle` schema, stay). Run it inside a transaction. */
 export async function clearAllData(executor: Executor): Promise<void> {
-  for (const table of tablesInDeleteOrder()) await executor.delete(table);
+  const tables = schemaTables().map((table) => sql.identifier(getTableConfig(table).name));
+  await executor.execute(sql`TRUNCATE TABLE ${sql.join(tables, sql`, `)} RESTART IDENTITY`);
 }

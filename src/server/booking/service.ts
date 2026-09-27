@@ -1,9 +1,10 @@
 // Booking service ([AGD-13]–[AGD-15], [AGD-17], [AGD-18], [AGD-22], [PRU-04]): every change of a booking goes
-// through here, inside a short write transaction (libSQL: BEGIN IMMEDIATE, one writer at a time) that checks the slot
-// again with the availability engine before saving, so two requests for the last slot never both get in: the second
-// receives «Ese hueco ya no está libre» with alternatives. Nothing external is called inside a transaction. Every
-// change leaves a row in booking_events (who, what, when). System code: the data layer checks the person's
-// permissions and the agent's tools the conversation's contact (BookingScope); the same rules apply to both.
+// through here, inside a short write transaction (one writer at a time: every transaction first takes the database's
+// write lock, src/db/index.ts) that checks the slot again with the availability engine before saving, so two requests
+// for the last slot never both get in: the second receives «Ese hueco ya no está libre» with alternatives. Nothing
+// external is called inside a transaction. Every change leaves a row in booking_events (who, what, when). System code:
+// the data layer checks the person's permissions and the agent's tools the conversation's contact (BookingScope); the
+// same rules apply to both.
 import "server-only";
 import { and, eq, gt, inArray, lt } from "drizzle-orm";
 import { db, type Executor, type Transaction } from "@/db";
@@ -26,7 +27,6 @@ import { type AgendaSettingsSnapshot, loadAgendaSettings, loadEngineData, loadSe
 import { notifyPendingBooking } from "./notices";
 import { addDays, DAY_MS, instantToLocal, localToInstant, MINUTE_MS, MINUTES_PER_DAY } from "./time";
 import { type BookingView, selectBookingView } from "./views";
-import { serializeBookingWrite } from "./write-queue";
 
 export { recordBookingEvent, type BookingActor, type BookingEventAction } from "./events";
 
@@ -89,9 +89,12 @@ function cleanName(text: string | null | undefined): string | null {
   return toSingleLine(text ?? "", MAX_NAME) || null;
 }
 
-/** A booking write transaction, queued behind the other booking writes of this process (./write-queue.ts). */
+/**
+ * A booking write transaction. It waits for the other writers (the write lock of src/db/index.ts), so the slot it
+ * checks again is the one the booking gets.
+ */
 function bookingTransaction<T>(work: (tx: Transaction) => Promise<T>): Promise<T> {
-  return serializeBookingWrite(() => db.transaction(work));
+  return db.transaction(work);
 }
 
 /** What was asked, to look for alternatives once the transaction is over. */

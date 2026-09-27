@@ -32,7 +32,8 @@ límites y sus fuentes) están en `docs/integracion-whatsapp.md`, `docs/integrac
   arranca en local con la demo cargada y se entra con los usuarios de prueba del README.
 - [ARR-02] Cuando `pnpm dev` no encuentra `.env.local` o la base de datos, antes de arrancar prepara la
   instalación: crea `.env.local` con secretos aleatorios (clave de cifrado, secreto de sesiones y secreto del
-  cron) y la demo activada, crea `data/local.db`, la pone al día (migraciones) y carga la demo.
+  cron) y la demo activada, crea la base de datos integrada en `data/pglite` (Postgres dentro de la propia app, sin
+  cuentas ni Docker), la pone al día (migraciones) y carga la demo.
 - [ARR-03] Cuando esa preparación se repite (`pnpm dev` otra vez o `pnpm run setup`) y ya estaba hecha, no
   cambia nada: no regenera secretos, no duplica datos y no borra nada. Se lanza con `run` porque `pnpm setup`
   es una orden de pnpm que cambia el PATH del ordenador.
@@ -77,11 +78,13 @@ límites y sus fuentes) están en `docs/integracion-whatsapp.md`, `docs/integrac
 - [ARR-22] El README está en español y explica: qué es y requisitos (versiones de Node y pnpm), arranque rápido,
   usuarios de prueba, cómo poner la clave de OpenRouter, el recorrido de la demo (simulador, `/widget-demo`,
   bandeja y traspaso, asignar agentes, agenda y conocimiento), comandos y variables de entorno, cómo conectar
-  WhatsApp, Gmail, Outlook e IMAP reales (resumen y enlace a `docs/`), la publicación en Vercel (Turso, Blob y
-  cron), el paso a un negocio real con `pnpm db:fresh` y la solución de problemas. Se pone al día en cada fase.
+  WhatsApp, Gmail, Outlook e IMAP reales (resumen y enlace a `docs/`), la publicación en Vercel (con Supabase para la
+  base de datos, los archivos y el cron), el paso a un negocio real con `pnpm db:fresh` y la solución de problemas. Se
+  pone al día en cada fase.
 - [ARR-23] Las guías de `docs/` están en español, con huecos para capturas, enlazadas desde el README y visibles
   en la app ([AJU-17]). Cada una cubre al menos:
-  - Publicación (`docs/guia-despliegue.md`): Vercel con Turso, Blob y cron; más adelante, el VPS.
+  - Publicación (`docs/guia-despliegue.md`): Vercel con Supabase (base de datos, archivos y cron); más adelante, el
+    VPS.
   - WhatsApp (`docs/guia-whatsapp.md`): el negocio crea su portfolio de Meta y da acceso de administrador a
     quien lo implanta; la app de Meta va en ese portfolio; el número deja de funcionar en la app del móvil;
     los límites sin verificar la empresa y cuándo conviene verificarla; la tarjeta (método de pago) y la
@@ -108,6 +111,9 @@ límites y sus fuentes) están en `docs/integracion-whatsapp.md`, `docs/integrac
   - `actualizar`: pasar a una versión nueva, siempre con una copia de seguridad antes.
   - `diagnostico`: averiguar por qué algo no funciona, a partir de Ajustes > Diagnóstico y los documentos de
     integración.
+
+  Las skills instaladas desde fuera y anotadas en `skills-lock.json` (hoy `frontend-design`, `supabase` y
+  `supabase-postgres-best-practices`) conservan su propio formato y esta regla no las comprueba.
 
 ### Inicio de sesión, usuarios e invitaciones
 
@@ -246,7 +252,9 @@ límites y sus fuentes) están en `docs/integracion-whatsapp.md`, `docs/integrac
   en bruto, lo pasa a un formato común, busca o crea el contacto y su identidad, guarda el mensaje ignorando
   duplicados, avisa a la pantalla y programa la respuesta. Contesta enseguida al servicio que avisa: la prueba
   mide el objetivo de Meta, una mediana de 250 ms o menos y menos del 1 % de respuestas por encima de 1
-  segundo. Un aviso para un número que no es de ningún canal también recibe 200 ([WA-34]).
+  segundo. Un aviso para un número que no es de ningún canal también recibe 200 ([WA-34]). Un carácter que la base de
+  datos no admite nunca hace perder ni bloquea un mensaje: el carácter nulo (NUL) se quita y la mitad suelta de un
+  carácter compuesto (como medio emoji) se guarda como «�».
 - [CAN-10] La app nunca espera a la IA para contestar a un aviso: la IA trabaja después, en segundo plano.
 - [CAN-11] Cuando llega dos veces el mismo mensaje (mismo canal y mismo identificador), se guarda una sola vez y
   se responde una sola vez.
@@ -460,7 +468,8 @@ Detalles en `docs/integracion-correo.md`.
 - [COR-15] Cuando una persona aprueba un borrador, sale en el mismo hilo y el borrador del buzón desaparece.
 - [COR-16] Se ignoran (no crean conversación ni respuesta, y Diagnóstico los cuenta con su motivo): respuestas
   automáticas, envíos masivos o de listas, boletines con enlace de baja, remitentes «noreply» o «mailer-daemon»,
-  rebotes, los enviados por el propio buzón, spam y promociones. Las promociones solo se filtran en Gmail (su
+  correos sin remitente válido (sin dirección o con una de más de 254 caracteres), rebotes, los enviados por el propio
+  buzón, spam y promociones. Las promociones solo se filtran en Gmail (su
   categoría «Promociones»): Outlook no tiene esa categoría y su clasificación «Otros» mide relevancia, así que
   nunca es el único filtro. En Outlook e IMAP se ignoran el correo no deseado y lo que marcan las cabeceras.
 - [COR-17] Tope diario de respuestas de la IA por hilo y por remitente (5 y 10 por defecto, editables) y por buzón (200,
@@ -475,7 +484,9 @@ Detalles en `docs/integracion-correo.md`.
   Gmail necesita el mismo asunto para mantener el hilo.
 - [COR-19] Antes de pasar un correo a la IA, la app lo convierte de HTML a texto, quita las citas y firmas
   anteriores y respeta su juego de caracteres; los PDF e imágenes adjuntos van al modelo y los audios a
-  transcripción. Los adjuntos por encima del límite de tamaño se guardan pero no van a la IA, y se indica.
+  transcripción. Los adjuntos por encima del límite de tamaño se guardan pero no van a la IA, y se indica. Una fecha
+  del correo (cabecera `Date`) de más de 5 minutos en el futuro, o imposible (antes de 1970 o después de 9999), se
+  sustituye por la hora de llegada.
 - [COR-20] Cuando una persona responde al hilo desde su propio programa de correo, la IA se pausa en esa
   conversación ([BAN-11]).
 - [COR-21] Los correos de la IA llevan saludo y una firma con el aviso de IA.
@@ -620,9 +631,9 @@ Detalles en `docs/integracion-openrouter.md`.
 - [MOT-13] En conversaciones largas, la app mantiene un resumen acumulado que sustituye a los mensajes antiguos.
 - [MOT-14] En modo «Borrador para revisar», la respuesta se guarda como borrador en vez de enviarse.
 - [MOT-15] El trabajo en segundo plano (respuestas, correo, conocimiento, recordatorios y revisiones) avanza a
-  trozos cortos. Se lanza al contestar cada aviso y desde la dirección del cron (que, publicada la app, llama un
-  servicio externo cada minuto); en local, `pnpm dev` lo lanza cada unos 15 s sin configurar nada, y `pnpm worker`
-  lo ejecuta en bucle.
+  trozos cortos. Se lanza al contestar cada aviso y desde la dirección del cron (que, publicada la app, llama cada
+  minuto el cron de Supabase); en local, `pnpm dev` lo lanza cada unos 15 s sin configurar nada, y `pnpm worker` lo
+  ejecuta en bucle (en un servidor propio, con la base de datos en Supabase).
 - [MOT-16] Una tarea que falla se reintenta con esperas crecientes; tras varios intentos queda como fallida y se
   ve en Diagnóstico. Si dos rondas coinciden, cada tarea se hace una sola vez.
 
@@ -698,7 +709,8 @@ Detalles en `docs/busqueda-hibrida.md` y, para los PDF escaneados, en `docs/inte
 - [CON-03] Nivel 2, bases de conocimiento: se reutilizan entre agentes y un agente puede usar varias; solo se busca
   en las del agente.
 - [CON-04] Las bases admiten archivos PDF, DOCX, XLSX, CSV, TXT y MD, páginas web (con mapa del sitio opcional) y
-  preguntas frecuentes escritas en la pantalla. Otro tipo de archivo, o uno demasiado grande, se rechaza con aviso.
+  preguntas frecuentes escritas en la pantalla. Otro tipo de archivo, o uno demasiado grande, se rechaza con aviso. El
+  texto que se escribe o se pega se guarda sin el carácter nulo (NUL), que la base de datos no admite.
 - [CON-05] Cada documento muestra su estado: en cola, extrayendo, troceando, embeddings, listo o error (con
   motivo). El trabajo se hace en segundo plano y por pasos.
 - [CON-06] El texto se extrae a Markdown conservando las páginas.
@@ -724,7 +736,9 @@ Detalles en `docs/busqueda-hibrida.md` y, para los PDF escaneados, en `docs/inte
 - [CON-16] La búsqueda combina significado y palabras (40 resultados de cada una; basta con que aparezca alguna de
   las palabras), los mezcla y devuelve los 8 mejores (6 si está activada la reordenación de [AJU-04]). Si la
   reordenación falla, devuelve los 8 sin reordenar.
-- [CON-17] La búsqueda por palabras no distingue mayúsculas ni tildes: «depilacion» encuentra «depilación».
+- [CON-17] La búsqueda por palabras no distingue mayúsculas ni tildes, y encuentra otras formas de la misma palabra
+  (singular y plural, un verbo y su nombre): «depilacion» encuentra «depilación», «tintes» encuentra «tinte» y
+  «reservar» encuentra «reserva».
 - [CON-18] Si nada es relevante, la herramienta devuelve «SIN_RESULTADOS»; el agente dice que no lo sabe y ofrece
   una persona.
 - [CON-19] La respuesta de la búsqueda ocupa como máximo unos 3.500 tokens, en fragmentos numerados con título,
@@ -946,7 +960,8 @@ Detalles en `docs/notificaciones-push.md`.
 - [SEG-04] Cada página, acción y ruta comprueba en el servidor quién es el usuario y si puede hacerlo; una llamada
   directa sin permiso recibe un error y no cambia nada. Ocultar un botón no es la protección.
 - [SEG-05] Todo lo que llega (formularios, direcciones, cabeceras, archivos y avisos) se valida en el servidor; lo
-  que no es válido no se guarda.
+  que no es válido no se guarda. Antes de validarlo se limpia lo que la base de datos no admite: se quita el carácter
+  nulo y medio carácter suelto se guarda como «�».
 - [SEG-06] Una acción enviada desde otra web (CSRF) se rechaza.
 - [SEG-07] Hay límite de peticiones en el inicio de sesión, la recuperación de contraseña, las invitaciones, los
   avisos de los canales, el chat web y todo lo que gasta IA.
@@ -1048,9 +1063,10 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
 - Secretos: tokens y claves de Meta, OpenRouter, Mistral, Google, Microsoft, IMAP/SMTP y Telegram, y cabeceras de
   las herramientas HTTP. Van cifrados con la clave de cifrado de la instalación: si esa clave se pierde, no se
   pueden recuperar y hay que volver a ponerlos.
-- Dónde se guarda: por ahora, en el ordenador donde corre la app (la base de datos en `data/local.db` y los
-  archivos en `data/uploads`). Queda preparado Turso y Vercel Blob para cuando se publique, y Supabase para el
-  futuro.
+- Dónde se guarda: en local, en el ordenador donde corre la app (la base de datos integrada en `data/pglite` y los
+  archivos en `data/uploads`), sin cuentas. Publicada, en Supabase: la base de datos en su Postgres y los archivos en
+  un bucket privado de Supabase Storage, en la misma ciudad que las funciones de Vercel (Londres, como viene
+  preparado, o Irlanda). Supabase solo se usa en la app publicada.
 - Qué sale de la app: a OpenRouter y al proveedor del modelo, el contenido que la IA necesita (mensajes,
   transcripciones, imágenes y fragmentos), prohibiendo en cada petición que lo guarden o lo usen; los audios que
   hay que transcribir, al proveedor del modelo de transcripción, que por defecto solo usa proveedores sin
@@ -1065,7 +1081,9 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
 - APIs no oficiales de WhatsApp (Baileys, Evolution, Whapi, conexión por QR).
 - Instagram y Messenger.
 - Multi-cliente: organizaciones, espacios de trabajo o varios negocios en una instalación.
-- Supabase, Dokploy y GitHub: son el futuro y el código queda preparado para ellos.
+- Dokploy y GitHub: son el futuro y el código queda preparado para ellos.
+- De Supabase, los usuarios (Supabase Auth), el tiempo real (Supabase Realtime) y su API de datos: la app sigue con
+  Better Auth, con el sondeo y con sus propias rutas; de Supabase solo usa la base de datos, Storage y Cron.
 - Respuestas con voz.
 - Google Calendar e iCal.
 - Evaluación automática de las respuestas y del conocimiento.
@@ -1078,7 +1096,8 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
 - [x] Fase 0 · Base: estructura, base de datos con migraciones, preparación automática con demo y usuarios de
   prueba, inicio de sesión, roles e invitaciones, asistente de arranque, ajustes, cifrado de secretos, navegación
   (Bandeja, Contactos, Agenda, Agentes, Conocimiento, Canales, Informes y Ajustes), README y `CLAUDE.md`, y la
-  configuración y la guía para Vercel con Turso y Blob, sin publicar — se comprueba: un clon limpio arranca con
+  configuración y la guía para Vercel con Turso y Blob (con Supabase desde la fase 8), sin publicar — se comprueba: un
+  clon limpio arranca con
   `pnpm install && pnpm dev` y se entra con cada usuario del README; pasan las pruebas de permisos de los cinco
   roles; `pnpm db:fresh` lleva al asistente y se completa; pasan lint, tipos, pruebas y compilación.
   Comprobado el 2026-09-26: 978 pruebas de Vitest y 53 de Playwright en verde (inicio de sesión de los cinco roles,
@@ -1146,10 +1165,23 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
   lleva al asistente; bajas, aviso de IA, conservación, exportar/borrar/fusionar, informes, PWA y push, herramientas
   HTTP y seguridad con pruebas; `pnpm audit` sin fallos graves. Pendiente del propietario: publicar en Vercel y
   generar `seed/fixtures/embeddings.json` con su clave.
+- [ ] Fase 8 · Supabase: la base de datos pasa a Postgres en todas partes, con la integrada (PGlite) en local y en las
+  pruebas, sin cuentas ni Docker, y Supabase solo en la app publicada, en la misma ciudad que las funciones de Vercel;
+  Row Level Security en todas las tablas, sin políticas; un escritor a la vez, como con SQLite; los archivos de la app
+  publicada, en un bucket privado de Supabase Storage; el cron de cada minuto, en Supabase Cron; la búsqueda por
+  palabras, con las raíces del español; las seis migraciones de SQLite, sustituidas por una base de Postgres; y la
+  documentación, las guías y las skills al día (decisión 0024) — se comprueba: un clon limpio arranca con
+  `pnpm install && pnpm dev` y la demo sobre la base integrada, sin Supabase ni cuentas, y se entra con cada usuario
+  del README; todas las pruebas de Vitest y de Playwright pasan sobre la base integrada, sin tocar Supabase; contra un
+  proyecto de Supabase del propietario, las migraciones se aplican, la demo se carga, y funcionan el inicio de sesión,
+  la bandeja, la búsqueda del conocimiento, una reserva y la subida de un archivo (que queda en el bucket privado);
+  todas las tablas tienen Row Level Security y el Security Advisor de Supabase no da errores ni avisos (solo los
+  informativos «RLS Enabled No Policy», que son lo esperado); pasan lint, tipos, pruebas y compilación, y `pnpm audit`
+  sin fallos graves.
 
-Después: publicación en Vercel (Turso, Blob y cron) con la prueba del número de prueba de Meta; Supabase; Dokploy;
-GitHub (versión, migraciones solo aditivas, changelog y aviso de versión nueva); Telegram; respuestas con voz;
-Google Calendar e iCal; evaluación; agente de fuera de horario; y servicios con dos recursos.
+Después: publicación en Vercel (con Supabase) con la prueba del número de prueba de Meta; Dokploy; GitHub (versión,
+migraciones solo aditivas, changelog y aviso de versión nueva); Telegram; respuestas con voz; Google Calendar e iCal;
+evaluación; agente de fuera de horario; y servicios con dos recursos.
 
 ## Cómo se comprueba que todo funciona
 

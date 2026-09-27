@@ -1,5 +1,5 @@
 // Everything that changes with the database engine or the hosting (docs/conventions.md «Organización»).
-// Callers use these interfaces and getters; a Postgres/Supabase implementation plugs in here.
+// Callers use these interfaces and getters; today's implementations run on Postgres (Supabase or the embedded PGlite).
 import "server-only";
 
 export { getJobQueue, type Job, type JobQueue } from "./job-queue";

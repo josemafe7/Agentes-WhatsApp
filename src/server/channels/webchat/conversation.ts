@@ -2,7 +2,7 @@
 // visitor id of their signed token (never from an id the browser sends), and only what reached them is shown:
 // their own messages and the business's sent replies (no drafts, failed sends, notes or internal data).
 import "server-only";
-import { and, asc, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { getPublicBusinessInfo } from "@/data/business";
 import { db } from "@/db";
@@ -10,6 +10,7 @@ import { contactIdentities, conversations, jobs, messages } from "@/db/schema";
 import { getRealtime } from "@/server/adapters/realtime";
 import { replyDedupeKey } from "@/server/engine/schedule";
 import { widgetTopic } from "@/server/realtime/events";
+import { jsonTextContains } from "@/server/sql-helpers";
 import type { ChannelRecord } from "../types";
 import { issueVisitorToken, verifyVisitorToken } from "./tokens";
 
@@ -185,7 +186,7 @@ export async function visitorCanReadFile(channelId: string, visitorId: string, k
   const rows = await db
     .select({ media: messages.media })
     .from(messages)
-    .where(and(eq(messages.conversationId, conversation.id), visibleToVisitor, like(messages.media, `%${JSON.stringify(key)}%`)));
+    .where(and(eq(messages.conversationId, conversation.id), visibleToVisitor, jsonTextContains(messages.media, JSON.stringify(key))));
   // LIKE only narrows the search: the key must be exactly the message's file.
   return rows.some((row) => row.media?.fileKey === key);
 }

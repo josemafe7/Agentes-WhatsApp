@@ -1,7 +1,7 @@
 // Agenda: services, resources and their schedules, bookings and their history, reminders ([AGD-*]).
 // Instants are UTC; weekly schedules are local minutes from 00:00 in the business time zone.
 import { sql } from "drizzle-orm";
-import { check, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, doublePrecision, index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 import {
   BOOKING_ACTOR_TYPES,
   BOOKING_SOURCES,
@@ -17,7 +17,7 @@ import { bool, EMPTY_JSON_OBJECT, id, json, timestamp, timestamps } from "./colu
 import { contacts } from "./contacts";
 import { conversations } from "./conversations";
 
-export const services = sqliteTable("services", {
+export const services = pgTable("services", {
   id: id(),
   name: text("name").notNull(),
   category: text("category"),
@@ -26,7 +26,7 @@ export const services = sqliteTable("services", {
   bufferBeforeMin: integer("buffer_before_min").notNull().default(0),
   bufferAfterMin: integer("buffer_after_min").notNull().default(0),
   /** Indicative price, optional; shown to the agent, never a fixed price in code. */
-  price: real("price"),
+  price: doublePrecision("price"),
   descriptionForAgent: text("description_for_agent"),
   minPeople: integer("min_people").notNull().default(1),
   maxPeople: integer("max_people").notNull().default(1),
@@ -37,9 +37,9 @@ export const services = sqliteTable("services", {
   active: bool("active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   ...timestamps(),
-});
+}).enableRLS();
 
-export const resources = sqliteTable("resources", {
+export const resources = pgTable("resources", {
   id: id(),
   type: text("type", { enum: RESOURCE_TYPES }).notNull(),
   name: text("name").notNull(),
@@ -50,10 +50,10 @@ export const resources = sqliteTable("resources", {
   active: bool("active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   ...timestamps(),
-});
+}).enableRLS();
 
 /** Weekly ranges of a resource (weekday 1 = Monday … 7 = Sunday; local minutes). */
-export const resourceSchedules = sqliteTable(
+export const resourceSchedules = pgTable(
   "resource_schedules",
   {
     id: id(),
@@ -66,10 +66,10 @@ export const resourceSchedules = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("resource_schedules_resource_idx").on(t.resourceId, t.weekday)],
-);
+).enableRLS();
 
 /** Absences and blocked slots of a resource ([AGD-02], [AGD-18]). */
-export const resourceTimeOff = sqliteTable(
+export const resourceTimeOff = pgTable(
   "resource_time_off",
   {
     id: id(),
@@ -85,9 +85,9 @@ export const resourceTimeOff = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("resource_time_off_resource_start_idx").on(t.resourceId, t.startsAt)],
-);
+).enableRLS();
 
-export const serviceResources = sqliteTable(
+export const serviceResources = pgTable(
   "service_resources",
   {
     id: id(),
@@ -103,9 +103,9 @@ export const serviceResources = sqliteTable(
     uniqueIndex("service_resources_service_resource_uq").on(t.serviceId, t.resourceId),
     index("service_resources_resource_idx").on(t.resourceId),
   ],
-);
+).enableRLS();
 
-export const bookings = sqliteTable(
+export const bookings = pgTable(
   "bookings",
   {
     id: id(),
@@ -146,10 +146,10 @@ export const bookings = sqliteTable(
     index("bookings_contact_id_idx").on(t.contactId),
     index("bookings_conversation_id_idx").on(t.conversationId),
   ],
-);
+).enableRLS();
 
 /** History of each booking: who, what and when ([AGD-15]). */
-export const bookingEvents = sqliteTable(
+export const bookingEvents = pgTable(
   "booking_events",
   {
     id: id(),
@@ -165,10 +165,10 @@ export const bookingEvents = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("booking_events_booking_id_idx").on(t.bookingId)],
-);
+).enableRLS();
 
 /** Booking reminder, off by default ([AGD-24], [AGD-25]). Single row. */
-export const reminderSettings = sqliteTable(
+export const reminderSettings = pgTable(
   "reminder_settings",
   {
     id: id(),
@@ -187,4 +187,4 @@ export const reminderSettings = sqliteTable(
     ...timestamps(),
   },
   () => [check("reminder_settings_singleton_ck", sql`singleton = 1`)],
-);
+).enableRLS();

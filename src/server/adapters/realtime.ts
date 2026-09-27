@@ -1,8 +1,8 @@
-// Realtime: screens poll for changes after a cursor (docs/decisions/0009). libSQL implementation on
+// Realtime: screens poll for changes after a cursor (docs/decisions/0009). Postgres implementation on
 // `realtime_events`; a Supabase Realtime implementation can replace it behind the same interface.
 import "server-only";
 import { and, asc, gt, inArray, lt, lte, max, sql } from "drizzle-orm";
-import { db as defaultDb, type Executor } from "@/db";
+import { db as defaultDb, REALTIME_LOCK_KEY, type Executor } from "@/db";
 import { realtimeEvents } from "@/db/schema";
 
 export type RealtimeEvent = { id: string; cursor: string; topic: string; payload: unknown; createdAt: Date };
@@ -27,7 +27,7 @@ function parseCursor(cursor: string | null): number | null {
   return Number(cursor);
 }
 
-export class LibsqlRealtime implements Realtime {
+export class PgRealtime implements Realtime {
   private readonly db: Executor;
   private readonly now: () => Date;
 
@@ -38,18 +38,24 @@ export class LibsqlRealtime implements Realtime {
 
   async publish(topic: string, payload: unknown = {}, executor: Executor = this.db): Promise<RealtimeEvent> {
     const now = this.now();
-    // MAX + 1 inside the insert runs under SQLite's single writer lock, so seq follows commit order.
-    const [row] = await executor
-      .insert(realtimeEvents)
-      .values({
-        seq: sql`(SELECT coalesce(max(seq), 0) + 1 FROM realtime_events)`,
-        topic,
-        payload,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
-    return toEvent(row);
+    // seq = MAX + 1 under a lock held until commit: the next event gets its number only once this one is committed,
+    // so seq grows in commit order, without repeats, and a poll never passes an event still to commit. The lock is
+    // taken in a statement of its own, so the insert's snapshot already sees the previous event. In the caller's
+    // transaction when it passes one (as a savepoint of it), otherwise in one of its own.
+    return executor.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${REALTIME_LOCK_KEY})`);
+      const [row] = await tx
+        .insert(realtimeEvents)
+        .values({
+          seq: sql`(SELECT coalesce(max(seq), 0) + 1 FROM realtime_events)`,
+          topic,
+          payload,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+      return toEvent(row);
+    });
   }
 
   async poll(cursor: string | null, topics: readonly string[], limit = DEFAULT_POLL_LIMIT): Promise<PollResult> {
@@ -94,6 +100,6 @@ function toEvent(row: typeof realtimeEvents.$inferSelect): RealtimeEvent {
 let shared: Realtime | undefined;
 
 export function getRealtime(): Realtime {
-  shared ??= new LibsqlRealtime();
+  shared ??= new PgRealtime();
   return shared;
 }

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { db } from "@/db";
 import { jobs } from "@/db/schema";
-import { backoffMs, LibsqlJobQueue, type JobQueue } from "@/server/adapters/job-queue";
+import { backoffMs, PgJobQueue, type JobQueue } from "@/server/adapters/job-queue";
 import { getKv } from "@/server/kv";
 import { PermanentJobError, registerJobHandler } from "./registry";
 import { LAST_TICK_KV_KEY, tick } from "./tick";
@@ -11,7 +11,7 @@ import { LAST_TICK_KV_KEY, tick } from "./tick";
 const START = new Date("2026-09-26T10:00:00Z").getTime();
 let nowMs = START;
 const clock = () => nowMs;
-const queue = new LibsqlJobQueue({ now: () => new Date(nowMs) });
+const queue = new PgJobQueue({ now: () => new Date(nowMs) });
 const BUDGET = 25_000;
 const run = (extra: Partial<Parameters<typeof tick>[0]> = {}) => tick({ budgetMs: BUDGET, queue, clock, ...extra });
 

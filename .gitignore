@@ -18,7 +18,7 @@
 /.pnp
 .pnp.*
 
-# Base de datos local y archivos subidos (data/local.db, data/e2e.db, data/uploads, data/outbox)
+# Base de datos local y archivos subidos (data/pglite, data/e2e*-pglite, data/uploads, data/outbox)
 /data/
 
 # Pruebas

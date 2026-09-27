@@ -10,8 +10,9 @@ mismo código para los dos. La fase 0 terminaba con la app en `xxx.vercel.app` y
 Vercel con el número de prueba de Meta. La plantilla recomienda Vercel.
 
 Decisión de la persona el 26-09-2026: **de momento, solo en local**. Se dejan preparadas la configuración y la
-guía para Vercel con Turso y Blob, pero no se publica nada, y los agentes no escriben en Vercel, Turso ni
-Supabase a través de sus servidores MCP. La especificación ya recoge el cambio en sus fases.
+guía para Vercel con Turso y Blob (con Supabase desde 0024), pero no se publica nada, y los agentes no escriben en
+Vercel, Turso ni Supabase a través de sus servidores MCP (ver 0024: en la fase 8, con permiso expreso, sí en el
+proyecto de Supabase del propietario). La especificación ya recoge el cambio en sus fases.
 
 Datos comprobados el 26-09-2026 (`docs/plataforma-despliegue.md`, salvo donde se indica otra fuente):
 
@@ -42,11 +43,11 @@ Datos comprobados el 26-09-2026 (`docs/plataforma-despliegue.md`, salvo donde se
 
 - **Ahora:** la app solo corre en local (`pnpm dev`, y `pnpm build` y `pnpm start` para probar la versión
   compilada), con la demo y el simulador de canales. Nada se publica y no se escribe en Vercel, Turso ni
-  Supabase.
+  Supabase (ver 0024).
 - **Preparado, sin ejecutar:** la configuración de Vercel (un cron diario a `/api/cron/tick` en `vercel.json`,
   `maxDuration` en las rutas que lanzan trabajo, `ffmpeg-static` en `next.config.ts`, región cercana a la base
   de datos), Turso con motor libSQL en la UE (0003), un almacén privado de Blob (0010), el cron externo cada
-  minuto (0008) y la guía `docs/guia-despliegue.md`.
+  minuto (0008) y la guía `docs/guia-despliegue.md` (ver 0024: hoy Supabase, Supabase Storage y Supabase Cron).
 - **Cuando se publique:** Vercel Hobby solo para pruebas y la demo, con los webhooks y OAuth en el dominio de
   producción. Un negocio real, en Vercel Pro o en el VPS.
 - **Futuro:** VPS con Dokploy (compose con `web`, `worker` y `migrate`, dominio propio con HTTPS, copias
@@ -61,7 +62,7 @@ Datos comprobados el 26-09-2026 (`docs/plataforma-despliegue.md`, salvo donde se
   pruebas usan Meta, Google y Microsoft simulados, y la prueba con el número de prueba de Meta queda escrita
   paso a paso en `docs/guia-whatsapp.md`.
 - Acepta: la configuración de despliegue no se comprueba de verdad hasta la primera publicación (el binario de
-  `ffmpeg-static` en Vercel, las subidas directas a Blob, la conexión con Turso). La primera publicación lleva
+  `ffmpeg-static` en Vercel, las subidas directas a Blob, la conexión con Turso; ver 0024). La primera publicación lleva
   su lista de comprobación y, como pide `docs/security.md`, crea `docs/deployment.md`.
 - Acepta: la línea «Despliegue: [Vercel]» de `AGENTS.md` pasa a describir este plan en tres pasos (cambio de
   `AGENTS.md` que se enseña antes a la persona).

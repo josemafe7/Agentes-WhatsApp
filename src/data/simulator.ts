@@ -31,6 +31,7 @@ import { NotFoundError, parseInput, ValidationError } from "@/server/errors";
 import { ingestEvents, type IngestResult } from "@/server/inbound/ingest";
 import { storeInboundMedia, type StoredMedia } from "@/server/media/store";
 import { safeErrorMessage } from "@/server/redact";
+import { descNullsLast, startingWith } from "@/server/sql-helpers";
 import { simulatorSample, type SampleKind } from "../../seed/media";
 import { writeAudit } from "./audit";
 import { assertCan } from "./guard";
@@ -99,7 +100,7 @@ export async function loadSimulatorOptions(actor: Actor): Promise<SimulatorOptio
         })
         .from(contactIdentities)
         .innerJoin(contacts, eq(contacts.id, contactIdentities.contactId))
-        .where(and(inArray(contactIdentities.channelType, types), like(contactIdentities.externalId, `${SIMULATED_IDENTITY_PREFIX}%`)))
+        .where(and(inArray(contactIdentities.channelType, types), like(contactIdentities.externalId, startingWith(SIMULATED_IDENTITY_PREFIX))))
         .orderBy(desc(contacts.updatedAt), asc(contactIdentities.createdAt))
     : [];
   const contactsByType: SimulatorOptions["contactsByType"] = {};
@@ -280,10 +281,10 @@ async function emailThread(channel: ChannelRecord, contactId: string | null): Pr
           eq(conversations.channelId, channel.id),
           eq(conversations.contactId, contactId),
           eq(conversations.isTest, false),
-          like(conversations.externalThreadId, `${SIMULATED_THREAD_PREFIX}%`),
+          like(conversations.externalThreadId, startingWith(SIMULATED_THREAD_PREFIX)),
         ),
       )
-      .orderBy(desc(conversations.lastMessageAt))
+      .orderBy(descNullsLast(conversations.lastMessageAt))
       .limit(1);
     if (latest?.threadId) return latest.threadId;
   }

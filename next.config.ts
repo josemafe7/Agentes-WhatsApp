@@ -38,9 +38,10 @@ const nextConfig: NextConfig = {
   // Files a person attaches in the inbox go through a Server Action ([BAN-14], at most 3.5 MB plus the form's own
   // bytes): the default 1 MB would refuse most photos. Still under Vercel's 4.5 MB body limit.
   experimental: { serverActions: { bodySizeLimit: "4mb" } },
-  // @libsql/client, libsql and pino (imapflow) are externalized by Next.js already. ffmpeg-static resolves its
-  // binary from __dirname, so it must be loaded with Node's require (docs/plataforma-despliegue.md).
-  serverExternalPackages: ["ffmpeg-static"],
+  // pino (imapflow) is externalized by Next.js already. ffmpeg-static resolves its binary from __dirname, so it must be
+  // loaded with Node's require (docs/plataforma-despliegue.md). PGlite and its pgvector extension load their WebAssembly
+  // and data files from their own package folders, so they are not bundled either.
+  serverExternalPackages: ["ffmpeg-static", "@electric-sql/pglite", "@electric-sql/pglite-pgvector"],
   // The FFmpeg binary is not imported, so file tracing misses it: include it in the API routes that run tick()
   // (cron, webhooks, widget). Unverified on Vercel with pnpm symlinks: check the .nft.json at the deploy phase.
   outputFileTracingIncludes: {

@@ -11,7 +11,7 @@ import { LAST_TICK_KV_KEY } from "@/server/jobs";
 import { setKv } from "@/server/kv";
 import { actorFor, createBusiness, createChannel, createConversation } from "@/test/factories";
 import journal from "../../drizzle/meta/_journal.json";
-import { cancelJob, getDiagnostics, retryJob } from "./diagnostics";
+import { cancelJob, databaseDriver, getDiagnostics, retryJob } from "./diagnostics";
 
 const owner = actorFor("owner");
 const admin = actorFor("admin");
@@ -33,12 +33,25 @@ describe("getDiagnostics [AJU-11]", () => {
   it("database: reachable, driver, size and every migration applied", async () => {
     const { database } = await getDiagnostics(owner);
     expect(database.ok).toBe(true);
-    expect(database.driver).toBe("local");
+    expect(database.driver).toBe("memory");
     expect(database.latencyMs).toBeGreaterThanOrEqual(0);
     expect(database.sizeBytes).toBeGreaterThan(0);
     expect(database.migrations).toMatchObject({ applied: journal.entries.length, total: journal.entries.length, pending: [] });
     // Never the connection string: it can carry a path or a host that is nobody's business.
     expect(JSON.stringify(database)).not.toContain(process.env.DATABASE_URL ?? "file:");
+  });
+
+  it("database: names Supabase, another Postgres or the embedded one by its folder, never the connection string", () => {
+    expect(databaseDriver("postgresql://postgres.abcdefghijkl:clave@aws-0-eu-west-1.pooler.supabase.com:6543/postgres")).toEqual({ driver: "supabase", folder: null });
+    expect(databaseDriver("postgres://postgres:clave@db.abcdefghijkl.supabase.co:5432/postgres")).toEqual({ driver: "supabase", folder: null });
+    expect(databaseDriver("postgresql://app:clave@postgres.example.com:5432/app")).toEqual({ driver: "postgres", folder: null });
+    expect(databaseDriver("postgresql://app:clave@notsupabase.com:5432/app")).toEqual({ driver: "postgres", folder: null });
+    expect(databaseDriver("")).toEqual({ driver: "embedded", folder: "data/pglite" });
+    expect(databaseDriver("file:./data/local.db")).toEqual({ driver: "embedded", folder: "data/pglite" });
+    expect(databaseDriver("pglite:./data/e2e-pglite")).toEqual({ driver: "embedded", folder: "data/e2e-pglite" });
+    expect(databaseDriver("pglite:memory#1")).toEqual({ driver: "memory", folder: null });
+    // Not valid (Turso's old setting): the page says to check DATABASE_URL.
+    expect(databaseDriver("libsql://base.turso.io")).toEqual({ driver: "postgres", folder: null });
   });
 
   it("queue: counts by status, last round, and jobs with errors without secrets", async () => {

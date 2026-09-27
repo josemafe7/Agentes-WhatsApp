@@ -1,5 +1,5 @@
 // Conversations, messages, internal notes and hand-offs ([CAN-*], [BAN-*], [TRA-*], [WA-35]–[WA-47]).
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { doublePrecision, index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 import {
   AI_MODES,
   CONVERSATION_STATUSES,
@@ -16,7 +16,7 @@ import { channels } from "./channels";
 import { bool, EMPTY_JSON_ARRAY, EMPTY_JSON_OBJECT, id, json, timestamp, timestamps } from "./columns";
 import { contacts } from "./contacts";
 
-export const conversations = sqliteTable(
+export const conversations = pgTable(
   "conversations",
   {
     id: id(),
@@ -55,7 +55,7 @@ export const conversations = sqliteTable(
     index("conversations_assigned_user_id_idx").on(t.assignedUserId),
     index("conversations_last_message_at_idx").on(t.lastMessageAt),
   ],
-);
+).enableRLS();
 
 /** Stored media of a message: FileStorage key (never a public URL) and what the inbox needs to show it. */
 export type MessageMedia = {
@@ -74,7 +74,7 @@ export type MessageMedia = {
 export type MessageReaction = { from: "contact" | "business"; emoji: string; at: string };
 export type MessageError = { code?: string | number; message: string };
 
-export const messages = sqliteTable(
+export const messages = pgTable(
   "messages",
   {
     id: id(),
@@ -108,7 +108,7 @@ export const messages = sqliteTable(
     pricingCategory: text("pricing_category"),
     pricingType: text("pricing_type"),
     /** Estimated cost in USD; null when there is no rate for the market. */
-    costEstimate: real("cost_estimate"),
+    costEstimate: doublePrecision("cost_estimate"),
     /** Reactions are stored on the message they react to ([WA-37]). */
     reactions: json<MessageReaction[]>("reactions").notNull().default(EMPTY_JSON_ARRAY),
     /** Injected by the simulator: its replies never leave the app ([AJU-13]). */
@@ -125,10 +125,10 @@ export const messages = sqliteTable(
     index("messages_conversation_created_idx").on(t.conversationId, t.createdAt),
     index("messages_status_idx").on(t.status),
   ],
-);
+).enableRLS();
 
 /** Team notes in a conversation; never sent to the customer ([BAN-07]). */
-export const internalNotes = sqliteTable(
+export const internalNotes = pgTable(
   "internal_notes",
   {
     id: id(),
@@ -141,10 +141,10 @@ export const internalNotes = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("internal_notes_conversation_id_idx").on(t.conversationId)],
-);
+).enableRLS();
 
 /** Every hand-off to a person, with the first human reply for the response-time reports ([INF-05], [CUM-11]). */
-export const handoffEvents = sqliteTable(
+export const handoffEvents = pgTable(
   "handoff_events",
   {
     id: id(),
@@ -173,4 +173,4 @@ export const handoffEvents = sqliteTable(
     index("handoff_events_conversation_id_idx").on(t.conversationId),
     index("handoff_events_requested_at_idx").on(t.requestedAt),
   ],
-);
+).enableRLS();

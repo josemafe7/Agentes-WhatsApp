@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs, type ParseArgsConfig } from "node:util";
+import type { DatabaseTarget } from "../../src/db";
 import type { Role } from "../../src/lib/enums";
 import { ROLE_LABELS } from "../../src/lib/permissions";
 
@@ -24,12 +25,24 @@ export function parseOptions<T extends Options>(argv: readonly string[], options
   }
 }
 
-/** Loads `.env.local` of `rootDir` into process.env without overriding what is already set. */
+/**
+ * Loads `.env.local` of `rootDir` into process.env without overriding what is already set, even when it is empty:
+ * `DATABASE_URL="…" pnpm db:migrate` works on Supabase while .env.local keeps `DATABASE_URL=` for the local database.
+ */
 export function loadLocalEnv(rootDir: string = process.cwd()): boolean {
   const file = path.join(rootDir, ".env.local");
   if (!fs.existsSync(file)) return false;
   process.loadEnvFile(file);
   return true;
+}
+
+/** The database a command works on, for its messages: never the URL itself (it may carry the password). */
+export function describeDatabase(target: DatabaseTarget, rootDir: string = process.cwd()): string {
+  if (target.kind === "server") return "la base de datos de Supabase";
+  if (target.kind === "memory") return "la base de datos en memoria";
+  const relative = path.relative(rootDir, target.dataDir);
+  const shown = relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : target.dataDir;
+  return `la base local ${shown.split(path.sep).join("/")}`;
 }
 
 const YES_ANSWERS = new Set(["s", "si", "sí", "y", "yes"]);

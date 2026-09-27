@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@/db";
 import { aiRuns, businessSettings, channelMembers, channels, contactIdentities, contacts, conversations, jobs, messages, notifications, realtimeEvents, webhookEvents } from "@/db/schema";
-import { LibsqlJobQueue } from "@/server/adapters/job-queue";
+import { PgJobQueue } from "@/server/adapters/job-queue";
 import type { ChannelRecord, InboundMessageEvent } from "@/server/channels/types";
 import { REPLY_DEBOUNCE_ENV, REPLY_DEBOUNCE_MAX_MS, REPLY_DEBOUNCE_MIN_MS, REPLY_JOB, REPLY_MAX_WAIT_MS, replyDedupeKey } from "@/server/engine/schedule";
 import { createBusiness, createChannel, createUser } from "@/test/factories";
@@ -200,7 +200,7 @@ describe("contact and identity [CAN-13] [CTO-03] [WA-39] [WA-40]", () => {
 describe("grouping of the reply [MOT-01]", () => {
   it("runs 4–8 s after the message, never beyond 20 s from the first one", async () => {
     let nowMs = T0.getTime();
-    const queue = new LibsqlJobQueue({ now: () => new Date(nowMs) });
+    const queue = new PgJobQueue({ now: () => new Date(nowMs) });
     const first = await ingestEvents(channel, [inbound()], { now: new Date(nowMs), queue });
     const delay = (first.replyRunAt?.getTime() ?? 0) - T0.getTime();
     expect(delay).toBeGreaterThanOrEqual(REPLY_DEBOUNCE_MIN_MS);

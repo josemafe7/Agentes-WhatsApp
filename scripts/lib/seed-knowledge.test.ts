@@ -238,9 +238,13 @@ describe("demo knowledge base (pnpm seed)", () => {
     expect(prices).toMatchObject({ status: "ok", mode: "text" });
     expect(prices.results.slice(0, 3).map((result) => result.title)).toContain("Servicios y precios");
 
-    // «cancelacion» finds «cancelaciones» on page 1 of the PDF; «AUTOBUS» finds «Autobús» on its page 2.
+    // «cancelacion» finds «cancelaciones» on page 1 of the PDF, after the FAQ that says «cancelar» three times (the same
+    // Spanish stem); «AUTOBUS» finds «Autobús» on its page 2.
     const cancel = await searchKnowledge({ kbIds: [base.id], query: "cancelacion" });
-    expect(cancel.results[0]).toMatchObject({ title: "Normas de citas y cómo llegar", page: 1 });
+    expect(cancel.results.map(({ title, page }) => ({ title, page }))).toEqual([
+      { title: "¿Puedo cambiar o cancelar mi cita?", page: null },
+      { title: "Normas de citas y cómo llegar", page: 1 },
+    ]);
     const bus = await searchKnowledge({ kbIds: [base.id], query: "AUTOBUS" });
     expect(bus.results[0]).toMatchObject({ title: "Normas de citas y cómo llegar", page: 2 });
   });

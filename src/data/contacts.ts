@@ -4,7 +4,7 @@
 // in their channels, and only those conversations ([PER-02]). Merging is in contacts-merge.ts, exporting in
 // contacts-export.ts and erasing in contacts-erase.ts.
 import "server-only";
-import { and, asc, count, desc, eq, exists, inArray, isNotNull, like, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, exists, inArray, isNotNull, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { channels, consents, contactIdentities, contacts, conversations } from "@/db/schema";
@@ -12,6 +12,7 @@ import { CHANNEL_TYPES, type ChannelType, type ConsentType, type ConversationSta
 import { channelFilter, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { emailSchema, idSchema, labelSchema, MAX_LABELS, optionalText } from "@/lib/validation";
 import { AuthError, parseInput, ValidationError } from "@/server/errors";
+import { ascNullsFirst, descNullsLast, jsonTextContains } from "@/server/sql-helpers";
 import { writeAudit } from "./audit";
 import { contactSearchCondition, contactSearchText } from "./contacts-search";
 import { assertCan } from "./guard";
@@ -76,7 +77,8 @@ export function contactListWhere(actor: Actor, filters: ContactListFilters): { w
   if (scoped) conditions.push(visibleThrough(scope));
   // Without accents or case: «jose» finds «José» (contacts-search.ts).
   if (filters.search) conditions.push(contactSearchCondition(filters.search));
-  if (filters.label) conditions.push(like(contacts.labels, `%${JSON.stringify(filters.label)}%`));
+  // Labels are a JSON array of strings: the label in quotes inside it is exactly that label.
+  if (filters.label) conditions.push(jsonTextContains(contacts.labels, JSON.stringify(filters.label)));
   if (filters.channelType) {
     conditions.push(
       exists(
@@ -110,7 +112,7 @@ export async function listContacts(actor: Actor, input: unknown = {}): Promise<{
     .select({ id: contacts.id, name: contacts.name, phone: contacts.phone, email: contacts.email, labels: contacts.labels })
     .from(contacts)
     .where(where)
-    .orderBy(asc(contacts.name), asc(contacts.id))
+    .orderBy(ascNullsFirst(contacts.name), asc(contacts.id))
     .limit(CONTACTS_PAGE_SIZE)
     .offset((page - 1) * CONTACTS_PAGE_SIZE);
   return { items: await withListDetails(rows, scope), total, page, pageCount };
@@ -131,7 +133,7 @@ async function withListDetails<T extends { id: string }>(rows: T[], scope: SQL[]
         .select({ contactId: conversations.contactId, lastMessageAt: conversations.lastMessageAt })
         .from(conversations)
         .where(and(inArray(conversations.contactId, ids), ...scope))
-        .orderBy(desc(conversations.lastMessageAt)),
+        .orderBy(descNullsLast(conversations.lastMessageAt)),
     ]);
     identities.push(...identityRows);
     lastConversations.push(...conversationRows);
@@ -166,7 +168,7 @@ export async function listContactsForExport(actor: Actor, filters: ContactListFi
     })
     .from(contacts)
     .where(and(visible.where, ...(ids ? [inArray(contacts.id, [...ids])] : [])))
-    .orderBy(asc(contacts.name), asc(contacts.id));
+    .orderBy(ascNullsFirst(contacts.name), asc(contacts.id));
   return withListDetails(rows, scope);
 }
 
@@ -250,7 +252,7 @@ export async function getContact(actor: Actor, contactId: string): Promise<Conta
       .from(conversations)
       .innerJoin(channels, eq(channels.id, conversations.channelId))
       .where(and(eq(conversations.contactId, contact.id), ...scope))
-      .orderBy(desc(conversations.lastMessageAt)),
+      .orderBy(descNullsLast(conversations.lastMessageAt)),
   ]);
   return {
     id: contact.id,

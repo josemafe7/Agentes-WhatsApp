@@ -16,7 +16,7 @@ import { budget, embeddingCalls, knowledgeOpenRouter } from "@/server/knowledge/
 import { FAKE_OPENROUTER_KEY } from "@/test/fake-openrouter";
 import { createBusiness, createUser, type TestUser } from "@/test/factories";
 import { createKnowledgeBase } from "./knowledge";
-import { addKnowledgeFaq, addKnowledgeFile, addKnowledgeText, addKnowledgeUrl, renameKnowledgeDocument } from "./knowledge-documents";
+import { addKnowledgeFaq, addKnowledgeFile, addKnowledgeText, addKnowledgeUrl, renameKnowledgeDocument, updateKnowledgeFaq } from "./knowledge-documents";
 
 const PRICES = "## Precios\n\nEl tinte completo cuesta 40 euros. El corte de pelo cuesta 25 euros. Las mechas balayage cuestan 60 euros.";
 const users = {} as Record<Role, TestUser>;
@@ -142,5 +142,25 @@ describe("renaming a document [CON-10] [CON-17]", () => {
     expect(await errorOf(renameKnowledgeDocument(users[role].actor, id, { title: "Otro" }))).toBeInstanceOf(AuthError);
     expect(await documentRow(id)).toMatchObject({ title: "Tarifas", status: "ready" });
     expect(await processJobs()).toEqual([]);
+  });
+});
+
+describe("what people type or paste is always saved [CON-04]", () => {
+  it("a NUL character copied from a PDF (or half a surrogate pair) in a text, a FAQ, a title, a file name or an address is left out", async () => {
+    const text = await addKnowledgeText(users.owner.actor, kbId, { title: "Tari\u0000fas", text: "El tinte\u0000 cuesta 40 euros\ud800." });
+    expect(await documentRow(text.id)).toMatchObject({ title: "Tarifas", contentMd: "El tinte cuesta 40 euros\ufffd.", status: "queued" });
+    await renameKnowledgeDocument(users.owner.actor, text.id, { title: "Precios\u0000 del salón" });
+    expect((await documentRow(text.id)).title).toBe("Precios del salón");
+
+    const faq = await addKnowledgeFaq(users.owner.actor, kbId, { question: "¿Aceptáis\u0000 tarjeta?", answer: "Sí,\u0000 y Bizum." });
+    expect(await documentRow(faq.id)).toMatchObject({ title: "¿Aceptáis tarjeta?", faqQuestion: "¿Aceptáis tarjeta?", contentMd: "Sí, y Bizum." });
+    await updateKnowledgeFaq(users.owner.actor, faq.id, { question: "¿Aceptáis\u0000 Bizum?", answer: "Sí\u0000." });
+    expect(await documentRow(faq.id)).toMatchObject({ faqQuestion: "¿Aceptáis Bizum?", contentMd: "Sí." });
+
+    const file = await addKnowledgeFile(users.owner.actor, kbId, { fileName: "tarifas\u0000 2026.txt", title: "Lista\u0000 de precios", bytes: new TextEncoder().encode(PRICES) });
+    expect(await documentRow(file.id)).toMatchObject({ title: "Lista de precios", fileName: "tarifas 2026.txt" });
+
+    const page = await addKnowledgeUrl(users.owner.actor, kbId, { url: "https://ana.example/pre\u0000cios" });
+    expect((await documentRow(page.id ?? "")).url).toBe("https://ana.example/precios");
   });
 });

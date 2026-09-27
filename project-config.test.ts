@@ -78,7 +78,7 @@ describe("vercel.json (docs/plataforma-despliegue.md, docs/guia-despliegue.md)",
     }
   });
 
-  it("runs the functions in the European Union, next to the database", () => {
-    expect(config.regions).toEqual(["dub1"]);
+  it("runs the functions in London (lhr1), next to the Supabase database (eu-west-2, London)", () => {
+    expect(config.regions).toEqual(["lhr1"]);
   });
 });

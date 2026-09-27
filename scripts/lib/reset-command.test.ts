@@ -1,9 +1,9 @@
-// `pnpm db:reset` ([ARR-16]) and `pnpm db:fresh` ([ARR-17]) on this test file's own database file: they delete it
-// and create it again (never data/local.db).
+// `pnpm db:reset` ([ARR-16]) and `pnpm db:fresh` ([ARR-17]) on this test file's own database, in memory: they empty it
+// and fill it again (never data/pglite). Deleting the folder of an embedded database is tested on its own below.
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createClient } from "@libsql/client";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@/db";
@@ -12,11 +12,13 @@ import { getInstallState } from "@/server/demo/install-state";
 import { createBusiness, createUser } from "@/test/factories";
 import { removeWithRetry } from "@/test/remove-with-retry";
 import { DEMO_USERS } from "../../seed";
-import { DatabaseInUseError, deleteLocalDatabase, runResetCommand, type ResetMode } from "./reset-command";
+import { DatabaseInUseError, deleteEmbeddedDatabase, runResetCommand, type ResetMode } from "./reset-command";
 import { runSeedCommand } from "./seed-command";
 import { captureOutput, emptyDatabase, tableCounts } from "./testing";
 
 const DEMO_ENV = { DEMO_MODE: "true" };
+/** The shape of a Supabase connection (transaction pooler); never a real one. */
+const SUPABASE_URL = "postgresql://postgres.abcdefghijklmnop:secreto-de-prueba@aws-0-eu-west-1.pooler.supabase.com:6543/postgres";
 const yes = async () => true;
 const no = async () => false;
 
@@ -33,8 +35,25 @@ async function realBusiness() {
   await createUser("owner", { email: "dueno@taller.example" });
 }
 
+/**
+ * An embedded database folder in a temporary folder. Its lock file (`<folder>.lock`, src/db/index.ts) holds the PID of
+ * the process that has it open: `lockedBy` writes one.
+ */
+function embeddedDatabase(lockedBy?: number) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dominia-reset-"));
+  const dataDir = path.join(dir, "pglite");
+  fs.mkdirSync(path.join(dataDir, "base", "1"), { recursive: true });
+  fs.writeFileSync(path.join(dataDir, "PG_VERSION"), "18");
+  fs.writeFileSync(path.join(dataDir, "base", "1", "1259"), "x");
+  if (lockedBy !== undefined) fs.writeFileSync(`${dataDir}.lock`, String(lockedBy));
+  return { dir, dataDir };
+}
+
+/** A live process that is not this one: the one that started this test file. */
+const OTHER_LIVE_PROCESS = process.ppid;
+
 beforeEach(async () => {
-  expect(process.env.DATABASE_URL).toMatch(/dominia-vitest-/);
+  expect(process.env.DATABASE_URL).toMatch(/^pglite:memory#/);
   await emptyDatabase();
 });
 
@@ -88,11 +107,35 @@ describe("pnpm db:reset", () => {
     expect(await tableCounts()).toEqual(before);
   });
 
-  it("refuses a database that is not a local file unless --remote-i-know", async () => {
-    vi.stubEnv("DATABASE_URL", "libsql://negocio-real.turso.io");
+  it("refuses a database on a server (Supabase) unless --remote-i-know, without repeating its URL", async () => {
+    vi.stubEnv("DATABASE_URL", SUPABASE_URL);
     const { code, out } = await reset("demo", ["--yes"]);
     expect(code).toBe(1);
     expect(out.errors.join("\n")).toContain("--remote-i-know");
+    expect(out.text()).not.toContain("secreto-de-prueba");
+  });
+
+  it("refuses Turso (libsql://), no longer used, with the reason and before deleting anything", async () => {
+    await realBusiness();
+    const before = await tableCounts();
+    vi.stubEnv("DATABASE_URL", "libsql://negocio-real.turso.io");
+    const { code, out } = await reset("demo", ["--yes", "--remote-i-know"]);
+    // Back to this test file's database before querying it (Turso's URL cannot be opened).
+    vi.unstubAllEnvs();
+    expect(code).toBe(1);
+    expect(out.errors.join("\n")).toContain("Turso ya no se usa");
+    expect(await tableCounts()).toEqual(before);
+  });
+
+  it("refuses while the embedded database is open in another process (pnpm dev or the worker), deleting nothing", async () => {
+    const { dir, dataDir } = embeddedDatabase(OTHER_LIVE_PROCESS);
+    vi.stubEnv("DATABASE_URL", `pglite:${dataDir}`);
+    const { code, out } = await reset("demo", ["--yes"]);
+    vi.unstubAllEnvs();
+    expect(code).toBe(1);
+    expect(out.errors.join("\n")).toContain("está en uso");
+    expect(fs.readdirSync(dataDir).sort()).toEqual(["PG_VERSION", "base"]);
+    await removeWithRetry(dir);
   });
 });
 
@@ -111,32 +154,28 @@ describe("pnpm db:fresh", () => {
     expect(code).toBe(1);
   });
 
-  it("refuses a database that is not a local file unless --remote-i-know", async () => {
-    vi.stubEnv("DATABASE_URL", "libsql://negocio-real.turso.io");
+  it("refuses a database on a server (Supabase) unless --remote-i-know", async () => {
+    vi.stubEnv("DATABASE_URL", SUPABASE_URL);
     const { code, out } = await reset("fresh", ["--yes"]);
     expect(code).toBe(1);
     expect(out.errors.join("\n")).toContain("--remote-i-know");
   });
 });
 
-describe("deleting the database file", () => {
-  it("removes the database with its WAL and shared-memory files", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dominia-reset-"));
-    const file = path.join(dir, "local.db");
-    for (const suffix of ["", "-wal", "-shm", "-journal"]) fs.writeFileSync(`${file}${suffix}`, "x");
-    await deleteLocalDatabase(file);
+describe("deleting the embedded database", () => {
+  it("removes its folder and the lock left by a process that has ended (pnpm dev stopped with Ctrl+C)", async () => {
+    const ended = spawnSync(process.execPath, ["-e", ""]).pid;
+    const { dir, dataDir } = embeddedDatabase(ended);
+    deleteEmbeddedDatabase(dataDir);
     expect(fs.readdirSync(dir)).toEqual([]);
     await removeWithRetry(dir);
   });
 
-  it.runIf(process.platform === "win32")("a database open in another program is reported in use and kept whole", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dominia-reset-"));
-    const file = path.join(dir, "local.db");
-    const other = createClient({ url: `file:${file.split(path.sep).join("/")}` });
-    await other.execute("CREATE TABLE t (x)");
-    await expect(deleteLocalDatabase(file)).rejects.toBeInstanceOf(DatabaseInUseError);
-    expect(fs.existsSync(file)).toBe(true);
-    other.close();
+  it("a database open in another process is reported in use and kept whole", async () => {
+    const { dir, dataDir } = embeddedDatabase(OTHER_LIVE_PROCESS);
+    expect(() => deleteEmbeddedDatabase(dataDir)).toThrow(DatabaseInUseError);
+    expect(fs.readdirSync(dataDir).sort()).toEqual(["PG_VERSION", "base"]);
+    expect(fs.existsSync(`${dataDir}.lock`)).toBe(true);
     await removeWithRetry(dir);
   });
 });

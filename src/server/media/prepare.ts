@@ -4,7 +4,7 @@
 // it with the last messages (oldest first) right before runAgent. Every OpenRouter call is recorded in ai_runs.
 // It never throws for a file it cannot read: the message says so instead ([MED-03]).
 import "server-only";
-import { and, eq, like, ne } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { messages, type MessageMedia } from "@/db/schema";
 import type { MessageContentType, SenderType } from "@/lib/enums";
@@ -16,6 +16,7 @@ import { catalogSupport, getTranscriptionPrivacy } from "@/server/ai/models";
 import { getOpenRouterClient, isZdrEnabled, resolveDefaultModels, type ResolvedDefaultModels } from "@/server/ai/openrouter";
 import type { PromptHistoryMessage } from "@/server/ai/prompt";
 import { safeErrorMessage } from "@/server/redact";
+import { jsonTextContains } from "@/server/sql-helpers";
 import { describeImage } from "./describe-image";
 import type { FfmpegRunner } from "./ffmpeg";
 import { baseMimeType, isModelImageType, isPdf, MEDIA_LIMITS } from "./limits";
@@ -175,7 +176,7 @@ async function readOwnMedia(fileKey: string, maxBytes: number, turn: Turn): Prom
   const others = await db
     .select({ media: messages.media })
     .from(messages)
-    .where(and(ne(messages.conversationId, turn.context.conversationId), like(messages.media, `%${JSON.stringify(fileKey)}%`)))
+    .where(and(ne(messages.conversationId, turn.context.conversationId), jsonTextContains(messages.media, JSON.stringify(fileKey))))
     .limit(20);
   if (others.some((row) => row.media?.fileKey === fileKey)) {
     console.warn("[media] Un mensaje usa un archivo de otra conversación: no se envía a la IA.");

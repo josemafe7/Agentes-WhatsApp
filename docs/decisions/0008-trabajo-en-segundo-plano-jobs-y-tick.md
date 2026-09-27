@@ -24,12 +24,13 @@ Datos comprobados el 26-09-2026:
   solaparse con el anterior (`docs/plataforma-despliegue.md`, «Cron»).
 - Cron externo cada minuto: cron-job.org es gratis, admite la cabecera `Authorization` y corta a los 30 s;
   GitHub Actions no baja de 5 minutos; el plan gratuito de QStash da 1.000 mensajes al día, menos de los 1.440
-  que hacen falta (`docs/plataforma-despliegue.md`, «Cron externo cada minuto»).
+  que hacen falta (`docs/plataforma-despliegue.md`, «Cron externo cada minuto»; ver 0024: hoy lo lanza Supabase
+  Cron).
 - SQLite admite `UPDATE … RETURNING` desde la 3.35.0 (https://www.sqlite.org/lang_returning.html): un trabajo se
   reclama en una sola orden. En Postgres, `FOR UPDATE SKIP LOCKED` sirve para que varios consumidores lean una
   tabla tipo cola sin bloquearse (https://www.postgresql.org/docs/current/sql-select.html).
 - En Turso, una transacción interactiva bloquea las escrituras con un tope de 5 s
-  (`docs/plataforma-despliegue.md`, «Conexión y limitaciones»).
+  (`docs/plataforma-despliegue.md`, «Conexión y limitaciones»; ver 0024).
 - En un VPS, `after()` funciona igual con el servidor de Node; para no perder trabajo al reiniciar, el
   contenedor se para con `SIGTERM` y unos 30 s de margen (`docs/plataforma-despliegue.md`).
 
@@ -53,7 +54,7 @@ Datos comprobados el 26-09-2026:
   2. `/api/cron/tick`, con `GET` (Vercel Cron) y `POST` (cron externo), protegido con
      `Authorization: Bearer ${CRON_SECRET}` comparado en tiempo constante; responde enseguida y trabaja en
      `after()`. En `vercel.json` solo va un cron diario; en Hobby, un cron externo cada minuto; en Pro,
-     `* * * * *`;
+     `* * * * *` (ver 0024: el de cada minuto es Supabase Cron, en los dos planes);
   3. en local, `pnpm dev` arranca un lanzador que llama a esa ruta cada unos 15 s, sin configurar nada;
   4. en el VPS, `pnpm worker` ejecuta `tick()` en bucle.
 - **Agrupación de respuestas:** un solo trabajo `reply` por conversación, con `run_at` a 4–8 s, que se aplaza
@@ -69,14 +70,15 @@ Datos comprobados el 26-09-2026:
 - Gana: ninguna pieza más que instalar o pagar; el mismo código en local, Vercel y el VPS; rondas duplicadas o
   solapadas no hacen daño.
 - Acepta: la rapidez depende de quién lance `tick()`. En local, unos 15 s como mucho; en Hobby sin tráfico,
-  hasta un minuto (el cron externo).
+  hasta un minuto (el cron externo; ver 0024: hoy, Supabase Cron).
 - Pendiente de la fase 2: como la respuesta se programa a 4–8 s, el `tick()` que lanza `after()` al recibir un
   mensaje tiene que poder esperar, dentro de su presupuesto, a que venza esa respuesta; si no, saldría con la
   siguiente ronda del cron. Se resuelve y se prueba al construir el motor.
-- Acepta: consultar la tabla cuesta lecturas (Turso cuenta cada fila recorrida): las consultas de la cola van
+- Acepta: consultar la tabla cuesta lecturas (Turso cuenta cada fila recorrida; ver 0024): las consultas de la cola van
   por índice.
-- Acepta: SQLite tiene un solo escritor; los pasos son cortos y no llaman a servicios externos dentro de una
-  transacción.
-- Acepta: el secreto del cron queda guardado en un servicio de terceros. Solo permite lanzar `tick()`, que es
-  idempotente; se usa uno largo y aleatorio y se cambia si se filtra.
-- Con Postgres, la implementación de `JobQueue` usará `FOR UPDATE SKIP LOCKED` sin cambiar a quien la usa.
+- Acepta: SQLite tiene un solo escritor (ver 0024: en Postgres se conserva con un candado); los pasos son cortos y no
+  llaman a servicios externos dentro de una transacción.
+- Acepta: el secreto del cron queda guardado en un servicio de terceros (ver 0024: hoy, en el trabajo de Supabase
+  Cron). Solo permite lanzar `tick()`, que es idempotente; se usa uno largo y aleatorio y se cambia si se filtra.
+- Con Postgres, la implementación de `JobQueue` usará `FOR UPDATE SKIP LOCKED` sin cambiar a quien la usa (hecho en
+  la fase 8, `PgJobQueue`, ver 0024).

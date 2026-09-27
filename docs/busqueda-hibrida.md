@@ -1,380 +1,177 @@
 # Búsqueda híbrida del conocimiento
 
-Referencia técnica de la búsqueda del conocimiento (§8 de la especificación original) y de su paso futuro a
-Supabase (§12): vectores y FTS5 en libSQL, cómo encaja con Drizzle, la fusión RRF, el troceado, los
-embeddings precalculados de la demo y lo que cambiará en Postgres. Verificado el **2026-09-26** contra la
-documentación oficial de Turso, SQLite, Drizzle, pgvector, PostgreSQL y Supabase, y contra el código fuente
-publicado de libSQL, `@libsql/client` y `drizzle-kit`. Lo que no se ha podido comprobar va marcado
-**«no verificado»**. Las fuentes están al final.
+Referencia técnica de la búsqueda del conocimiento (§8 de la especificación original): vectores con pgvector y texto
+con la búsqueda de Postgres, cómo encaja con Drizzle, la fusión RRF, el troceado y los embeddings precalculados de la
+demo. Desde la fase 8 la base es Postgres en todas partes (decisión 0024): la integrada (PGlite) en local y en las
+pruebas, y Supabase al publicar. RRF, troceado, embeddings, pgvector y PostgreSQL se verificaron el **2026-09-26**;
+PGlite, Supabase y los ejemplos de palabras, el **2026-09-27** (los ejemplos, ejecutados en PGlite 0.5.8 con la
+misma configuración que la migración). Lo que no se ha podido comprobar va marcado **«no verificado»**. Las fuentes
+están al final.
 
 Por qué este documento: la búsqueda va detrás de dos interfaces (`VectorSearch` y `TextSearch`, en
-`src/server/adapters/`) y es el único sitio con SQL propio de libSQL. Aquí está el contrato con el que se
-construyen esos adaptadores y sus migraciones a medida, y los límites que hay que respetar para que el mismo
-código funcione en local, en Turso y, más adelante, en Postgres.
+`src/server/adapters/`), que con la migración a medida de las extensiones son el único sitio con SQL propio de la
+búsqueda. Aquí está el contrato con el que se construyen y los límites que hay que respetar para que el mismo código
+funcione en la base integrada y en Supabase.
 
 ## Lo esencial
 
-- **Local (`file:…db`) y Turso Cloud con el motor libSQL tienen todo lo necesario**: vectores nativos,
-  índice vectorial y FTS5. El binario que instala `@libsql/client` se compila con FTS5 y con el código de
-  vectores dentro.
-- **Turso Cloud tiene hoy dos motores.** La base de datos se crea con el motor **libSQL**, que es el que sale
-  por defecto (`turso db create <nombre>`, sin `--tursodb`). El motor nuevo «Turso» (en vista previa) **no
-  tiene FTS5 ni el índice vectorial de libSQL**: solo búsqueda vectorial lineal y un FTS propio con otra
-  sintaxis.
-- **Con 1536 dimensiones, el índice vectorial con los ajustes por defecto ocupa unos 700 KB por fragmento.**
-  Se crea siempre con `compress_neighbors=float8` y `max_neighbors=20` (unos 36 KB por fragmento).
-- `vector_top_k` **filtra después**: si se pide 40 y luego se filtra por base de conocimiento, pueden quedar
-  menos. Se pide de más (hasta 200) o se hace la búsqueda exacta, que con los tamaños de un negocio pequeño
-  es asumible.
-- FTS5 con `unicode61 remove_diacritics 2` quita tildes y mayúsculas, pero **no hace raíces en español**
-  («tinte» no encuentra «tintes»). La consulta es un OR de términos entre comillas, siempre como parámetro.
-- El índice vectorial y la tabla FTS5 apuntan a la fila por su `rowid`. Nuestros ids son UUID en texto, así
-  que el `rowid` es implícito y **puede cambiar** con `VACUUM` o si `drizzle-kit` recrea la tabla. Tras
-  cualquiera de las dos cosas hay que reconstruir ambos índices.
-- Drizzle: la columna vectorial va en el esquema con un `customType`; el índice vectorial, la tabla FTS5 y sus
-  disparadores van en una migración a medida (`drizzle-kit generate --custom`). **Nunca `drizzle-kit push`**.
+- **El mismo Postgres en todas partes:** la base integrada es PostgreSQL 18.3 (PGlite 0.5.8) con pgvector 0.8.1;
+  Supabase ofrece Postgres 17 (su versión de pgvector se mira en el proyecto: hace falta la 0.8.0 o posterior,
+  **a comprobar** en el primero real). Las extensiones `vector` y `unaccent` van en el esquema `extensions`, como en
+  Supabase.
+- **Embeddings en `halfvec(1536)`** (media precisión: 3.080 bytes por vector) con un índice **HNSW**
+  `halfvec_cosine_ops`. Con pocos fragmentos elegibles (hasta 5.000), búsqueda exacta en un CTE `MATERIALIZED`; con más,
+  el índice en una transacción de solo lectura con `hnsw.ef_search = 200` y `hnsw.iterative_scan = relaxed_order`,
+  para que el filtro por base no deje menos resultados de los pedidos, y un reordenado final.
+- **Texto en una columna generada** `search_vector` (`tsvector`) con la configuración `es_unaccent`: sin tildes ni
+  mayúsculas y **con las raíces del español** («tintes» y «tinte» dan lo mismo), con un índice GIN. La consulta es un
+  OR de palabras clave y de su otro número (singular o plural), pasado siempre como parámetro a
+  `websearch_to_tsquery`, que nunca da error de sintaxis, y se ordena con `ts_rank_cd`.
+- **Nada que reconstruir a mano:** los índices apuntan a la propia fila (no hay `rowid` que cambie) y la columna del
+  texto la calcula Postgres en cada `INSERT` y `UPDATE`. `TextSearch.rebuild()` no hace nada; `VectorSearch.rebuild()`
+  es un `REINDEX INDEX` del índice HNSW.
+- Drizzle: la columna `halfvec`, la columna generada y los dos índices van en el esquema (`pg-core`); solo las
+  extensiones y `es_unaccent` van en una migración a medida. **Nunca `drizzle-kit push`**.
+- La base integrada no guarda el `search_path`: la app ejecuta `SET search_path TO public, extensions` al abrirla, o
+  `halfvec`, `<=>` y `halfvec_cosine_ops` no existen.
 - Fusión RRF con k = 60: cada fragmento suma `1 / (60 + posición)` por cada lista en la que aparece.
-- Futuro Postgres: `halfvec(1536)` con HNSW `halfvec_cosine_ops`, `hnsw.iterative_scan` (pgvector 0.8.0 o
-  superior) y una configuración de texto `es_unaccent`. En una columna generada vale
-  `to_tsvector('es_unaccent', …)`; lo que no vale es la función `unaccent()`.
 
 ## 1. Dónde funciona cada pieza
 
-| Entorno | Funciones vectoriales | Índice vectorial (`libsql_vector_idx` + `vector_top_k`) | FTS5 |
-|---|---|---|---|
-| Local, `@libsql/client` con `file:` | Sí | Sí | Sí |
-| Turso Cloud, motor libSQL (por defecto) | Sí | Sí | Sí, precargada en todos los planes |
-| Turso Cloud, motor Turso (`--tursodb`) | Sí (`vector32`, `vector_distance_cos`, `vector_extract`…) | **No** (búsqueda lineal; solo hay un índice disperso experimental tras una opción) | **No**: tiene su propio FTS (`CREATE INDEX … USING fts`, `fts_match`, `fts_score`) |
-
-Cómo se ha comprobado:
-
-- **Local.** `@libsql/client` 0.18.0 (última estable, 2026-09-02) depende de `libsql` ^0.5.28 (última
-  0.5.29), que usa el crate `libsql` 0.9.30 → `libsql-sys` → `libsql-ffi`. El `build.rs` de `libsql-ffi`
-  0.9.30 compila el SQLite de libSQL con `-DSQLITE_ENABLE_FTS5` y no define `SQLITE_OMIT_VECTOR`, que es lo
-  único que quitaría los vectores. Además, el ejemplo oficial de Turso para vectores usa
-  `createClient({ url: 'file:local.db' })`. Hay binarios ya compilados para Windows x64, macOS y Linux, y
-  ninguno de estos paquetes tiene scripts de instalación (pnpm no tiene que aprobar nada). **No se ha
-  ejecutado** en esta sesión porque el proyecto aún no tiene dependencias: la primera prueba de la fase 4
-  debe crear la tabla, el índice y la tabla FTS5 sobre un archivo local y consultar las dos cosas.
-- **Turso Cloud.** La página de extensiones de Turso lista FTS5 como «Built-in» y siempre activa, y la de
-  vectores dice que la búsqueda vectorial es nativa de Turso y del servidor libSQL. Esa página no separa por
-  motor; que el motor nuevo no tiene FTS5 ni `libsql_vector_idx` sale de su tabla de compatibilidad
-  (`COMPAT.md`). **No se ha probado contra una base real** (no se publica nada en esta fase).
-- Aviso de estrategia: la documentación de libSQL dice que para proyectos nuevos Turso recomienda su motor
-  nuevo, aunque libSQL sigue mantenido y «listo para producción». Elegimos libSQL a propósito por FTS5 y el
-  índice vectorial. Si algún día se cambia de motor, hace falta otra implementación de `TextSearch` y
-  `VectorSearch` (ver «Plan B»).
-
-### Plan B si un destino no tiene FTS5
-
-No hace falta hoy (local y Turso con libSQL lo tienen), pero la interfaz lo permite sin tocar a quien la
-llama:
-
-- **Motor Turso**: su FTS propio (`CREATE INDEX … USING fts (columnas)`, filtro `fts_match(…)`, puntuación
-  BM25 con `fts_score(…)`). Sus analizadores (`default`, `simple`, `whitespace`, `ngram`, `raw`) no
-  documentan quitar tildes: habría que guardar el texto ya normalizado.
-- **Sin ningún FTS**: una columna con el texto en minúsculas y sin tildes (normalizado por la app al
-  escribir) y una puntuación por número de términos encontrados con `LIKE '%…%' ESCAPE '\'`. Es un recorrido
-  completo de la tabla: vale para cientos o pocos miles de fragmentos.
-
-## 2. Vectores en libSQL
-
-### Tipos
-
-| Tipo | Bytes por vector (D dimensiones) | Con D = 1536 |
+| Entorno | pgvector (`halfvec`, HNSW, `iterative_scan`) | `unaccent` y `es_unaccent` |
 |---|---|---|
-| `F64_BLOB` / `FLOAT64` | 8D + 1 | 12.289 |
-| `F32_BLOB` / `FLOAT32` | 4D | **6.144** |
-| `F16_BLOB` / `FLOAT16` | 2D + 1 | 3.073 |
-| `FB16_BLOB` / `FLOATB16` | 2D + 1 | 3.073 |
-| `F8_BLOB` / `FLOAT8` | D + 14 | 1.550 |
-| `F1BIT_BLOB` / `FLOAT1BIT` | ⌈D/8⌉ + 3 | 195 |
+| Base integrada (`data/pglite`) y pruebas de Vitest (en memoria) | Sí: pgvector 0.8.1, con `@electric-sql/pglite-pgvector` 0.0.9 | Sí: `unaccent` viene con PGlite |
+| Pruebas de Playwright (`data/e2e-*pglite`) | Sí, la misma base integrada | Sí |
+| Supabase | Sí; la versión de pgvector, **a comprobar** en el proyecto | Sí: las dos extensiones se crean en `extensions` |
 
-- Usamos `F32_BLOB(1536)`, que es lo que Turso recomienda para empezar y la precisión nativa de
-  `text-embedding-3-small`. El número entre paréntesis es la dimensión.
-- Máximo 65.536 dimensiones. La distancia euclídea no funciona con `FLOAT1BIT`.
-- El tipo es solo una pista para SQLite: el vector se guarda como BLOB con sus metadatos dentro.
+Cómo se ha comprobado: con los paquetes instalados, `CREATE EXTENSION … WITH SCHEMA extensions`, la columna generada
+con índice GIN, `halfvec(1536)` con HNSW y `SET LOCAL hnsw.iterative_scan = relaxed_order` dentro de una transacción
+funcionan en PGlite; y las pruebas del proyecto (`src/db/db.test.ts`, `src/server/adapters/search.test.ts`) lo
+comprueban en cada ejecución. En Supabase se comprueba al publicar (fase 8).
 
-### Funciones
+## 2. Vectores con pgvector
 
-- `vector32(x)`: convierte a F32. Acepta el texto de un array JSON (`'[0.1, 0.2, …]'`) **o** el binario.
-  `vector(x)` es un alias.
-- `vector_extract(x)`: devuelve el vector como texto JSON. Es la forma segura de leerlo si alguna vez hace
-  falta (ver Drizzle).
-- `vector_distance_cos(a, b)`: distancia coseno = 1 − similitud coseno. Va de 0 (iguales) a 2 (opuestos).
-  Pueden salir negativos minúsculos (del orden de −10⁻⁹) por redondeo: se tratan como 0. Los dos vectores
-  tienen que ser **del mismo tipo y la misma dimensión**.
-- Formato binario de F32: 4 bytes por componente, **little-endian**, sin cabecera (comprobado en el código de
-  libSQL). Por eso un `Float32Array` de 1536 valores convertido a bytes es un vector válido, y los embeddings
-  de la demo se pueden guardar en base64 (ver §7).
-- Los embeddings de OpenAI vienen normalizados a longitud 1, así que coseno y producto escalar ordenan igual.
+### La columna y el índice
 
-### Índice vectorial
+- `kb_chunks.embedding` es `halfvec(1536)`: media precisión, `2 · 1536 + 8` = 3.080 bytes por vector, la mitad que
+  `vector`. HNSW indexa `halfvec` hasta 4.000 dimensiones (`vector`, hasta 2.000). Vacía (`NULL`) hasta que hay clave.
+- La columna fija la dimensión; además la app comprueba antes de escribir y de buscar que son 1536 números finitos
+  (`assertValidEmbedding`), con un error claro en español.
+- El índice, `kb_chunks_embedding_idx`: `USING hnsw (embedding halfvec_cosine_ops)`. Lo genera Drizzle desde el
+  esquema.
+- Los vectores `NULL` no entran en el índice (ni los de ceros, con la distancia coseno): un fragmento sin embedding
+  (la demo sin clave) no rompe nada.
+- La distancia es la del coseno, con el operador `<=>`: de 0 (iguales) a 2 (opuestos). La similitud que se usa en
+  los umbrales es `1 − distancia`; un negativo minúsculo por redondeo cuenta como 0. Los embeddings de OpenAI vienen
+  normalizados, así que coseno y producto escalar ordenan igual.
+- La búsqueda nunca devuelve los embeddings: solo el id del fragmento y su similitud. Ninguna consulta lee la fila
+  entera de `kb_chunks` (arrastraría 3 KB por fragmento).
 
-Se crea en la migración a medida, con los ajustes como argumentos de `libsql_vector_idx`:
+### Qué hace el adaptador (`PgVectorSearch`)
 
-```sql
-CREATE INDEX kb_chunks_embedding_idx
-  ON kb_chunks (libsql_vector_idx(embedding, 'metric=cosine', 'compress_neighbors=float8', 'max_neighbors=20'));
-```
+1. Cuenta los fragmentos elegibles: los de las bases del agente, en su versión del índice en uso (`index_version`) y
+   con embedding.
+2. Hasta **5.000** (una constante con nombre, **no medido**): búsqueda exacta. Calcula la distancia de todos en un CTE
+   `MATERIALIZED` (así Postgres no la cambia por el índice aproximado), aplica el filtro antes del `LIMIT` y ordena.
+3. Con más: el índice HNSW, en una transacción propia de solo lectura con `hnsw.ef_search = 200` y
+   `hnsw.iterative_scan = relaxed_order` puestos con `SET LOCAL` (por `set_config(…, true)`), que duran solo esa
+   transacción. Con el filtro, la búsqueda iterativa sigue recorriendo el índice hasta tener los resultados pedidos o
+   llegar a `hnsw.max_scan_tuples` (20.000 por defecto). En orden relajado los resultados pueden salir algo
+   desordenados: se toman en un CTE `MATERIALIZED` y se vuelven a ordenar fuera por `distance + 0` (sin el `+ 0`,
+   Postgres 17 o posterior se fiaría del orden del CTE y no reordenaría).
+4. Si el índice deja menos de los pedidos y hay más elegibles, se completa con la búsqueda exacta.
 
-| Ajuste | Valores | Por defecto | Qué cambia |
-|---|---|---|---|
-| `metric` | `cosine`, `l2` | `cosine` | Distancia con la que se construye |
-| `max_neighbors` | entero > 0 | 3·√D (≈ 117 con 1536) | Vecinos por nodo del grafo: menos = menos espacio y menos precisión |
-| `compress_neighbors` | `float1bit`, `float8`, `float16`, `floatb16`, `float32` | sin compresión | Tipo con el que se guardan los vecinos |
-| `alpha` | real ≥ 1 | 1,2 | Densidad del grafo: menos = más rápido y menos preciso |
-| `search_l` | entero > 0 | 200 | Vecinos visitados al buscar |
-| `insert_l` | entero > 0 | 70 | Vecinos visitados al insertar |
+Por qué `SET LOCAL` dentro de una transacción: con el pooler de Supabase en modo transacción (el de Vercel), cada
+transacción puede ir por una conexión distinta del servidor, y un `SET` de sesión se aplicaría a otra consulta o se
+perdería. Es de solo lectura (`accessMode: "read only"`), así que no toma el candado de escritura de la base
+(decisión 0024): las búsquedas no esperan a las escrituras.
 
-Por qué esos ajustes: Turso da la fórmula aproximada del espacio del índice, N · (bytes del vector + M ·
-bytes del vecino comprimido). Con 1536 dimensiones:
+`hnsw.ef_search` (40 por defecto) limita cuántos candidatos guarda la búsqueda aproximada: se sube a 200 para pedir
+40 resultados con filtro. `hnsw.iterative_scan` existe desde pgvector **0.8.0**; sus valores son `off` (por
+defecto), `strict_order` y `relaxed_order` (mejor recall; se reordena después).
 
-| Ajustes | Por fragmento | 10.000 fragmentos |
-|---|---|---|
-| Por defecto (M ≈ 117, sin compresión) | ≈ 6.144 + 117 · 6.144 ≈ 708 KiB | ≈ 7 GB |
-| `float8`, M = 20 | ≈ 6.144 + 20 · 1.550 ≈ 36 KiB | ≈ 370 MB |
+## 3. Texto con la búsqueda de Postgres
 
-El plan gratuito de Turso tiene 5 GB en total. Turso publicó un caso real (2024-10-03) con `float8` y
-`max_neighbors=20`: índice 8 veces menor sin cambios en los resultados en su prueba de menos de 1.000
-nodos, y advierte que con más de 10.000 la diferencia se notaría. `float1bit` es el más pequeño, pero Turso
-avisa de que **necesita un modelo de embeddings preparado para 1 bit**: no se usa con `text-embedding-3-small`.
-El recall exacto con nuestros datos está **no verificado**: se comprueba con la demo.
+### La configuración `es_unaccent`
 
-Cómo se comporta:
-
-- Se rellena solo al crearlo y se mantiene solo con cada `INSERT`, `UPDATE` y `DELETE`. `REINDEX
-  kb_chunks_embedding_idx` lo reconstruye y `DROP INDEX` lo borra.
-- Crea tablas internas: `kb_chunks_embedding_idx_shadow` (y su índice) y la global `libsql_vector_meta_shadow`.
-- Las filas con `embedding` **NULL no entran** en el índice (comprobado en el código de libSQL, no en la
-  documentación). Así un fragmento sin embedding (demo sin clave) no rompe nada.
-- Si se inserta un vector de otra dimensión, el índice lo rechaza con «dimensions are different». La columna
-  por sí sola no lo impide (**no verificado** que lo haga): la app valida `length === 1536` antes de escribir.
-- Solo funciona en tablas **con `rowid`** o con una clave primaria de una sola columna. `kb_chunks` tiene
-  `id` UUID en texto sin `WITHOUT ROWID`, así que tiene `rowid` implícito: **no se declara `WITHOUT ROWID`**.
-- Admite índices parciales (`… WHERE …`), pero no nos sirven: filtramos por base de conocimiento, que se crea
-  desde la interfaz, y haría falta un índice por base.
-
-### Consultar con el índice
-
-El índice solo se usa llamándolo a mano con `vector_top_k(nombre_índice, vector, k)`, que devuelve el
-`rowid` de los k vecinos aproximados en una columna llamada `id`. El vector de la consulta tiene que ser del
-mismo tipo y dimensión que la columna:
+La crea la migración a medida `drizzle/0000_extensions.sql`, antes que las tablas, sin repetirse si ya existe:
 
 ```sql
-SELECT c.id, vector_distance_cos(c.embedding, vector32(?)) AS distance
-FROM vector_top_k('kb_chunks_embedding_idx', vector32(?), 200) AS v
-JOIN kb_chunks AS c ON c.rowid = v.id
-WHERE c.kb_id IN (…) AND <fragmento vigente>
-ORDER BY distance
-LIMIT 40;
+CREATE TEXT SEARCH CONFIGURATION public.es_unaccent ( COPY = pg_catalog.spanish );
+ALTER TEXT SEARCH CONFIGURATION public.es_unaccent
+  ALTER MAPPING FOR hword, hword_part, word
+  WITH extensions.unaccent, pg_catalog.spanish_stem;
 ```
 
-- Se une por **`c.rowid = v.id`**, no por `c.id`: nuestro `id` es un UUID.
-- El orden de `vector_top_k` no está documentado: se ordena siempre por la distancia calculada.
-- El `WHERE` se aplica **después** de elegir los k vecinos (filtrado posterior). Si la mayoría son de otras
-  bases o de versiones antiguas del índice (`index_version`), quedan menos de 40. Por eso se pide de más.
-  Turso dice que el máximo por defecto ronda las 200 filas (encaja con `search_l = 200`; la relación es **no
-  verificada**), así que k no pasa de 200.
+- Es el ejemplo oficial de `unaccent` (hecho con `french`) cambiado a `spanish`: primero quita tildes y después saca
+  la raíz. Solo se cambian `hword`, `hword_part` y `word`, los tipos de palabra con letras no ASCII, como en el
+  ejemplo; las palabras sin tildes van directas a la raíz.
+- Ejemplos comprobados: «tinte» y «tintes» → `tint`; «reserva», «reservas», «reservar» y «reservé» → `reserv`;
+  «corte», «cortes» y «cortar» → `cort`; «depilación» y «depilacion» → `depilacion`; «autobús» y «autobus» →
+  `autobus`; «Peluquería» → `peluqueri`.
+- Dos límites, porque la tilde se quita antes de sacar la raíz: «cancelación» da `cancelacion` y «cancelaciones»,
+  `cancel` (el lematizador solo reconoce la terminación con tilde); y una palabra que sin su tilde o su eñe es una
+  palabra vacía del español desaparece («uña» se queda en «una»). Por lo primero, el adaptador busca también el otro
+  número de cada palabra (ver «Construir la consulta»); lo segundo se acepta.
 
-### Búsqueda exacta (fuerza bruta)
+### La columna y el índice
 
-```sql
-SELECT c.id, vector_distance_cos(c.embedding, vector32(?)) AS distance
-FROM kb_chunks AS c
-WHERE c.kb_id IN (…) AND <fragmento vigente> AND c.embedding IS NOT NULL
-ORDER BY distance
-LIMIT 40;
-```
+- `kb_chunks.search_vector`: `tsvector GENERATED ALWAYS AS (to_tsvector('public.es_unaccent', coalesce(title, '') ||
+  ' ' || coalesce(section, '') || ' ' || coalesce(content, ''))) STORED`, con el índice GIN `kb_chunks_search_vector_idx`.
+  Postgres la escribe con cada `INSERT` y `UPDATE` del fragmento: la app nunca la toca.
+- El texto de los documentos y de sus fragmentos se guarda sin el carácter nulo (NUL), que Postgres no admite y que a
+  veces trae un PDF o una web (`src/server/knowledge/store.ts`); el que se escribe o se pega en la pantalla pasa por
+  `src/server/storable-text.ts`, que además cambia la mitad suelta de un carácter compuesto por «�».
+- **Por qué no `unaccent()` en la columna generada**: una expresión generada solo puede usar funciones `IMMUTABLE`, y
+  `unaccent()` está declarada `STABLE` (depende del diccionario). `to_tsvector` con la configuración escrita sí vale: es
+  lo que usa la documentación de PostgreSQL en su ejemplo de columna generada. Contrapartida: si algún día se cambia
+  `es_unaccent`, los `tsvector` guardados no se recalculan solos; hay que forzarlo (por ejemplo, reprocesando las
+  bases).
 
-Es exacta y respeta el filtro, pero lee todos los fragmentos elegibles (6 KB cada uno). En Turso se paga por
-«filas leídas», y un recorrido completo cuenta una por fila: con 5.000 fragmentos, 100.000 búsquedas al mes
-son los 500 millones de lecturas del plan gratuito. Un PDF de 100 páginas son unos 200 fragmentos de 400
-tokens (OpenAI calcula unos 800 tokens por página).
+### Construir la consulta desde lo que escribe el cliente
 
-### Qué hace el adaptador
+`websearch_to_tsquery` une las palabras sueltas con `&` (exige todas), así que no se usa tal cual: la app le pasa las
+palabras ya limpias unidas con ` or `, que entiende como OR. Nunca da error de sintaxis. Lo hace `buildFtsQuery()` de
+`src/server/adapters/text-search.ts`:
 
-1. Si los fragmentos elegibles (bases del agente, versión vigente, con embedding) son pocos, búsqueda exacta.
-   Umbral orientativo: 5.000, en una constante con nombre (**no medido**).
-2. Si son más, `vector_top_k` con k = 200 y filtro posterior.
-3. Si tras filtrar quedan menos de 40 y hay más elegibles, se completa con la búsqueda exacta.
-4. Nunca se devuelven los embeddings: solo `id` y distancia.
+1. Normalizar (NFKC y minúsculas) y quedarse solo con tiradas de letras y números: comillas y guiones no llegan (en
+   `websearch_to_tsquery`, `-` es NOT).
+2. Quitar las palabras vacías del español (una lista en el código: «de», «la», «que», «el», «en», «y»…) y las de menos
+   de 2 caracteres: en un OR, «de» coincidiría con casi todo y llenaría los 40 resultados de ruido. La lista se compara
+   sin tildes pero conservando la «ñ». `es_unaccent` quita además su propia lista.
+3. Quitar las repetidas y quedarse con 12 como mucho.
+4. Añadir el otro número de cada palabra (el plural de «uña» y de «cancelación»; el singular de «cancelaciones»), por
+   los límites de §3.
+5. Unirlas con ` or ` y pasarlo **siempre como parámetro**, nunca pegado al SQL. Si no queda ninguna, no se consulta.
 
-## 3. FTS5 en libSQL
+La consulta ordena con `ts_rank_cd` (más alto cuanto mejor) y filtra por las bases del agente antes del `LIMIT`, así
+que el filtro es exacto. Para RRF solo cuenta la posición, no el valor.
 
-### La tabla
+## 4. Drizzle con Postgres
 
-Tabla FTS5 de **contenido externo**: guarda solo el índice de palabras y lee el texto de `kb_chunks` cuando
-hace falta. Los nombres de las columnas tienen que coincidir con columnas de `kb_chunks` (aquí `title`,
-`section` y `content` son de ejemplo):
+Versiones instaladas: `drizzle-orm` 0.45.2 y `drizzle-kit` 0.31.10 (dialecto `postgresql`). Existe una 1.0 en
+«release candidate» y la web de Drizzle ya la documenta; mandan la versión de `package.json` y sus tipos. No se usan
+versiones candidatas (`docs/security.md`).
 
-```sql
-CREATE VIRTUAL TABLE kb_chunks_fts USING fts5(
-  title, section, content,
-  content = 'kb_chunks', content_rowid = 'rowid',
-  tokenize = 'unicode61 remove_diacritics 2'
-);
-```
-
-- `unicode61`: separa por espacios y puntuación (Unicode 6.1) y no distingue mayúsculas.
-- `remove_diacritics 2`: quita los diacríticos de **todas** las letras latinas; con `1` (el valor por
-  defecto) quedan casos raros sin quitar. Existe desde SQLite 3.27.0; libSQL va muy por delante.
-- Con esto, «médico», «MEDICO» y «medico» son el mismo término, y la consulta pasa por el mismo analizador.
-- FTS5 **no hace raíces en español**: el analizador `porter` es para inglés. «tinte» no encuentra «tintes».
-  Hecho en la fase 4: la búsqueda del conocimiento pide los términos de 4 letras o más por prefijo (`"tinte"*`), y a
-  los de 5 o más que acaban en «s» les quita esa «s» antes («tintes» → `"tinte"*`), así el plural encuentra el
-  singular y al revés. Un prefijo recorre un rango de términos y es algo más lento; con los tamaños de un negocio no
-  se nota.
-
-Por qué contenido externo y no las otras dos opciones:
-
-- **Normal** (guarda su copia del texto): duplica todo el texto de la base. Su ventaja, que no depende del
-  `rowid` de otra tabla, no nos basta porque el índice vectorial depende de él igualmente.
-- **Sin contenido** (`content=''`): no puede devolver columnas ni admite `UPDATE` o `DELETE` normales.
-- **Contenido externo**: no duplica texto; a cambio, mantenerlo al día es cosa nuestra, con disparadores.
-
-### Disparadores
-
-Los tres del ejemplo oficial de SQLite, adaptados. El de borrado usa el comando especial `'delete'` con los
-valores **antiguos**, porque FTS5 necesita el texto que indexó para quitarlo:
-
-```sql
-CREATE TRIGGER kb_chunks_fts_ai AFTER INSERT ON kb_chunks BEGIN
-  INSERT INTO kb_chunks_fts(rowid, title, section, content) VALUES (new.rowid, new.title, new.section, new.content);
-END;
-CREATE TRIGGER kb_chunks_fts_ad AFTER DELETE ON kb_chunks BEGIN
-  INSERT INTO kb_chunks_fts(kb_chunks_fts, rowid, title, section, content) VALUES ('delete', old.rowid, old.title, old.section, old.content);
-END;
-CREATE TRIGGER kb_chunks_fts_au AFTER UPDATE OF title, section, content ON kb_chunks BEGIN
-  INSERT INTO kb_chunks_fts(kb_chunks_fts, rowid, title, section, content) VALUES ('delete', old.rowid, old.title, old.section, old.content);
-  INSERT INTO kb_chunks_fts(rowid, title, section, content) VALUES (new.rowid, new.title, new.section, new.content);
-END;
-```
-
-- `AFTER UPDATE OF …` evita reindexar el texto cuando solo cambia el embedding u otra columna.
-- Crear los disparadores **no** indexa las filas que ya existían: tras crearlos (y tras cualquier arreglo) se
-  ejecuta `INSERT INTO kb_chunks_fts(kb_chunks_fts) VALUES('rebuild');`, que reconstruye el índice desde
-  `kb_chunks`.
-- **Nunca `INSERT OR REPLACE` en `kb_chunks`**: cuando `REPLACE` borra una fila para resolver un conflicto,
-  los disparadores de borrado solo se ejecutan si están activados los disparadores recursivos, y el índice
-  quedaría con restos. Los fragmentos no se modifican: se insertan los de la versión nueva y se borran los
-  viejos. Un `ON CONFLICT DO UPDATE` sí dispara el de actualización.
-
-### Consulta
-
-```sql
-SELECT c.id, bm25(kb_chunks_fts) AS score
-FROM kb_chunks_fts
-JOIN kb_chunks AS c ON c.rowid = kb_chunks_fts.rowid
-WHERE kb_chunks_fts MATCH ? AND c.kb_id IN (…) AND <fragmento vigente>
-ORDER BY score
-LIMIT 40;
-```
-
-- `bm25()` devuelve **números más bajos cuanto mejor** es el resultado (FTS5 lo multiplica por −1), así que
-  se ordena ascendente. Admite pesos por columna en el orden de la tabla, p. ej. `bm25(kb_chunks_fts, 2.0,
-  1.5, 1.0)` para dar más peso al título (opcional, sin calibrar).
-- Aquí el filtro es **exacto**: SQLite aplica el `WHERE` antes del `LIMIT`, no hay un k previo que recortar.
-- Para RRF solo importa la posición, no el valor de `bm25`.
-
-### Construir la expresión `MATCH` desde lo que escribe el cliente
-
-La sintaxis de FTS5 tiene operadores (`AND`, `OR`, `NOT`, `NEAR`, `*`, `^`, `:`, paréntesis) y varias
-palabras seguidas se unen con un **AND implícito**. Para que sea un OR de palabras clave y no falle con
-cualquier texto:
-
-1. Normalizar (NFKC y minúsculas) y extraer palabras con una expresión Unicode de letras y números.
-2. Quitar palabras vacías del español (una lista en el código: «de», «la», «que», «el», «en», «y»…). FTS5 no
-   tiene lista de palabras vacías, y en un OR «de» coincide con casi todo y llena los 40 resultados de ruido.
-3. Quitar las de menos de 2 caracteres, quitar repetidas y quedarse con un máximo razonable (12). La lista de
-   palabras vacías se compara sin tildes, pero conservando la «ñ» (si no, «uña» sería la palabra vacía «una»).
-4. Poner cada término **entre comillas dobles**, duplicando cualquier comilla doble interna (así lo escapa
-   FTS5), y unirlos con `" OR "`: `"precio" OR "tinte" OR "mechas"`. Entre comillas, `OR`, `NOT` o `*` son
-   texto, no operadores.
-5. Pasar la expresión **siempre como parámetro** (`MATCH ?`), nunca pegada al SQL.
-6. Si no queda ningún término, no se consulta FTS5 (lista vacía).
-7. Con prefijos (la búsqueda del conocimiento), cada término largo va como `"término"*` (ver «La tabla»).
-
-Todo esto está en `buildFtsQuery()` de `src/server/adapters/text-search.ts`.
-
-## 4. Drizzle con libSQL
-
-Versiones estables el 2026-09-26: `drizzle-orm` 0.45.3 y `drizzle-kit` 0.31.11 (2026-09-21). Existe una
-1.0.0 en «release candidate» y **la web de Drizzle ya documenta la 1.0** (por ejemplo, migraciones en una
-carpeta por migración); con la 0.31 son archivos `drizzle/NNNN_nombre.sql` y `drizzle/meta/_journal.json`.
-No se usan versiones candidatas (`docs/security.md`).
-
-### Columna vectorial en el esquema
-
-Con `customType` de `drizzle-orm/sqlite-core`:
-
-- `dataType` devuelve `F32_BLOB(1536)` (con la dimensión como configuración obligatoria). Así
-  `drizzle-kit generate` crea la columna en la migración normal.
-- `toDriver` devuelve un fragmento SQL `vector32(<json>)`: en 0.45.3 el tipo de `toDriver` admite devolver
-  `SQL` además del valor. Alternativa: pasar los bytes (`Uint8Array` del `Float32Array`) dentro de
-  `vector32(?)`, que evita convertir 1536 números a texto.
-- **Leer**: no se lee nunca el embedding (la búsqueda solo devuelve ids y distancias). Si hiciera falta,
-  `vector_extract(embedding)` y `JSON.parse`. Motivo: `@libsql/client` devuelve los BLOB como
-  `ArrayBuffer`, y en modo local lo saca con `buffer.buffer` del `Buffer` nativo, que podría incluir bytes
-  de fuera del valor (**no verificado** que pase con estos búferes).
-- **Ninguna consulta hace `select()` de la fila entera de `kb_chunks`**: arrastraría 6 KB por fragmento. Se
-  eligen las columnas.
-
-Dos avisos sobre la guía de Drizzle de Turso: crea el índice con `USING vector_cosine(3)`, sintaxis que no
-aparece en la documentación de libSQL (se usa `libsql_vector_idx`), y su `fromDriver` usa `value.buffer`
-suponiendo un `Buffer`, cuando el cliente devuelve un `ArrayBuffer`.
-
-### Migración a medida
-
-El índice vectorial, la tabla FTS5, sus disparadores y el `rebuild` no los genera Drizzle. Van en una
-migración a medida, que crea solo el integrador de la fase:
-
-- `pnpm drizzle-kit generate --custom --name=kb-search-indexes` crea un `.sql` vacío numerado y lo apunta en
-  el diario (en la 0.31.11 la opción se describe como «Prepare empty migration file for custom SQL»).
-- **Cada sentencia separada por `--> statement-breakpoint`**: el migrador de Drizzle parte el archivo por esa
-  marca y ejecuta cada trozo como una sola sentencia. Un disparador, con sus `;` internos, es un solo trozo.
-- Orden: índice vectorial, tabla FTS5, tres disparadores y `rebuild`.
-- La migración normal que crea `kb_chunks` tiene que ir antes.
-
-### Lo que `drizzle-kit` ve y lo que no
-
-- `generate` compara el esquema TypeScript con la última instantánea en `drizzle/meta/`: **no lee la base de
-  datos**, así que no ve ni intenta borrar la tabla FTS5 ni las tablas internas del índice.
-- `push`, `pull` y Studio sí leen `sqlite_master`. Solo ignoran `__drizzle_migrations` y los nombres que
-  empiezan por `_cf_`, `_litestream_`, `libsql_` y `sqlite_`. Verían `kb_chunks_fts`, sus tablas internas
-  (`kb_chunks_fts_data`, `_idx`, `_docsize`, `_config`) y `kb_chunks_embedding_idx_shadow`, y `push`
-  intentaría borrarlas. Por eso **nunca se usa `push`**. Si se usa `pull` o Studio, `tablesFilter` admite
-  exclusiones con `!` (p. ej. `['*', '!kb_chunks_fts*', '!*_shadow*']`).
-- **Recrear la tabla.** Cuando un cambio no se puede hacer con `ALTER TABLE` en SQLite, `drizzle-kit` genera:
-  crear `__new_kb_chunks`, copiar con `INSERT … SELECT` (sin copiar el `rowid`), `DROP TABLE` y renombrar.
-  Eso **borra el índice vectorial y los disparadores**, y los `rowid` pueden cambiar. Con `dialect: 'turso'`
-  algunos cambios de columna usan el `ALTER COLUMN` de libSQL, pero la recreación sigue existiendo para
-  otros. Regla: si una migración generada recrea `kb_chunks`, justo detrás va una a medida que vuelve a crear
-  el índice y los disparadores y ejecuta el `rebuild`.
-
-### El `rowid` y `VACUUM`
-
-Según SQLite, `VACUUM` puede cambiar el `rowid` de las tablas sin `INTEGER PRIMARY KEY`, y `kb_chunks` es
-una de ellas (su clave es un UUID en texto, por portabilidad). El índice vectorial y la tabla FTS5 guardan
-ese `rowid`: si cambia, devuelven fragmentos equivocados sin dar error. Por eso:
-
-- No se ejecuta `VACUUM` sin reconstruir después.
-- Reconstruir = `REINDEX kb_chunks_embedding_idx;` y `INSERT INTO kb_chunks_fts(kb_chunks_fts)
-  VALUES('rebuild');`. Lo ofrece el adaptador como mantenimiento («Reconstruir índices de búsqueda» en
-  Diagnóstico) y lo ejecuta el reindexado completo de una base.
-
-### SQL solo en los adaptadores
-
-Todo lo anterior vive en `src/server/adapters/**` y en `drizzle/`. Se escribe con la plantilla `sql` de
-Drizzle, que convierte cada valor en parámetro; nunca `sql.raw` con nada que venga del usuario. El vector de
-la consulta y la expresión `MATCH` son siempre parámetros.
+- **En el esquema** (`src/db/schema/knowledge.ts`): `halfvec("embedding", { dimensions: 1536 })` de `pg-core`; la
+  columna `search_vector` con un tipo propio (`customType` que devuelve `tsvector`) y `generatedAlwaysAs(…)`; el índice
+  `.using("hnsw", t.embedding.op("halfvec_cosine_ops"))` y el GIN. `drizzle-kit generate` los lleva a la migración
+  normal (`drizzle/0001_initial.sql`).
+- **A medida** (`drizzle/0000_extensions.sql`, creada con `pnpm db:generate --custom --name extensions`): el esquema
+  `extensions`, las extensiones `vector` y `unaccent` y `es_unaccent`, cada sentencia separada por
+  `--> statement-breakpoint` (el migrador parte el archivo por esa marca). Tiene que ir antes que las tablas.
+- **El migrador** de Drizzle (`drizzle-orm/postgres-js/migrator` en Supabase, `drizzle-orm/pglite/migrator` en la base
+  integrada) anota cada migración aplicada en `drizzle.__drizzle_migrations`. **Nunca `drizzle-kit push`**: cambia la
+  base sin dejar migración.
+- El vector de la consulta se pasa como parámetro (`'[…]'::halfvec(1536)`); la dimensión sale de la constante del
+  producto (`EMBEDDING_DIMENSIONS`), nunca de fuera.
 
 ## 5. Fusión RRF y resultado
 
-1. Normalizar la consulta y construir la expresión FTS5 (§3).
+1. Normalizar la consulta y construir la consulta de texto (§3).
 2. Con clave de OpenRouter: embedding de la consulta (1536, validado) y **40 resultados vectoriales**. Sin
    clave, esta lista queda vacía y la búsqueda es solo de texto (requisito de la demo).
-3. **40 resultados de texto** con FTS5.
+3. **40 resultados de texto** con la búsqueda de Postgres.
 4. Los resultados por significado con una similitud por debajo de **0,2** se descartan antes de mezclar: la búsqueda
    vectorial devuelve los más cercanos aunque no se parezcan en nada, y rellenarían la respuesta de ruido.
 5. **RRF con k = 60** (Cormack, Clarke y Büttcher, SIGIR 2009): cada fragmento suma `1 / (60 + posición)` por
@@ -435,9 +232,9 @@ Mientras nadie ha ejecutado `pnpm seed:embeddings`, el archivo del repositorio e
 - **Clave** = SHA-256 de `modelo + "\n" + dimensiones + "\n" + texto`, donde el texto es exactamente el que se
   manda a la API (con el prefijo «Documento: …», en NFC y con saltos `\n`). Si cambian el troceado, el texto
   o el modelo, la clave deja de coincidir sola y no se usa un embedding equivocado.
-- **Valor** = los 1536 `float32` en little-endian, en base64 (8.192 caracteres). Es el formato binario de
-  `F32_BLOB`, se inserta tal cual con `vector32(?)` pasando los bytes, y ocupa unas 4 veces menos que un array
-  JSON de números sin perder precisión.
+- **Valor** = los 1536 `float32` en little-endian, en base64 (8.192 caracteres): ocupa unas 4 veces menos que un array
+  JSON de números sin perder precisión. Al insertarlo en la columna `halfvec` se guarda en media precisión, igual que
+  los embeddings que calcula la app.
 - Tamaño: unos 8 KB por fragmento; los ~95 textos distintos de los nueve sectores son ~0,8 MB en el repositorio.
 - `pnpm seed`: trocea los documentos de la demo con el mismo código que la app, calcula la clave de cada trozo
   (la misma que guarda `kb_chunks.content_hash`) y, si está, inserta el embedding. Si falta, deja el fragmento sin
@@ -453,130 +250,39 @@ Mientras nadie ha ejecutado `pnpm seed:embeddings`, el archivo del repositorio e
 - La base de conocimiento de la demo usa el modelo de embeddings por defecto de Ajustes › IA; un vector del
   archivo solo se usa si coinciden la clave, el modelo y las dimensiones.
 
-## 8. Futuro: Supabase (Postgres)
+## 8. Diferencias con el encargo original
 
-La restricción que impide citas solapadas en Postgres no es de la búsqueda: está en `docs/modelo-de-datos.md`
-(«Sin dobles reservas»).
-
-### Vectores con pgvector
-
-- Columna `halfvec(1536)`: media precisión, `2 · 1536 + 8` = 3.080 bytes por vector (la mitad que `vector`).
-  HNSW indexa `halfvec` hasta 4.000 dimensiones (`vector`, hasta 2.000). Drizzle tiene `halfvec` en
-  `pg-core` y el método de índice `hnsw`.
-- Índice y operador coseno:
-
-```sql
-CREATE INDEX ON kb_chunks USING hnsw (embedding halfvec_cosine_ops);
--- consulta: ORDER BY embedding <=> $1::halfvec(1536) LIMIT 40
-```
-
-- `hnsw.ef_search` (40 por defecto) limita cuántos resultados puede devolver la búsqueda aproximada: con
-  `LIMIT 40` y filtros se sube (p. ej. 100) con `SET LOCAL` dentro de la transacción.
-- **`hnsw.iterative_scan`** (desde pgvector **0.8.0**): con filtros, sigue recorriendo el índice hasta tener
-  suficientes filas o llegar a `hnsw.max_scan_tuples` (20.000 por defecto). Valores: `off` (por defecto),
-  `strict_order` (orden exacto por distancia) y `relaxed_order` (mejor recall, orden aproximado; se reordena
-  con un CTE `MATERIALIZED`). La versión se comprueba con `SELECT extversion FROM pg_extension WHERE extname
-  = 'vector';`.
-- Con el pooler en modo transacción, los `SET` de sesión no son fiables: siempre `SET LOCAL` dentro de una
-  transacción.
-
-### Texto: configuración `es_unaccent`
-
-En Supabase las extensiones van en el esquema `extensions`:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA extensions;
-CREATE TEXT SEARCH CONFIGURATION public.es_unaccent ( COPY = pg_catalog.spanish );
-ALTER TEXT SEARCH CONFIGURATION public.es_unaccent
-  ALTER MAPPING FOR hword, hword_part, word
-  WITH extensions.unaccent, pg_catalog.spanish_stem;
-```
-
-- Es el ejemplo oficial de `unaccent` (hecho con `french`) cambiado a `spanish`: primero quita tildes y
-  después saca la raíz. A diferencia de FTS5, aquí sí hay raíces («tintes» encuentra «tinte»).
-- Solo se cambian `hword`, `hword_part` y `word`, los tipos de palabra con letras no ASCII, como en el ejemplo.
-- Columna generada: `tsvector GENERATED ALWAYS AS (to_tsvector('public.es_unaccent', coalesce(title, '') ||
-  ' ' || content)) STORED`, con índice GIN.
-- **Por qué no `unaccent()` en la columna generada**: una expresión generada solo puede usar funciones
-  `IMMUTABLE`, y `unaccent()` está declarada `STABLE` (depende del diccionario). `to_tsvector` con la
-  configuración escrita sí vale: es lo que usa la documentación de PostgreSQL en su ejemplo de columna
-  generada. Contrapartida: si algún día se cambia `es_unaccent`, los `tsvector` guardados no se recalculan
-  solos; hay que forzarlo.
-- La configuración se crea en una migración anterior a la tabla.
-
-### Consulta OR en Postgres
-
-- `websearch_to_tsquery` une las palabras sueltas con `&` (exige todas): no se usa tal cual.
-- Opción A: un `plainto_tsquery('public.es_unaccent', $n)` por término, unidos con el operador `||` de
-  `tsquery` (OR). Cada término es un parámetro.
-- Opción B: los términos ya limpios (§3, sin guiones, porque en `websearch_to_tsquery` un guion es NOT) unidos
-  con `" or "` y pasados a `websearch_to_tsquery`, que entiende `or` como OR y **nunca da error de sintaxis**.
-- Orden con `ts_rank_cd`; para RRF solo cuenta la posición.
-
-### Plataforma
-
-- **Plan gratuito**: los proyectos con poca actividad durante 7 días se pausan; se pueden restaurar durante
-  1 año. Los de pago no se pausan. En producción, Pro.
-- **Conexión**: la directa (`db.<ref>.supabase.co:5432`) es IPv6, o IPv4 con el complemento de pago. Desde un
-  VPS o Docker solo IPv4, el **pooler compartido (Supavisor) en modo sesión**, puerto 5432, usuario
-  `postgres.<ref>` y host `aws-<n>-<región>.pooler.supabase.com` (el número no se deduce de la región: se
-  copia del panel). Para funciones sin servidor, modo transacción (puerto 6543), que **no admite sentencias
-  preparadas** y hay que desactivarlas en el cliente. El pooler dedicado de pago es solo IPv6 sin el
-  complemento.
-
-## 9. Diferencias con el encargo original
-
-- «Comprueba que Turso lo soporta»: sí, **con el motor libSQL** (el de por defecto). El motor nuevo de Turso,
-  que Turso recomienda para proyectos nuevos, no tiene FTS5 ni el índice vectorial de libSQL.
-- El índice vectorial con los ajustes por defecto no es viable con 1536 dimensiones (~708 KiB por fragmento):
-  hay que fijar `compress_neighbors` y `max_neighbors`.
-- `vector_top_k` filtra después: «40 resultados semánticos» filtrados por base exige pedir de más o búsqueda
-  exacta.
-- FTS5 no hace raíces en español; Postgres con `es_unaccent` sí. Los resultados de texto no serán iguales en
-  los dos motores.
+- «Comprueba que Turso lo soporta» ya no aplica: la base es Postgres en todas partes (decisión 0024).
+- «40 resultados semánticos» filtrados por base exige la búsqueda exacta o la búsqueda iterativa del índice: un
+  índice aproximado filtra después de elegir sus candidatos.
 - «No uses `unaccent()` en columnas generadas» es correcto; usar la configuración `es_unaccent` dentro de
   `to_tsvector` en la columna generada sí está permitido.
-- `websearch_to_tsquery` sirve para un OR si se unen los términos con « or »; tal cual, exige todas las
-  palabras.
-- Con ids UUID en texto, el `rowid` de `kb_chunks` puede cambiar con `VACUUM` o si Drizzle recrea la tabla;
-  hay que reconstruir los índices.
+- `websearch_to_tsquery` sirve para un OR si se unen los términos con « or »; tal cual, exige todas las palabras.
+- La búsqueda por palabras encuentra ahora las raíces del español, con los dos límites de §3.
 
 ## Fuentes
 
-Consultadas el 2026-09-26.
+pgvector, PostgreSQL y Supabase (consultadas el 2026-09-26 y el 2026-09-27):
 
-Turso y libSQL:
-
-- Vectores en libSQL (tipos, funciones, índice, ajustes, `vector_top_k`, límites): https://docs.turso.tech/features/ai-and-embeddings
-- Extensiones precargadas en Turso Cloud (FTS5 «Built-in»): https://docs.turso.tech/features/sqlite-extensions
-- Dos motores en Turso Cloud: https://docs.turso.tech/turso-cloud y https://docs.turso.tech/quickstart (`--tursodb`)
-- Estado de libSQL: https://docs.turso.tech/libsql
-- FTS del motor Turso: https://docs.turso.tech/sql-reference/functions/fts y https://docs.turso.tech/sql-reference/functions/vector
-- Compatibilidad del motor Turso: https://github.com/tursodatabase/turso/blob/main/COMPAT.md
-- Espacio del índice y `float8` + `max_neighbors=20` (2024-10-03): https://turso.tech/blog/the-space-complexity-of-vector-indexes-in-libsql
-- Filtrado posterior y máximo de ~200 (2024-11-11): https://turso.tech/blog/filtering-in-vector-search-with-metadata-and-rag-pipelines
-- Ejemplo local con `file:`: https://turso.tech/vector
-- Guía Drizzle de Turso: https://docs.turso.tech/sdk/ts/orm/drizzle
-- Facturación por filas leídas: https://docs.turso.tech/help/usage-and-billing y plan gratuito: https://turso.tech/pricing
-- Código de libSQL (formato F32, NULL, dimensiones, tablas internas): https://github.com/tursodatabase/libsql/tree/main/libsql-sqlite3/src (`vector.c`, `vectorfloat32.c`, `vectorIndex.c`, `vectordiskann.c`)
-- Opciones de compilación: https://docs.rs/crate/libsql-ffi/0.9.30/source/build.rs y https://github.com/tursodatabase/libsql-js (v0.5.29)
-- `@libsql/client` 0.18.0 (tipos `Value` e implementación local): https://unpkg.com/@libsql/core@0.18.0/lib-esm/api.d.ts y https://unpkg.com/@libsql/client@0.18.0/lib-esm/sqlite3.js
-- Versiones: https://registry.npmjs.org/@libsql/client y https://registry.npmjs.org/libsql
-
-SQLite:
-
-- FTS5 (cadenas, operadores, `unicode61`, contenido externo, disparadores, `rebuild`, `bm25`, prefijos, `porter`): https://www.sqlite.org/fts5.html
-- `remove_diacritics=2` desde 3.27.0: https://www.sqlite.org/changes.html
-- `VACUUM` y `rowid`: https://www.sqlite.org/lang_vacuum.html
-- `REPLACE` y disparadores de borrado: https://www.sqlite.org/lang_conflict.html
+- pgvector (tipos, `halfvec`, HNSW, `ef_search`, búsqueda iterativa, `NULL` y vectores de ceros): https://github.com/pgvector/pgvector/blob/master/README.md
+- HNSW en Supabase: https://supabase.com/docs/guides/ai/vector-indexes/hnsw-indexes
+- pgvector en Supabase (esquema `extensions`): https://supabase.com/docs/guides/database/extensions/pgvector
+- `unaccent` (ejemplo de configuración): https://www.postgresql.org/docs/current/unaccent.html
+- `unaccent()` es `STABLE`: https://github.com/postgres/postgres/blob/master/contrib/unaccent/unaccent--1.1.sql
+- Columnas generadas (solo funciones inmutables): https://www.postgresql.org/docs/current/ddl-generated-columns.html
+- `to_tsvector` con configuración en columnas generadas: https://www.postgresql.org/docs/current/textsearch-tables.html
+- `websearch_to_tsquery` y `ts_rank_cd`: https://www.postgresql.org/docs/current/textsearch-controls.html
+- Extensiones en Supabase (esquema `extensions`): https://supabase.com/docs/guides/database/extensions
+- Búsqueda híbrida de Supabase (`rrf_k = 50`): https://supabase.com/docs/guides/ai/hybrid-search
+- Conexiones y modo transacción (sin sentencias preparadas): https://supabase.com/docs/guides/database/connecting-to-postgres
+- PGlite y sus extensiones: https://pglite.dev/docs/about y https://pglite.dev/extensions/
 
 Drizzle:
 
 - Migraciones a medida: https://orm.drizzle.team/docs/kit-custom-migrations (documenta la 1.0)
+- Columnas de pgvector e índices: https://orm.drizzle.team/docs/guides/vector-similarity-search
+- Columnas generadas: https://orm.drizzle.team/docs/generated-columns
 - `customType`: https://orm.drizzle.team/docs/custom-types
-- Código de `drizzle-kit` 0.31.11 (opción `--custom`, tablas ignoradas, `tablesFilter`, recreación de tablas): https://unpkg.com/drizzle-kit@0.31.11/bin.cjs
-- Migrador de `drizzle-orm` 0.45.3 (`--> statement-breakpoint`): https://unpkg.com/drizzle-orm@0.45.3/migrator.js y https://unpkg.com/drizzle-orm@0.45.3/libsql/migrator.js
-- Tipo de `toDriver`: https://unpkg.com/drizzle-orm@0.45.3/sqlite-core/columns/custom.d.ts
 - Versiones: https://registry.npmjs.org/drizzle-orm y https://registry.npmjs.org/drizzle-kit
 
 RRF, troceado y tokens:
@@ -585,17 +291,3 @@ RRF, troceado y tokens:
 - RRF en Elasticsearch (k = 60 por defecto): https://www.elastic.co/docs/reference/elasticsearch/rest-apis/reciprocal-rank-fusion
 - Embeddings de OpenAI (1536, 8.192 tokens, `cl100k_base`, normalizados, ~800 tokens por página): https://developers.openai.com/api/docs/guides/embeddings
 - Troceado por defecto de OpenAI (800/400): https://developers.openai.com/api/reference/resources/vector_stores/subresources/files/methods/create
-
-pgvector, PostgreSQL y Supabase:
-
-- pgvector (tipos, HNSW, `ef_search`, iteraciones, límites): https://github.com/pgvector/pgvector/blob/master/README.md
-- HNSW en Supabase: https://supabase.com/docs/guides/ai/vector-indexes/hnsw-indexes
-- `unaccent` (ejemplo de configuración): https://www.postgresql.org/docs/current/unaccent.html
-- `unaccent()` es `STABLE`: https://github.com/postgres/postgres/blob/master/contrib/unaccent/unaccent--1.1.sql
-- Columnas generadas (solo funciones inmutables): https://www.postgresql.org/docs/current/ddl-generated-columns.html
-- `to_tsvector` con configuración en columnas generadas: https://www.postgresql.org/docs/current/textsearch-tables.html
-- `websearch_to_tsquery` y `tsquery || tsquery`: https://www.postgresql.org/docs/current/textsearch-controls.html y https://www.postgresql.org/docs/current/functions-textsearch.html
-- Extensiones en Supabase (esquema `extensions`): https://supabase.com/docs/guides/database/extensions
-- Búsqueda híbrida de Supabase (`rrf_k = 50`): https://supabase.com/docs/guides/ai/hybrid-search
-- Pausa del plan gratuito: https://supabase.com/docs/guides/platform/free-project-pausing
-- Conexiones, IPv4 y pooler: https://supabase.com/docs/guides/database/connecting-to-postgres

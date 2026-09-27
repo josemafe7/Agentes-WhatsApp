@@ -7,6 +7,7 @@ import { writeAudit } from "@/data/audit";
 import type { ToolCall, ToolDefinition, ToolMessage } from "@/lib/openrouter/types";
 import { AppError } from "@/server/errors";
 import { safeErrorMessage } from "@/server/redact";
+import { storableJson, storableText } from "@/server/storable-text";
 import type { AgentTool, RegisteredTool, ToolCallRecord, ToolContext } from "./types";
 
 /** Results stay short: they are sent back to the model on every step ([HER-03]). */
@@ -42,9 +43,10 @@ function issuesText(error: z.ZodError): string {
   return `${MESSAGES.invalidArgs}: ${issues.join("; ")}`;
 }
 
+/** The model's arguments, storable (src/server/storable-text.ts): tools save them, and a NUL character never stops that. */
 function parseArguments(text: string): { ok: true; value: unknown } | { ok: false } {
   try {
-    return { ok: true, value: JSON.parse(text || "{}") as unknown };
+    return { ok: true, value: storableJson(JSON.parse(text || "{}") as unknown) };
   } catch {
     return { ok: false };
   }
@@ -115,7 +117,7 @@ export async function executeToolCall(
     targetId: context.conversationId ?? context.agentId,
     metadata: {
       tool: name,
-      ...(tool ? {} : { requested: requested.slice(0, MAX_REQUESTED_NAME_CHARS) }),
+      ...(tool ? {} : { requested: storableText(requested).slice(0, MAX_REQUESTED_NAME_CHARS) }),
       ok,
       mode: context.mode,
       agentId: context.agentId,

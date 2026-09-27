@@ -51,10 +51,27 @@ describe("guides in Ayuda [AJU-17]", () => {
 describe("the publication guide [ARR-23]", () => {
   const guide = HELP_GUIDES.find((candidate) => candidate.file === "guia-despliegue.md");
 
-  it("is in Spanish and covers Vercel with Turso, Blob and cron, and later the VPS, with room for screenshots", async () => {
+  it("is in Spanish and covers Vercel with Supabase (database, Storage and Cron), and later the VPS, with room for screenshots", async () => {
     expect(guide).toBeDefined();
     const text = guide ? await readGuide(guide) : "";
-    for (const topic of ["Vercel", "Turso", "Blob", "cron-job.org", "/api/cron/tick", "VPS", "SETUP_TOKEN", "libSQL", "Private"]) {
+    for (const topic of [
+      "Vercel",
+      // The database, the files and the cron every minute, all in Supabase (decision 0024).
+      "Supabase",
+      "Storage",
+      "Integrations › Cron",
+      "/api/cron/tick",
+      "VPS",
+      "SETUP_TOKEN",
+      // The connection Vercel needs (transaction mode), the database in the same city as the functions (vercel.json:
+      // lhr1, London) and the private bucket.
+      "Transaction pooler",
+      "6543",
+      "West Europe (London)",
+      "lhr1",
+      "dominia-archivos",
+      "sb_secret_",
+    ]) {
       expect(text, topic).toContain(topic);
     }
     expect(text.match(/\[Captura: /g)?.length ?? 0).toBeGreaterThanOrEqual(3);

@@ -6,7 +6,7 @@
 import "server-only";
 import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "@/db";
+import { db, isUniqueViolation } from "@/db";
 import { agentCustomTools, agents, customTools } from "@/db/schema";
 import type { HttpMethod } from "@/lib/enums";
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
@@ -200,11 +200,6 @@ async function assertNameFree(name: string, exceptId: string | null): Promise<vo
     .from(customTools)
     .where(exceptId ? and(eq(customTools.name, name), ne(customTools.id, exceptId)) : eq(customTools.name, name));
   if (taken) throw new ValidationError(undefined, { name: [NAME_TAKEN] });
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  const text = error instanceof Error ? `${error.message} ${error.cause instanceof Error ? error.cause.message : ""}` : "";
-  return /UNIQUE constraint failed/i.test(text);
 }
 
 /**

@@ -3,11 +3,11 @@
 // the type and size are checked here; the files are private and only /api/files serves them.
 import "server-only";
 import { createHash } from "node:crypto";
-import { like } from "drizzle-orm";
 import { db } from "@/db";
 import { messages, type MessageMedia } from "@/db/schema";
 import { generateFileKey, getFileStorage, isValidFileKey, readAll, type FileStorage } from "@/server/adapters/file-storage";
 import { AppError } from "@/server/errors";
+import { jsonTextContains } from "@/server/sql-helpers";
 import { extensionForMime, MEDIA_LIMITS, storedMimeType } from "./limits";
 
 /** Storage prefix of message media: /api/files serves it after checking the conversation ([MED-08]). */
@@ -77,7 +77,7 @@ export async function messageMediaFileName(fileKey: string): Promise<string | nu
   const rows = await db
     .select({ media: messages.media })
     .from(messages)
-    .where(like(messages.media, `%${JSON.stringify(fileKey)}%`))
+    .where(jsonTextContains(messages.media, JSON.stringify(fileKey)))
     .limit(20);
   return rows.find((row) => row.media?.fileKey === fileKey)?.media?.fileName ?? null;
 }

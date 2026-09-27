@@ -1,6 +1,6 @@
 # 0010 · Archivos: disco en local y Vercel Blob privado al publicar
 
-- **Estado:** aceptada
+- **Estado:** sustituida por 0024
 - **Fecha:** 2026-09-26
 
 ## Contexto y problema

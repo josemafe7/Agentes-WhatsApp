@@ -2,13 +2,13 @@
 // that lasts an hour (tokens.ts), so each upload schedules this job for after it expires: unless a message uses the
 // file by then, the file is deleted. Registered with the jobs in src/server/jobs/handlers/index.ts.
 import "server-only";
-import { like } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { messages } from "@/db/schema";
 import { getFileStorage, isValidFileKey, type FileStorage } from "@/server/adapters/file-storage";
 import { getJobQueue, type JobQueue } from "@/server/adapters/job-queue";
 import { registerJobHandler } from "@/server/jobs/registry";
+import { jsonTextContains } from "@/server/sql-helpers";
 import { UPLOAD_RECEIPT_TTL_MS } from "./tokens";
 
 export const WIDGET_UPLOAD_CLEANUP_JOB = "webchat.upload_cleanup";
@@ -40,7 +40,7 @@ async function isInAMessage(fileKey: string): Promise<boolean> {
   const rows = await db
     .select({ media: messages.media })
     .from(messages)
-    .where(like(messages.media, `%${JSON.stringify(fileKey)}%`));
+    .where(jsonTextContains(messages.media, JSON.stringify(fileKey)));
   return rows.some((row) => row.media?.fileKey === fileKey);
 }
 

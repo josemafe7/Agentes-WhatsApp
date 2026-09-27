@@ -1,6 +1,6 @@
 // Team roles and invitations ([PER-*], [USU-*]). Roles live here, never in fields the user can edit.
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { INVITABLE_ROLES, ROLES } from "@/lib/enums";
 import { user } from "./auth";
 import { bool, EMPTY_JSON_ARRAY, EMPTY_JSON_OBJECT, id, json, timestamp, timestamps } from "./columns";
@@ -8,7 +8,7 @@ import { bool, EMPTY_JSON_ARRAY, EMPTY_JSON_OBJECT, id, json, timestamp, timesta
 /** Per event: where the user wants to hear about it ([USU-18], [AJU-08]). Missing keys use the defaults. */
 export type NotificationPreferences = Record<string, { inApp?: boolean; push?: boolean; email?: boolean }>;
 
-export const userRoles = sqliteTable(
+export const userRoles = pgTable(
   "user_roles",
   {
     id: id(),
@@ -27,9 +27,9 @@ export const userRoles = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("user_roles_role_idx").on(t.role)],
-);
+).enableRLS();
 
-export const invitations = sqliteTable(
+export const invitations = pgTable(
   "invitations",
   {
     id: id(),
@@ -57,4 +57,4 @@ export const invitations = sqliteTable(
       .on(t.email)
       .where(sql`accepted_at IS NULL AND revoked_at IS NULL`),
   ],
-);
+).enableRLS();

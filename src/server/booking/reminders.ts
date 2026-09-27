@@ -29,6 +29,7 @@ import { AppError } from "@/server/errors";
 import { sendSystemEmail, type MailerOptions } from "@/server/mailer";
 import { sendOutbound } from "@/server/outbound/send";
 import { safeErrorMessage } from "@/server/redact";
+import { descNullsLast } from "@/server/sql-helpers";
 import { OCCUPYING_STATUSES } from "./availability";
 import { bookingDayText, bookingTimeText, bookingWord } from "./format";
 import { type AgendaSettingsSnapshot, loadAgendaSettings } from "./load";
@@ -193,7 +194,7 @@ async function contactThread(contactId: string, mailboxes: readonly Mailbox[]): 
         isNotNull(conversations.externalThreadId),
       ),
     )
-    .orderBy(desc(conversations.lastMessageAt), desc(conversations.createdAt))
+    .orderBy(descNullsLast(conversations.lastMessageAt), desc(conversations.createdAt))
     .limit(THREAD_CANDIDATES);
   for (const row of rows) {
     // The simulator's conversations never leave the app ([AJU-13]).

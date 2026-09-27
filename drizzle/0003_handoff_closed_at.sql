@@ -1,1 +1,0 @@
-ALTER TABLE `handoff_events` ADD `closed_at` integer;

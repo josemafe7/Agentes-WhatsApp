@@ -1,61 +1,22 @@
-// Applies the SQL migrations of drizzle/ (generated + custom) with a dedicated client that is closed after.
-import fs from "node:fs";
+// Applies the SQL migrations of drizzle/ (generated + custom) with Drizzle's migrator; they are recorded in
+// drizzle.__drizzle_migrations. The embedded database uses the same lock as the app (src/db/index.ts).
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import type { Client } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
-import { migrate } from "drizzle-orm/libsql/migrator";
-import { createDatabaseClient, databaseUrlFromEnv, isLocalDatabaseUrl } from "./index";
+import type { PgliteDatabase } from "drizzle-orm/pglite";
+import { migrate as migratePglite } from "drizzle-orm/pglite/migrator";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { migrate as migratePostgres } from "drizzle-orm/postgres-js/migrator";
+import { databaseUrlFromEnv, openDatabase, type schema } from "./index";
 
 export const MIGRATIONS_FOLDER = path.join(process.cwd(), "drizzle");
 
-export type MigrateOptions = {
-  url?: string;
-  authToken?: string;
-  migrationsFolder?: string;
-  /** WAL for local files (default true). The test template uses the rollback journal so it can be copied. */
-  wal?: boolean;
-};
-
-/** Absolute path of a local `file:` database URL, or null for remote / in-memory URLs. */
-export function localDatabasePath(url: string): string | null {
-  if (!url.startsWith("file:") || url.includes(":memory:")) return null;
-  if (url.startsWith("file://")) return fileURLToPath(url.split("?")[0]);
-  return path.resolve(process.cwd(), url.slice("file:".length).split("?")[0]);
-}
-
-/** Creates the folder of a local database file if needed (libSQL does not). */
-export function ensureDatabaseFolder(url: string): void {
-  const file = localDatabasePath(url);
-  if (file) fs.mkdirSync(path.dirname(file), { recursive: true });
-}
-
-export async function migrateDatabase(options: MigrateOptions = {}): Promise<void> {
-  const url = options.url ?? databaseUrlFromEnv();
-  ensureDatabaseFolder(url);
-  const client = createDatabaseClient(url, options.authToken);
+export async function migrateDatabase(url: string = databaseUrlFromEnv()): Promise<void> {
+  const { database, target, close } = openDatabase(url);
+  const config = { migrationsFolder: MIGRATIONS_FOLDER };
   try {
-    if (isLocalDatabaseUrl(url) && options.wal !== false) await enableWal(client);
-    await migrate(drizzle(client), { migrationsFolder: options.migrationsFolder ?? MIGRATIONS_FOLDER });
+    // Both migrators run the same SQL in one transaction; each is typed for its own driver.
+    if (target.kind === "server") await migratePostgres(database as unknown as PostgresJsDatabase<typeof schema>, config);
+    else await migratePglite(database as unknown as PgliteDatabase<typeof schema>, config);
   } finally {
-    client.close();
-  }
-}
-
-/**
- * WAL journal for a local file, stored in the file itself: readers never block the writer, and concurrent
- * writers (dev server, ticker, worker) queue on the busy timeout instead of dead-locking.
- */
-export async function enableWal(client: Client): Promise<void> {
-  await client.execute("PRAGMA journal_mode = WAL");
-}
-
-/** Switches an existing local database file to WAL (used by the tests on their copy of the template). */
-export async function enableWalForUrl(url: string): Promise<void> {
-  const client = createDatabaseClient(url);
-  try {
-    await enableWal(client);
-  } finally {
-    client.close();
+    await close();
   }
 }

@@ -18,7 +18,7 @@ export default defineConfig({
     // Migrates one template database per run; each test file gets its own empty copy (docs/testing.md).
     globalSetup: ["./src/test/global-setup.ts"],
     setupFiles: ["./src/test/setup.ts"],
-    // Tests run real Better Auth (scrypt password hashing) against real libSQL files: under a full parallel run
+    // Tests run real Better Auth (scrypt password hashing) against a real Postgres (PGlite): under a full parallel run
     // a test with 30+ sign-ins takes longer than Vitest's 5 s default without anything being wrong.
     testTimeout: 30_000,
     hookTimeout: 30_000,

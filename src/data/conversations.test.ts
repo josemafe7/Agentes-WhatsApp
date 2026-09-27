@@ -148,6 +148,15 @@ describe("filters, search and counts [BAN-02] [BAN-03]", () => {
     expect(second.nextCursor).toBeNull();
   });
 
+  it("a conversation without activity yet goes after the rest, and the pages still reach every one with activity", async () => {
+    const quiet = await createConversation(channelA, null, { lastMessageAt: null });
+    expect(await ids({})).toEqual([inA.id, inB.id, quiet.id]);
+    const first = await listConversations(users.owner.actor, { limit: 1 });
+    expect(first.items.map((item) => item.id)).toEqual([inA.id]);
+    const second = await listConversations(users.owner.actor, { limit: 1, cursor: first.nextCursor ?? undefined });
+    expect(second.items.map((item) => item.id)).toEqual([inB.id]);
+  });
+
   it("rejects unknown filters", async () => {
     expect(await errorOf(listConversations(users.owner.actor, { hacker: true }))).toBeInstanceOf(ValidationError);
   });

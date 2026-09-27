@@ -1,5 +1,6 @@
-// Deletes test files. libSQL may keep a file handle until its process exits and Windows refuses to delete an
-// open file, so this retries while letting the event loop run, and reports whether it managed to.
+// Deletes test files and folders. A file may stay open for a moment (an embedded database being closed, a server
+// that has just stopped) and Windows refuses to delete an open file, so this retries while letting the event loop
+// run, and reports whether it managed to.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

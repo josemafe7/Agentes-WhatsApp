@@ -90,7 +90,10 @@ Este contrato dura lo mismo que el contrato principal. Al terminar, se aplica la
 
 ### 7. Transferencias internacionales
 
-1. La base de datos y los archivos se guardan en la Unión Europea, en [REGIÓN, por ejemplo Irlanda].
+1. La base de datos y los archivos se guardan en [REGIÓN: en la Unión Europea, por ejemplo Irlanda; o en Londres,
+   Reino Unido]. [SI ES LONDRES: el Reino Unido no forma parte de la UE, pero la Comisión Europea le reconoce un nivel
+   de protección adecuado (decisión de adecuación del artículo 45 del RGPD); compruébalo con el abogado, y que sigue
+   vigente, antes de firmar.]
 2. Algunos servicios del Anexo III son de empresas de fuera del Espacio Económico Europeo (EEE) o pueden tratar datos
    fuera de él, por ejemplo en Estados Unidos: entre ellos, los proveedores de inteligencia artificial. Esas
    transferencias solo se harán con una garantía del capítulo V del RGPD: una decisión de adecuación (como el Marco de
@@ -235,10 +238,11 @@ Las que trae DominIA Agentes, más las organizativas que añaden las partes.
     personales, y el usuario solo ve mensajes de error genéricos.
 12. **Entornos separados.** Producción va separada de desarrollo y de las versiones de prueba, y las pruebas nunca usan
     datos reales.
-13. **Ubicación.** Base de datos y archivos en [REGIÓN DE LA UE]; la app, en [REGIÓN, por ejemplo Dublín].
-14. **Copias de seguridad.** [DESCRIBIR: historial para volver a un momento anterior de [24 horas / 10 días]; copias en
-    archivo cada [FRECUENCIA], guardadas cifradas en [LUGAR]; prueba de restauración cada [FRECUENCIA]]. La clave de
-    cifrado se guarda aparte de las copias.
+13. **Ubicación.** Base de datos y archivos en [REGIÓN, por ejemplo Londres (Reino Unido) o Irlanda (UE)]; la app, en
+    la misma ciudad [Londres / Dublín].
+14. **Copias de seguridad.** [DESCRIBIR: copias diarias de la base guardadas [7 días, con Supabase Pro]; copias en
+    archivo cada [FRECUENCIA], guardadas cifradas en [LUGAR]; prueba de restauración cada [FRECUENCIA]; los archivos,
+    [CÓMO SE COPIAN]]. La clave de cifrado se guarda aparte de las copias.
 15. **Mantenimiento.** Dependencias y plataforma al día, revisión de vulnerabilidades antes de cada publicación y cada
     [FRECUENCIA], y copia de seguridad antes de cada actualización.
 16. **Organizativas.** [Verificación en dos pasos en todas las cuentas de los servicios; gestor de contraseñas;
@@ -254,8 +258,8 @@ datos directamente por su cuenta (cláusula 6.4). Borra las filas de los servici
 
 | Servicio | Para qué | Qué datos recibe | Dónde los trata | Cuenta de | Garantía para las transferencias |
 |---|---|---|---|---|---|
-| Vercel | Alojar la app y guardar los archivos (almacén Vercel Blob privado) | Todos los que pasan por la app, y los archivos | App en [Dublín]; archivos en [REGIÓN DE LA UE]; empresa en EE. UU. | [RESPONSABLE / ENCARGADO] | [DPA de Vercel; adecuación o cláusulas tipo] |
-| Turso | Base de datos | Todos los datos guardados | [Irlanda]; empresa en [PAÍS] | [RESPONSABLE / ENCARGADO] | [DPA de Turso; adecuación o cláusulas tipo] |
+| Vercel | Alojar la app | Todos los que pasan por la app | App en [Londres / Dublín]; empresa en EE. UU. | [RESPONSABLE / ENCARGADO] | [DPA de Vercel; adecuación o cláusulas tipo] |
+| Supabase | Base de datos, archivos (bucket privado de Supabase Storage) y el cron que avisa a la app cada minuto | Todos los datos guardados, y los archivos | [Londres, Reino Unido / Irlanda]; empresa en Singapur (Supabase Pte. Ltd.) | [RESPONSABLE / ENCARGADO] | [DPA de Supabase (https://supabase.com/legal/dpa), que incluye las cláusulas tipo; con Londres, además, la adecuación del Reino Unido; COMPROBAR] |
 | OpenRouter | Enviar cada petición de IA al modelo elegido: respuestas, transcripciones, embeddings y reordenación | Los mensajes de la conversación, las transcripciones, las imágenes, los fragmentos del conocimiento y los datos del contacto que necesita cada respuesta | [EE. UU.; COMPROBAR] | [RESPONSABLE (recomendado) / ENCARGADO] | [COMPROBAR] |
 | Proveedores de los modelos de IA a los que OpenRouter envía cada petición | Responder, transcribir, describir imágenes y calcular embeddings | Lo mismo que OpenRouter | Según el proveedor | A través de OpenRouter | [COMPROBAR] |
 | Meta (WhatsApp Business Platform) | Canal de WhatsApp | Los mensajes y los datos de WhatsApp de los clientes | [COMPROBAR] | RESPONSABLE (su portfolio y su app) | [COMPROBAR] |
@@ -272,5 +276,6 @@ Notas:
   recomienda (septiembre de 2026) son, entre otros, OpenAI, Microsoft Azure o Amazon Bedrock (chat), Google (modelo de
   respaldo y descripción de imágenes), DeepInfra o Groq (transcripción), OpenAI o Microsoft Azure (embeddings) y, si
   se activa la reordenación, Cohere. Compruébalo en la cuenta de OpenRouter antes de firmar.
-- No tratan datos personales, y por eso no figuran: GitHub (guarda el código, nunca datos) y cron-job.org (solo avisa a
-  la app cada minuto de que tiene trabajo pendiente).
+- No trata datos personales, y por eso no figura: GitHub (guarda el código, nunca datos).
+- Los subencargados de Supabase están en https://supabase.com/legal/customer-resources/subprocessor-list, donde también
+  se puede pedir aviso de los cambios.

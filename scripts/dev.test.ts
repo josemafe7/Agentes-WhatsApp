@@ -4,10 +4,21 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createTicker, localDatabaseFile, localUrlOverrides, resolvePort, setupReason } from "./dev.mjs";
+import { resolveDatabaseTarget } from "@/db";
+import {
+  createTicker,
+  isLegacyFileDatabaseUrl,
+  LEGACY_DATABASE_URL_NOTICE,
+  localDatabaseDir,
+  localUrlOverrides,
+  resolvePort,
+  setupReason,
+} from "./dev.mjs";
 
 let rootDir: string;
 const SECRETS = "APP_ENCRYPTION_KEY=a\nBETTER_AUTH_SECRET=b\nCRON_SECRET=c\n";
+/** The shape of a Supabase connection (transaction pooler); never a real one. */
+const SUPABASE_URL = "postgresql://postgres.abcdefghijklmnop:secreto-de-prueba@aws-0-eu-west-1.pooler.supabase.com:6543/postgres";
 
 beforeEach(() => {
   rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "dominia-dev-"));
@@ -22,32 +33,68 @@ describe("pnpm dev: first-run preparation [ARR-02]", () => {
     expect(setupReason(rootDir, {})).toContain(".env.local");
   });
 
-  it("prepares when the local database file is missing, and not once it exists", () => {
-    fs.writeFileSync(path.join(rootDir, ".env.local"), `DATABASE_URL=file:./data/local.db\n${SECRETS}`);
-    expect(setupReason(rootDir, {})).toContain("local.db");
-    fs.mkdirSync(path.join(rootDir, "data"));
-    fs.writeFileSync(path.join(rootDir, "data", "local.db"), "");
+  it("prepares when the folder of the embedded database is missing, and not once it exists", () => {
+    fs.writeFileSync(path.join(rootDir, ".env.local"), `DATABASE_URL=\n${SECRETS}`);
+    expect(setupReason(rootDir, {})).toBe("falta la base de datos data/pglite");
+    fs.mkdirSync(path.join(rootDir, "data", "pglite"), { recursive: true });
     expect(setupReason(rootDir, {})).toBeNull();
   });
 
   it("prepares when a secret of .env.local is empty (a hand copy of .env.example), naming it but not its value", () => {
-    fs.mkdirSync(path.join(rootDir, "data"));
-    fs.writeFileSync(path.join(rootDir, "data", "local.db"), "");
+    fs.mkdirSync(path.join(rootDir, "data", "pglite"), { recursive: true });
     fs.writeFileSync(path.join(rootDir, ".env.local"), "APP_ENCRYPTION_KEY=abc\nBETTER_AUTH_SECRET=def\nCRON_SECRET=\n");
     expect(setupReason(rootDir, {})).toBe("falta CRON_SECRET en .env.local");
     expect(setupReason(rootDir, { CRON_SECRET: "del-entorno" })).toBeNull();
   });
 
-  it("uses DATABASE_URL from the environment before .env.local, and does not look for a remote database file", () => {
-    fs.writeFileSync(path.join(rootDir, ".env.local"), `DATABASE_URL=file:./data/local.db\n${SECRETS}`);
-    expect(setupReason(rootDir, { DATABASE_URL: "file:./data/otra.db" })).toContain("otra.db");
-    expect(setupReason(rootDir, { DATABASE_URL: "libsql://negocio.turso.io" })).toBeNull();
+  it("uses DATABASE_URL from the environment before .env.local, and prepares no folder for Supabase", () => {
+    fs.writeFileSync(path.join(rootDir, ".env.local"), `DATABASE_URL=\n${SECRETS}`);
+    expect(setupReason(rootDir, { DATABASE_URL: "pglite:./data/otra" })).toBe("falta la base de datos data/otra");
+    expect(setupReason(rootDir, { DATABASE_URL: SUPABASE_URL })).toBeNull();
+    // Even an empty one wins, as in Next.js: the app will use data/pglite, not the database of .env.local.
+    fs.writeFileSync(path.join(rootDir, ".env.local"), `DATABASE_URL=${SUPABASE_URL}\n${SECRETS}`);
+    expect(setupReason(rootDir, { DATABASE_URL: "" })).toBe("falta la base de datos data/pglite");
   });
 
-  it("resolves relative database files against the project folder", () => {
-    expect(localDatabaseFile("file:./data/local.db", rootDir)).toBe(path.join(rootDir, "data", "local.db"));
-    expect(localDatabaseFile("libsql://x.turso.io", rootDir)).toBeNull();
-    expect(localDatabaseFile("file::memory:", rootDir)).toBeNull();
+  it("treats the old SQLite setting of .env.local (file:…) as empty, and has a notice saying the line can go", () => {
+    fs.writeFileSync(path.join(rootDir, ".env.local"), `DATABASE_URL=file:./data/local.db\n${SECRETS}`);
+    expect(setupReason(rootDir, {})).toBe("falta la base de datos data/pglite");
+    expect(isLegacyFileDatabaseUrl("file:./data/local.db")).toBe(true);
+    expect(isLegacyFileDatabaseUrl("")).toBe(false);
+    expect(LEGACY_DATABASE_URL_NOTICE).toContain("Puedes borrar esa línea");
+  });
+
+  it("stops with the reason when DATABASE_URL still points at Turso (libsql://), without repeating it", () => {
+    fs.writeFileSync(path.join(rootDir, ".env.local"), `DATABASE_URL=libsql://negocio.turso.io?authToken=secreto\n${SECRETS}`);
+    expect(() => setupReason(rootDir, {})).toThrow("Turso ya no se usa");
+    expect(() => setupReason(rootDir, {})).not.toThrow("secreto");
+  });
+
+  it("resolves the folder of the embedded database against the project folder", () => {
+    const pglite = path.join(rootDir, "data", "pglite");
+    expect(localDatabaseDir("", rootDir)).toBe(pglite);
+    expect(localDatabaseDir("file:./data/local.db", rootDir)).toBe(pglite);
+    expect(localDatabaseDir("pglite:./data/e2e-pglite", rootDir)).toBe(path.join(rootDir, "data", "e2e-pglite"));
+    expect(localDatabaseDir("pglite:memory", rootDir)).toBeNull();
+    expect(localDatabaseDir(SUPABASE_URL, rootDir)).toBeNull();
+  });
+
+  it("follows the rules of the app (resolveDatabaseTarget in src/db/index.ts), which it cannot import", () => {
+    const urls = ["", "file:./data/local.db", "pglite:./data/e2e-pglite", "pglite:memory", "pglite:memory#abc", SUPABASE_URL, "postgres://app@localhost:5432/app", "libsql://x.turso.io", "mysql://x", "pglite:"];
+    const outcome = (resolve: () => string | null) => {
+      try {
+        return resolve();
+      } catch (error) {
+        return `error: ${(error as Error).message}`;
+      }
+    };
+    for (const url of urls) {
+      const app = outcome(() => {
+        const target = resolveDatabaseTarget(url);
+        return target.kind === "embedded" ? target.dataDir : null;
+      });
+      expect(outcome(() => localDatabaseDir(url, process.cwd())), url).toBe(app);
+    }
   });
 });
 

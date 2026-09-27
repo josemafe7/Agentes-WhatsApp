@@ -236,4 +236,34 @@ describe("runAgent offers the attached tools, also in «Probar agente» [AGE-08]
     expect(toolMessage?.content).toContain("En reparto");
     expect(JSON.stringify(chats)).not.toContain(SECRET);
   });
+
+  it("an answer with a NUL character (or half a surrogate pair) reaches the model, the run and the reply without it", async () => {
+    const agent = await createAgentRow({ systemTools: [] });
+    await attach(agent.id, (await createTool()).id);
+    const [row] = await db.select().from(agents).where(eq(agents.id, agent.id));
+    const crm = fakeCrm(() => jsonResponse({ pedido: "42", estado: "En\u0000 reparto\ud800" }));
+    const openRouter = fakeFetch(
+      routes({
+        "GET /models/user": () => jsonResponse({ data: sampleCatalog() }),
+        "POST /chat/completions": sequence(
+          () => jsonResponse(chatCompletion({ toolCalls: [{ name: "consultar_pedido", arguments: { numero: "42" } }] })),
+          () => jsonResponse(chatCompletion({ content: "Tu pedido 42 está «En\u0000 reparto»." })),
+        ),
+      }),
+    );
+
+    const result = await runAgent(
+      { agent: row, history: [{ role: "contact", text: "¿Cómo va mi pedido 42?" }], mode: "test" },
+      { fetchImpl: openRouter.fetch, now: NOW, httpTools: crm.deps },
+    );
+
+    const chats = openRouter.calls.filter((item) => item.path === "/chat/completions");
+    const toolMessage = (chats[1].body as { messages: { role: string; content: string }[] }).messages.find((message) => message.role === "tool");
+    expect(toolMessage?.content).toContain("En reparto�");
+    for (const text of [toolMessage?.content, JSON.stringify(result.toolCalls)]) {
+      expect(text).not.toContain("\\u0000");
+      expect(text).not.toMatch(/\\ud[89a-f]/i);
+    }
+    expect(result.text).toBe("Tu pedido 42 está «En reparto».");
+  });
 });

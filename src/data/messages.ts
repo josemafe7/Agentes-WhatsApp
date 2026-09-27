@@ -2,7 +2,7 @@
 // Replying from the inbox pauses the AI in that conversation for the business's hours (12 by default) and fills the
 // first human response time of an open hand-off. Agents only reach their channels ([PER-02]); Solo lectura only reads.
 import "server-only";
-import { and, desc, eq, like, lt, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, lt, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { loadBusinessSettings } from "@/data/settings";
 import { db } from "@/db";
@@ -21,6 +21,7 @@ import { mediaMetadataOf } from "@/server/media/metadata";
 import { storeInboundMedia } from "@/server/media/store";
 import { resendOutbound, sendDraft, sendOutbound, type SendOutboundResult } from "@/server/outbound/send";
 import { publishConversationEvent } from "@/server/realtime/events";
+import { jsonTextContains } from "@/server/sql-helpers";
 import { writeAudit } from "./audit";
 import { detectLogoFormat, fileUrl } from "./business";
 import { loadConversationFor } from "./conversation-scope";
@@ -322,12 +323,12 @@ function assertMessageId(messageId: string): void {
 /** /api/files: a message file is served to whoever may see its conversation ([MED-08]). */
 export async function canViewMessageMedia(actor: Actor, fileKey: string): Promise<boolean> {
   if (!can(actor, PERMISSIONS.inbox.view)) return false;
-  // LIKE only narrows the candidates (its _ and % are wildcards); the key must then be exactly the message's own.
+  // LIKE only narrows the candidates; the key must then be exactly the message's own.
   const rows = await db
     .select({ media: messages.media, channelId: conversations.channelId, isTest: conversations.isTest })
     .from(messages)
     .innerJoin(conversations, eq(conversations.id, messages.conversationId))
-    .where(like(messages.media, `%${JSON.stringify(fileKey)}%`))
+    .where(jsonTextContains(messages.media, JSON.stringify(fileKey)))
     .limit(20);
   const row = rows.find((candidate) => candidate.media?.fileKey === fileKey);
   return Boolean(row?.channelId && !row.isTest && can(actor, PERMISSIONS.inbox.view, { channelId: row.channelId }));

@@ -9,7 +9,8 @@ El equipo del negocio entra con email y contraseña, puede recuperar la contrase
 dos pasos con una app de códigos (TOTP). No hay registro público: las cuentas solo se crean en el asistente de
 arranque (el primer propietario), aceptando una invitación o con la demo. Hay cinco roles (propietario,
 administrador, supervisor, agente y solo lectura) y el rol Agente se limita a sus canales. La plantilla
-recomienda los usuarios de Supabase, que no se usa ahora (0003). El encargo (§2) pide Better Auth, que funciona
+recomienda los usuarios de Supabase, que no se usa ahora (0003; ver 0024: Supabase guarda ya los datos y los
+archivos de la app publicada, y los usuarios siguen en Better Auth). El encargo (§2) pide Better Auth, que funciona
 con SQLite y con Postgres. Había que decidir cómo encajarlo y dónde viven los roles y los permisos.
 
 Datos comprobados el 26-09-2026 (en el código publicado de las versiones indicadas y en su documentación):
@@ -32,7 +33,7 @@ Datos comprobados el 26-09-2026 (en el código publicado de las versiones indica
   npm (https://www.better-auth.com/docs/concepts/cli).
 - En Next.js 16 el proxy no cubre todas las peticiones: la sesión se comprueba en cada página, Server Action y
   Route Handler (https://nextjs.org/docs/app/api-reference/file-conventions/proxy).
-- Las claves ajenas de libSQL no son fiables para borrar en cascada (0003): los borrados de usuarios se hacen a
+- Las claves ajenas de libSQL no son fiables para borrar en cascada (0003; ver 0024): los borrados de usuarios se hacen a
   mano, incluidas las filas de `twoFactor`, que el borrado de Better Auth no quita.
 
 ## Opciones consideradas
@@ -47,7 +48,7 @@ Datos comprobados el 26-09-2026 (en el código publicado de las versiones indica
 
 ## Decisión
 
-Better Auth 1.7 con el adaptador de Drizzle (dialecto SQLite): email y contraseña, recuperación y el plugin
+Better Auth 1.7 con el adaptador de Drizzle (dialecto SQLite; Postgres desde 0024): email y contraseña, recuperación y el plugin
 `twoFactor` (TOTP con códigos de recuperación), con IDs UUID.
 
 - **Sin registro público:** `disableSignUp` y la ruta de registro desactivada. Las cuentas solo las crean el

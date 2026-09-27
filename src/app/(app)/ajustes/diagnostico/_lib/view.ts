@@ -1,7 +1,7 @@
 // What /ajustes/diagnostico shows, already in Spanish and in the business time zone. Owner and admin only
 // (checked in src/data). Errors are the stored Spanish, secret-free messages ([SEG-02], [SEG-14]).
 import "server-only";
-import { getDiagnostics } from "@/data/diagnostics";
+import { getDiagnostics, type DatabaseDiagnostics } from "@/data/diagnostics";
 import { listConnectionTests, type ConnectionTestInput, type ConnectionTests, type TestableChannelType } from "@/data/diagnostics-connections";
 import { getBusinessProfile } from "@/data/settings";
 import { listSystemEmails } from "@/data/system-mail";
@@ -94,6 +94,20 @@ export function connectionTestItems(tests: ConnectionTests): ConnectionTestItem[
   ];
 }
 
+/** Which database answers: the host kind or the folder, never the connection string. */
+function databaseLabel(database: DatabaseDiagnostics): string {
+  if (database.driver === "supabase") return "Supabase (Postgres)";
+  if (database.driver === "postgres") return "Postgres";
+  return `Postgres integrado (PGlite) · ${database.driver === "memory" ? "en memoria" : (database.folder ?? "data/pglite")}`;
+}
+
+/** What to check when the database does not answer. */
+function databaseHint(database: DatabaseDiagnostics): string {
+  if (database.driver === "supabase") return "No responde. Revisa DATABASE_URL (la conexión de Supabase) y que el proyecto de Supabase no esté en pausa.";
+  if (database.driver === "postgres") return "No responde. Revisa DATABASE_URL y que el servidor de Postgres esté en marcha.";
+  return "No responde. Comprueba que ningún otro proceso tenga abierta la base local y vuelve a arrancar la app.";
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < KB) return `${formatNumber(bytes)} B`;
   if (bytes < KB * KB) return `${formatNumber(bytes / KB, { maximumFractionDigits: 1 })} KB`;
@@ -121,7 +135,8 @@ export async function loadDiagnosticsView(actor: Actor) {
   return {
     database: {
       status: (database.ok ? "ok" : "error") as Light,
-      driverLabel: database.driver === "local" ? "libSQL · archivo local" : "Turso (libSQL remoto)",
+      driverLabel: databaseLabel(database),
+      hint: databaseHint(database),
       latency: database.latencyMs !== null ? `${formatNumber(database.latencyMs)} ms` : null,
       size: database.sizeBytes !== null ? formatBytes(database.sizeBytes) : null,
       migrationsStatus,

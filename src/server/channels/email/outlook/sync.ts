@@ -7,6 +7,7 @@
 import "server-only";
 import { GraphApiError, type GraphClient, type GraphDeltaItem } from "@/lib/microsoft/graph";
 import { safeErrorMessage } from "@/server/redact";
+import { storableText } from "@/server/storable-text";
 import type { ChannelRecord } from "../../types";
 import { readEmailConfig, updateEmailConfig, type EmailConfig } from "../config";
 import { MAX_EMAIL_BYTES } from "../constants";
@@ -83,9 +84,11 @@ async function readRaw(client: GraphClient, id: string, max: number): Promise<{ 
   }
 }
 
+/** Outlook's own text of the message, storable like everything the parser gives (src/server/storable-text.ts). */
 async function uniqueBody(client: GraphClient, id: string): Promise<string | null> {
   try {
-    return (await client.getUniqueBody(id)).text;
+    const { text } = await client.getUniqueBody(id);
+    return text === null ? null : storableText(text);
   } catch (error) {
     // Only an improvement: without it the shared heuristics remove the quotes.
     console.warn(`[email] No se pudo leer el cuerpo sin citas de Outlook: ${safeErrorMessage(error)}`);

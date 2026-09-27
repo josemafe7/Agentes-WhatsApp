@@ -8,7 +8,8 @@
 La firma de un aviso de WhatsApp se comprueba con el App Secret del canal al que va ([WA-32]), así que antes hay
 que leer el cuerpo para saber a qué números y cuentas va. La revisión de seguridad comprobó que un cuerpo sin
 firma de casi 3 MB con 46.000 `changes`, cada uno con otro `phone_number_id`, hacía trabajar a la app (lectura del
-JSON, consulta con miles de parámetros que libSQL rechaza, un error 500 y un registro por petición) sin tener
+JSON, consulta con miles de parámetros que libSQL rechaza —la base era entonces libSQL; ver 0024—, un error 500 y un
+registro por petición) sin tener
 ninguna firma válida, a 30 peticiones por segundo por IP con el límite amplio que necesitan las ráfagas de Meta.
 
 ## Opciones consideradas

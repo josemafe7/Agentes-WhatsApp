@@ -6,7 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isLocalDatabaseUrl } from "@/db";
+import { resolveDatabaseTarget } from "@/db";
+import { createFileStorage } from "@/server/adapters/file-storage";
 import { productionConfigProblems, productionConfigWarnings } from "@/server/app-url";
 import { assertTrustedProxyHopsConfigured } from "@/server/client-ip";
 import { assertEncryptionKeyConfigured } from "@/server/crypto";
@@ -38,6 +39,12 @@ function variables(): Variable[] {
   return found;
 }
 
+/** Where a DATABASE_URL leads, with the embedded database's folder as an absolute path. */
+function databaseOf(url: string) {
+  const target = resolveDatabaseTarget(url);
+  return target.kind === "embedded" ? { kind: target.kind, dataDir: path.resolve(target.dataDir) } : target;
+}
+
 let tempDir: string | null = null;
 
 afterEach(async () => {
@@ -55,23 +62,28 @@ describe(".env.example [ARR-04]", () => {
     }
     // The installation's own variables are all there.
     const names = all.map((variable) => variable.name);
-    for (const name of ["DATABASE_URL", "DATABASE_AUTH_TOKEN", "APP_URL", "BETTER_AUTH_URL", "BETTER_AUTH_SECRET", "APP_ENCRYPTION_KEY", "CRON_SECRET", "SETUP_TOKEN", "DEMO_MODE", "OPENROUTER_API_KEY", "BLOB_READ_WRITE_TOKEN"]) {
+    for (const name of ["DATABASE_URL", "APP_URL", "BETTER_AUTH_URL", "BETTER_AUTH_SECRET", "APP_ENCRYPTION_KEY", "CRON_SECRET", "SETUP_TOKEN", "DEMO_MODE", "OPENROUTER_API_KEY", "SUPABASE_URL", "SUPABASE_SECRET_KEY"]) {
       expect(names, name).toContain(name);
     }
+    // Turso and Vercel Blob are no longer used: their variables are gone.
+    for (const name of ["DATABASE_AUTH_TOKEN", "BLOB_READ_WRITE_TOKEN", "BLOB_STORE_ID"]) expect(names, name).not.toContain(name);
   });
 
   it("carries no secret value: every [SECRETO] is empty and nothing looks like a real key", () => {
     const secrets = variables().filter((variable) => variable.comments.some((comment) => comment.includes("[SECRETO]")));
-    expect(secrets.map((variable) => variable.name)).toEqual(expect.arrayContaining(["APP_ENCRYPTION_KEY", "BETTER_AUTH_SECRET", "CRON_SECRET", "SETUP_TOKEN", "OPENROUTER_API_KEY"]));
+    // The Supabase connection string carries the database password, and the secret key bypasses Row Level Security.
+    expect(secrets.map((variable) => variable.name)).toEqual(expect.arrayContaining(["DATABASE_URL", "SUPABASE_SECRET_KEY", "APP_ENCRYPTION_KEY", "BETTER_AUTH_SECRET", "CRON_SECRET", "SETUP_TOKEN", "OPENROUTER_API_KEY"]));
     for (const secret of secrets) expect(secret.value, secret.name).toBe("");
     for (const { name, value } of variables()) {
-      expect(value, name).not.toMatch(/sk-or-|\bEAA[A-Za-z0-9]{10,}|GOCSPX-|[A-Za-z0-9+/_-]{32,}/);
+      expect(value, name).not.toMatch(/sk-or-|\bEAA[A-Za-z0-9]{10,}|GOCSPX-|sb_(secret|publishable)_|\beyJ[A-Za-z0-9_-]{10,}|:\/\/[^\s/:@]+:[^\s/@]+@|[A-Za-z0-9+/_-]{32,}/);
     }
   });
 
-  it("its local values work as they are: a local database, the demo, http://localhost, and the setup only adds the secrets", async () => {
+  it("its local values work as they are: the embedded database, the demo, http://localhost, files on disk, and the setup only adds the secrets", async () => {
     const values = parseEnv(EXAMPLE);
-    expect(isLocalDatabaseUrl(values.DATABASE_URL ?? "")).toBe(true);
+    // An empty DATABASE_URL is the embedded database (PGlite) in data/pglite, never a server.
+    expect(databaseOf(values.DATABASE_URL ?? "")).toEqual({ kind: "embedded", dataDir: path.resolve("data", "pglite") });
+    expect(createFileStorage(values).kind).toBe("disk");
     expect(values.DEMO_MODE).toBe("true");
     // In development (`pnpm dev`) and even compiled on this computer (`pnpm build && pnpm start`, with a warning).
     expect(productionConfigProblems({ ...values, NODE_ENV: "development" })).toEqual([]);

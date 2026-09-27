@@ -131,6 +131,42 @@ describe("[COR-12] recepción por UID", () => {
     expect(conversation.externalThreadId).toBe("<nuevo@cliente.test>");
   });
 
+  it("un correo que la base de datos no podría guardar tal cual no detiene el buzón: se guarda limpio o se ignora, y sigue el siguiente", async () => {
+    const { servers, channel, deps } = await setup();
+    await runEmailPoll(channel.id, {}, deps);
+    const utf16 = (text: string) => `=?utf-16le?B?${Buffer.from(text, "utf16le").toString("base64")}?=`;
+    // NUL characters, half a surrogate pair and a date Postgres cannot store.
+    servers.deliver(
+      "INBOX",
+      Buffer.from(
+        [
+          "From: Ana <ana@cliente.test>",
+          `To: ${OWN}`,
+          `Subject: ${utf16("Cita\u0000 del\ud800 martes")}`,
+          "Date: -005000-01-01T00:00:00Z",
+          "Message-ID: <nu\u0000lo@cliente.test>",
+          "Content-Type: text/plain; charset=utf-8",
+          "",
+          "Hola\u0000, ¿tenéis hueco?",
+        ].join("\r\n"),
+      ),
+    );
+    // A sender address longer than any real one, too long for the index that finds a contact by it.
+    const longAddress = `${Buffer.from(crypto.getRandomValues(new Uint8Array(2_400))).toString("base64url")}@cliente.test`;
+    servers.deliver("INBOX", Buffer.from([`From: ${longAddress}`, `To: ${OWN}`, "Subject: Larga", "Message-ID: <largo@cliente.test>", "", "hola"].join("\r\n")));
+    servers.deliver("INBOX", await buildRawEmail({ to: OWN, subject: "Otra", messageId: "<siguiente@cliente.test>" }));
+    expect(await runEmailPoll(channel.id, {}, deps)).toMatchObject({ kind: "polled" });
+    const stored = await messagesOf(channel.id);
+    expect(stored.map((message) => message.externalId).sort()).toEqual(["<nulo@cliente.test>", "<siguiente@cliente.test>"]);
+    const crafted = stored.find((message) => message.externalId === "<nulo@cliente.test>");
+    expect(crafted?.text).toBe("Asunto: Cita del� martes\n\nHola, ¿tenéis hueco?");
+    // Its impossible Date header is not trusted: the arrival time (the server's INTERNALDATE) is used.
+    expect(crafted?.sentAt).toEqual(new Date("2026-09-27T09:00:00Z"));
+    const config = readEmailConfig((await loadChannel(channel.id)).config);
+    expect(config.imap.inbox).toEqual({ uidValidity: "1", lastUid: 3 });
+    expect(config.ignored.no_sender).toBe(1);
+  });
+
   it("[CAN-12] la respuesta del cliente a nuestro correo vuelve a su conversación por References", async () => {
     const { servers, channel, deps } = await setup();
     await runEmailPoll(channel.id, {}, deps);

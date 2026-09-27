@@ -3,9 +3,10 @@
 // messages, redacted once more ([SEG-02]).
 // «Reintentar» (failed job) and «Cancelar» (a job waiting to retry after an error) go through the JobQueue.
 import "server-only";
+import path from "node:path";
 import { and, count, desc, eq, inArray, isNotNull, isNull, max } from "drizzle-orm";
 import { z } from "zod";
-import { databaseUrlFromEnv, db, isLocalDatabaseUrl } from "@/db";
+import { databaseUrlFromEnv, db, resolveDatabaseTarget } from "@/db";
 import { aiRuns, channels, conversations, jobs, realtimeEvents, webhookEvents } from "@/db/schema";
 import type { AiRunKind, ChannelType, JobStatus } from "@/lib/enums";
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
@@ -27,11 +28,18 @@ const WEBHOOK_CHANNEL_TYPES = ["whatsapp", "telegram"] as const satisfies readon
 const JOBS_WITH_ERRORS_LIMIT = 20;
 const AI_ERRORS_LIMIT = 20;
 
+/**
+ * Which database answers, never the connection string: a Postgres server (Supabase, or another one) or the Postgres
+ * embedded in the app (PGlite), in a folder of this machine (`folder`, relative to the app) or in memory (tests).
+ */
+export type DatabaseDriver = "supabase" | "postgres" | "embedded" | "memory";
+
 export type DatabaseDiagnostics = {
   ok: boolean;
   latencyMs: number | null;
-  /** local = libSQL file on this machine; remote = Turso. Never the connection string. */
-  driver: "local" | "remote";
+  driver: DatabaseDriver;
+  /** Folder of the embedded database (data/pglite); null otherwise. */
+  folder: string | null;
   sizeBytes: number | null;
   migrations: { applied: number; total: number; pending: string[] } | null;
 };
@@ -97,13 +105,33 @@ export type Diagnostics = {
   aiErrors: AiRunError[];
 };
 
+/** Supabase's hosts: its poolers (…pooler.supabase.com) and the direct connection (db.<project>.supabase.co). */
+const SUPABASE_HOST = /(^|\.)supabase\.com?$/i;
+
+/** What DATABASE_URL (`url`) points to, as Diagnóstico names it. */
+export function databaseDriver(url: string = databaseUrlFromEnv()): Pick<DatabaseDiagnostics, "driver" | "folder"> {
+  try {
+    const target = resolveDatabaseTarget(url);
+    if (target.kind === "memory") return { driver: "memory", folder: null };
+    if (target.kind === "embedded") {
+      const relative = path.relative(process.cwd(), target.dataDir);
+      const inside = relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+      return { driver: "embedded", folder: (inside ? relative : target.dataDir).split(path.sep).join("/") };
+    }
+    return { driver: SUPABASE_HOST.test(new URL(target.url).hostname) ? "supabase" : "postgres", folder: null };
+  } catch {
+    // A DATABASE_URL that is not valid: the database cannot answer either, and the page says to check it.
+    return { driver: "postgres", folder: null };
+  }
+}
+
 async function databaseDiagnostics(): Promise<DatabaseDiagnostics> {
-  const driver = isLocalDatabaseUrl(databaseUrlFromEnv()) ? "local" : "remote";
+  const { driver, folder } = databaseDriver();
   let latencyMs: number | null = null;
   try {
     latencyMs = await pingDatabase();
   } catch {
-    return { ok: false, latencyMs: null, driver, sizeBytes: null, migrations: null };
+    return { ok: false, latencyMs: null, driver, folder, sizeBytes: null, migrations: null };
   }
   const info = await getDatabaseInfo();
   const total = journal.entries.length;
@@ -116,7 +144,7 @@ async function databaseDiagnostics(): Promise<DatabaseDiagnostics> {
         pending: journal.entries.filter((entry) => lastApplied === null || entry.when > lastApplied).map((entry) => entry.tag),
       }
     : null;
-  return { ok: true, latencyMs, driver, sizeBytes: info.sizeBytes, migrations };
+  return { ok: true, latencyMs, driver, folder, sizeBytes: info.sizeBytes, migrations };
 }
 
 type StoredTick = { at?: unknown; completed?: unknown; failed?: unknown };

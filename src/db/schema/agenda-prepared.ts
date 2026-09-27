@@ -1,18 +1,17 @@
 // Prepared, not offered ([AGD-07], spec «Qué queda fuera»): services that need two resources at the same time (a
 // professional and a room). Nothing reads or writes these tables yet; the availability engine already refuses such a
 // service (`needsSecondResource`, reason "second_resource", src/server/booking/availability.ts).
-// NOT exported from ./index.ts on purpose: a table in the schema without its migration breaks every query that walks
-// all tables (src/server/demo/clear-data.ts). The phase integrator activates it in one step: add
-// `export * from "./agenda-prepared";` to ./index.ts and run `pnpm db:generate` (additive migration).
+// Exported from ./index.ts and created by the migrations like every other table, so whatever walks all tables
+// (src/server/demo/clear-data.ts, the tests) covers them too.
 // When implemented: a service is bookable only if one resource of service_resources AND one of
 // service_secondary_resources are free for the whole occupied range; the second one is held in booking_secondary_resources
 // with the same range, and the Postgres exclusion constraint of docs/modelo-de-datos.md applies to both.
-import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { bookings, resources, services } from "./agenda";
 import { id, timestamp, timestamps } from "./columns";
 
 /** The second kind of resource a service also needs (any one of these, at the same time as the first). */
-export const serviceSecondaryResources = sqliteTable(
+export const serviceSecondaryResources = pgTable(
   "service_secondary_resources",
   {
     id: id(),
@@ -28,10 +27,10 @@ export const serviceSecondaryResources = sqliteTable(
     uniqueIndex("service_secondary_resources_service_resource_uq").on(t.serviceId, t.resourceId),
     index("service_secondary_resources_resource_idx").on(t.resourceId),
   ],
-);
+).enableRLS();
 
 /** The second resource a booking holds, over the same occupied range (start − margin … end + margin). */
-export const bookingSecondaryResources = sqliteTable(
+export const bookingSecondaryResources = pgTable(
   "booking_secondary_resources",
   {
     id: id(),
@@ -49,4 +48,4 @@ export const bookingSecondaryResources = sqliteTable(
     uniqueIndex("booking_secondary_resources_booking_resource_uq").on(t.bookingId, t.resourceId),
     index("booking_secondary_resources_resource_blocked_idx").on(t.resourceId, t.blockedStartAt),
   ],
-);
+).enableRLS();

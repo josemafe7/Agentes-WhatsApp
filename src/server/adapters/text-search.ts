@@ -1,26 +1,27 @@
-// TextSearch: keyword search over kb_chunks with FTS5 (`unicode61 remove_diacritics 2`), docs/busqueda-hibrida.md §3.
-// The query is an OR of quoted keywords, always passed as a parameter. A future Postgres implementation uses
-// the `es_unaccent` configuration behind the same interface.
+// TextSearch: keyword search over kb_chunks.search_vector, the tsvector Postgres generates from title, section and
+// content with the `es_unaccent` configuration (no accents, no case, Spanish stems: «tintes» finds «tinte»),
+// docs/busqueda-hibrida.md §3 and §8. The query is an OR of keywords, always passed as a parameter to
+// websearch_to_tsquery, which never fails on syntax.
 import "server-only";
 import { sql, type SQL } from "drizzle-orm";
-import { db as defaultDb, type Executor } from "@/db";
+import { db as defaultDb, rowsOf, type Executor } from "@/db";
 import { DEFAULT_SEARCH_LIMIT, type KbScope, type SearchHit, type SearchOptions } from "./search-types";
 
 export interface TextSearch {
   search(query: string, options: SearchOptions): Promise<SearchHit[]>;
-  /** Rebuilds the word index from kb_chunks (after VACUUM or a table re-creation). */
+  /** Nothing to rebuild in Postgres: search_vector is a generated column, always in step with its row. */
   rebuild(): Promise<void>;
 }
 
 const MIN_TERM_LENGTH = 2;
 const MAX_TERMS = 12;
-/** Words from this long are searched as prefixes when `prefix` is on. */
-const MIN_PREFIX_TERM_LENGTH = 4;
-/** A final «s» is dropped (Spanish plural) from words at least this long before the prefix search. */
-const MIN_PLURAL_TERM_LENGTH = 5;
+/** Words from this long also search their plural («uña» → «uñas»). */
+const MIN_PLURAL_TERM_LENGTH = 3;
+/** Words from this long ending in «s» also search their singular («cancelaciones» → «cancelacion»). */
+const MIN_SINGULAR_TERM_LENGTH = 5;
 
-// Spanish stop words (compared without accents). FTS5 has no stop-word list, and in an OR query «de» or «la»
-// would match almost everything and fill the 40 results with noise.
+// Spanish stop words (compared without accents). In an OR query «de» or «la» would match almost everything and fill
+// the 40 results with noise, so they never reach the query (es_unaccent drops its own list as well).
 const STOP_WORDS = new Set(
   (
     "a al algo algun alguna algunas alguno algunos ante antes aqui asi aun bien cada como con contra cual cuales " +
@@ -43,33 +44,43 @@ function withoutAccents(text: string): string {
     .replaceAll("\u0000", "ñ");
 }
 
-const quoted = (term: string) => `"${term.replaceAll('"', '""')}"`;
+const isSearchable = (word: string) => word.length >= MIN_TERM_LENGTH && !STOP_WORDS.has(withoutAccents(word));
 
-/** `"tinte"*` for «tintes» (the plural's «s» dropped), `"corte"*` for «corte»; short words stay exact. */
-function prefixTerm(term: string): string {
-  if (term.length < MIN_PREFIX_TERM_LENGTH) return quoted(term);
-  const stem = term.length >= MIN_PLURAL_TERM_LENGTH && term.endsWith("s") ? term.slice(0, -1) : term;
-  return `${quoted(stem)}*`;
+/**
+ * The word and its other number (plural: «s» after a vowel, «es» after a consonant; singular: without the «s» or
+ * «es»). es_unaccent gives most plurals the stem of their singular («tintes», «tinte» → tint), but it removes the
+ * accent before stemming, so an ending the stemmer only knows accented stays: «cancelación» and «cancelacion» →
+ * cancelacion, «cancelaciones» → cancel. Searching both forms finds either.
+ */
+function numberForms(word: string): string[] {
+  if (!/^\p{L}+$/u.test(word)) return [word];
+  if (!word.endsWith("s")) {
+    if (word.length < MIN_PLURAL_TERM_LENGTH) return [word];
+    return [word, /[aeiouáéíóú]$/u.test(word) ? `${word}s` : `${word}es`];
+  }
+  if (word.length < MIN_SINGULAR_TERM_LENGTH) return [word];
+  return word.endsWith("es") ? [word, word.slice(0, -1), word.slice(0, -2)] : [word, word.slice(0, -1)];
 }
 
 /**
- * FTS5 MATCH expression for what a customer or agent wrote: `"precio" OR "tinte"`, or null when nothing is
- * left to search. Each term is quoted (quotes doubled), so FTS5 operators in the input are plain text. With
- * `prefix`, longer terms become prefix queries (`"tinte"*`).
+ * websearch_to_tsquery text for what a customer or agent wrote: its keywords and their other number joined with
+ * `or` (`tinte or tintes or precio or precios`), or null when nothing is left to search. Only runs of letters and
+ * digits are kept, so quotes and «-» (NOT in websearch syntax) never reach it; a word «or» typed by the customer
+ * lands between two `or` operators, where websearch reads it as a word.
  */
-export function buildFtsQuery(text: string, options: { prefix?: boolean } = {}): string | null {
+export function buildFtsQuery(text: string): string | null {
   const words = text.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   const terms: string[] = [];
   for (const word of words) {
-    if (word.length < MIN_TERM_LENGTH || STOP_WORDS.has(withoutAccents(word)) || terms.includes(word)) continue;
+    if (!isSearchable(word) || terms.includes(word)) continue;
     terms.push(word);
     if (terms.length === MAX_TERMS) break;
   }
   if (terms.length === 0) return null;
-  return terms.map(options.prefix ? prefixTerm : quoted).join(" OR ");
+  return [...new Set(terms.flatMap(numberForms).filter(isSearchable))].join(" or ");
 }
 
-/** `(c.kb_id = ? AND c.index_version = ?) OR …`: only current chunks of the allowed bases. */
+/** `(c.kb_id = $1 AND c.index_version = $2) OR …`: only current chunks of the allowed bases. */
 export function kbScopeCondition(kbs: readonly KbScope[]): SQL {
   return sql.join(
     kbs.map((kb) => sql`(c.kb_id = ${kb.kbId} AND c.index_version = ${kb.indexVersion})`),
@@ -77,7 +88,7 @@ export function kbScopeCondition(kbs: readonly KbScope[]): SQL {
   );
 }
 
-export class LibsqlTextSearch implements TextSearch {
+export class PgTextSearch implements TextSearch {
   private readonly db: Executor;
 
   constructor(options: { db?: Executor } = {}) {
@@ -85,29 +96,30 @@ export class LibsqlTextSearch implements TextSearch {
   }
 
   async search(query: string, options: SearchOptions): Promise<SearchHit[]> {
-    const match = buildFtsQuery(query, { prefix: options.prefix });
-    if (!match || options.kbs.length === 0) return [];
+    const terms = buildFtsQuery(query);
+    if (!terms || options.kbs.length === 0) return [];
     const limit = options.limit ?? DEFAULT_SEARCH_LIMIT;
-    // bm25() is lower for better matches; the filter applies before LIMIT, so it is exact.
-    const rows = await this.db.all<{ chunk_id: string; rank: number }>(sql`
-      SELECT c.id AS chunk_id, bm25(kb_chunks_fts) AS rank
-      FROM kb_chunks_fts
-      JOIN kb_chunks AS c ON c.rowid = kb_chunks_fts.rowid
-      WHERE kb_chunks_fts MATCH ${match} AND (${kbScopeCondition(options.kbs)})
-      ORDER BY rank, c.id
-      LIMIT ${limit}
-    `);
-    return rows.map((row) => ({ chunkId: row.chunk_id, score: -row.rank }));
+    // ts_rank_cd is higher for better matches; the filter applies before LIMIT, so it is exact.
+    const rows = rowsOf<{ chunk_id: string; rank: number }>(
+      await this.db.execute(sql`
+        SELECT c.id AS chunk_id, ts_rank_cd(c.search_vector, q.query) AS rank
+        FROM kb_chunks AS c, websearch_to_tsquery('public.es_unaccent', ${terms}) AS q(query)
+        WHERE c.search_vector @@ q.query AND (${kbScopeCondition(options.kbs)})
+        ORDER BY rank DESC, c.id
+        LIMIT ${limit}
+      `),
+    );
+    return rows.map((row) => ({ chunkId: row.chunk_id, score: row.rank }));
   }
 
   async rebuild(): Promise<void> {
-    await this.db.run(sql`INSERT INTO kb_chunks_fts(kb_chunks_fts) VALUES('rebuild')`);
+    // search_vector is GENERATED ALWAYS … STORED: Postgres writes it on every insert and update of the chunk.
   }
 }
 
 let shared: TextSearch | undefined;
 
 export function getTextSearch(): TextSearch {
-  shared ??= new LibsqlTextSearch();
+  shared ??= new PgTextSearch();
   return shared;
 }

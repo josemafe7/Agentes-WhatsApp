@@ -56,7 +56,7 @@ describe("Ajustes › Diagnóstico [AJU-11]", () => {
     await db.insert(systemEmails).values({ kind: "invitation", toEmail: "nueva@example.com", subject: "Invitación", transport: "outbox", status: "saved", outboxFile: "a.eml" });
 
     const view = await loadDiagnosticsView(admin.actor);
-    expect(view.database).toMatchObject({ status: "ok", driverLabel: "libSQL · archivo local", migrationsStatus: "ok" });
+    expect(view.database).toMatchObject({ status: "ok", driverLabel: "Postgres integrado (PGlite) · en memoria", migrationsStatus: "ok" });
     expect(view.database.migrationsLabel).toMatch(/^(\d+) de \1 aplicadas$/);
     expect(view.queue.counts).toMatchObject({ failed: 1 });
     expect(view.queue.lastTick).toBeNull();

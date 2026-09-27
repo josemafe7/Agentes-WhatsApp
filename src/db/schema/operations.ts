@@ -1,7 +1,7 @@
 // Operational tables: raw webhooks, AI usage, notifications, push, job queue, audit log, realtime events,
 // our rate limiter, OAuth states and the system mail log.
 import { sql } from "drizzle-orm";
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { bigint, doublePrecision, index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 import {
   AI_RUN_KINDS,
   AUDIT_ACTOR_TYPES,
@@ -18,7 +18,7 @@ import { bool, EMPTY_JSON_ARRAY, EMPTY_JSON_OBJECT, id, json, timestamp, timesta
 import { conversations, messages } from "./conversations";
 
 /** Raw channel webhooks, deleted after 14 days by default ([CAN-09], [CUM-05]). */
-export const webhookEvents = sqliteTable(
+export const webhookEvents = pgTable(
   "webhook_events",
   {
     id: id(),
@@ -39,10 +39,10 @@ export const webhookEvents = sqliteTable(
     index("webhook_events_received_at_idx").on(t.receivedAt),
     index("webhook_events_channel_id_idx").on(t.channelId, t.receivedAt),
   ],
-);
+).enableRLS();
 
 /** Every AI call with tokens and the cost OpenRouter reports ([MOT-11], [INF-07]). */
-export const aiRuns = sqliteTable(
+export const aiRuns = pgTable(
   "ai_runs",
   {
     id: id(),
@@ -62,7 +62,7 @@ export const aiRuns = sqliteTable(
     cachedTokens: integer("cached_tokens"),
     totalTokens: integer("total_tokens"),
     /** USD, from usage.cost; never computed from hard-coded prices. */
-    costUsd: real("cost_usd"),
+    costUsd: doublePrecision("cost_usd"),
     latencyMs: integer("latency_ms"),
     toolsUsed: json<{ name: string; ok: boolean }[]>("tools_used").notNull().default(EMPTY_JSON_ARRAY),
     steps: integer("steps"),
@@ -77,10 +77,10 @@ export const aiRuns = sqliteTable(
     index("ai_runs_created_at_idx").on(t.createdAt),
     index("ai_runs_conversation_id_idx").on(t.conversationId),
   ],
-);
+).enableRLS();
 
 /** In-app notifications per user ([PWA-06]). */
-export const notifications = sqliteTable(
+export const notifications = pgTable(
   "notifications",
   {
     id: id(),
@@ -99,10 +99,10 @@ export const notifications = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("notifications_user_read_idx").on(t.userId, t.readAt)],
-);
+).enableRLS();
 
 /** One Web Push subscription per user and device ([PWA-03], [PWA-05]). */
-export const pushSubscriptions = sqliteTable(
+export const pushSubscriptions = pgTable(
   "push_subscriptions",
   {
     id: id(),
@@ -117,10 +117,10 @@ export const pushSubscriptions = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("push_subscriptions_user_id_idx").on(t.userId)],
-);
+).enableRLS();
 
 /** Background work queue (docs/decisions/0008). Claimed atomically with UPDATE … RETURNING. */
-export const jobs = sqliteTable(
+export const jobs = pgTable(
   "jobs",
   {
     id: id(),
@@ -141,7 +141,7 @@ export const jobs = sqliteTable(
     /** At most one pending job per key (partial unique index below): one pending reply per conversation. */
     dedupeKey: text("dedupe_key"),
     /** Recurring jobs: run again this many ms after finishing. */
-    intervalMs: integer("interval_ms"),
+    intervalMs: bigint("interval_ms", { mode: "number" }),
     finishedAt: timestamp("finished_at"),
     ...timestamps(),
   },
@@ -152,10 +152,10 @@ export const jobs = sqliteTable(
       .on(t.dedupeKey)
       .where(sql`status = 'pending' AND dedupe_key IS NOT NULL`),
   ],
-);
+).enableRLS();
 
 /** Append-only activity log without personal data ([AJU-10], [SEG-10]). Nobody edits or deletes it by hand. */
-export const auditLog = sqliteTable(
+export const auditLog = pgTable(
   "audit_log",
   {
     id: id(),
@@ -176,25 +176,25 @@ export const auditLog = sqliteTable(
     index("audit_log_target_idx").on(t.targetType, t.targetId),
     index("audit_log_action_idx").on(t.action),
   ],
-);
+).enableRLS();
 
 /** Changes the screens poll for (docs/decisions/0009). `seq` is the ever-growing cursor. */
-export const realtimeEvents = sqliteTable(
+export const realtimeEvents = pgTable(
   "realtime_events",
   {
     id: id(),
-    /** Assigned inside the insert as MAX(seq) + 1 (single writer), so it follows commit order. */
-    seq: integer("seq").notNull().unique(),
+    /** MAX(seq) + 1, assigned under the realtime advisory lock (src/server/adapters/realtime.ts): follows commit order. */
+    seq: bigint("seq", { mode: "number" }).notNull().unique(),
     /** inbox, conversation:<id>, channel:<id>, user:<id>, widget:<conversationId>… */
     topic: text("topic").notNull(),
     payload: json<unknown>("payload").notNull().default(EMPTY_JSON_OBJECT),
     ...timestamps(),
   },
   (t) => [index("realtime_events_topic_seq_idx").on(t.topic, t.seq), index("realtime_events_created_at_idx").on(t.createdAt)],
-);
+).enableRLS();
 
 /** Fixed-window counters of our RateLimiter adapter (IP, visitor, email…) ([SEG-07]). */
-export const rateLimits = sqliteTable(
+export const rateLimits = pgTable(
   "rate_limits",
   {
     id: id(),
@@ -204,10 +204,10 @@ export const rateLimits = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("rate_limits_window_start_idx").on(t.windowStart)],
-);
+).enableRLS();
 
 /** OAuth round trips started from the app (Google, Microsoft): state + PKCE, single use ([COR-23]). */
-export const oauthStates = sqliteTable(
+export const oauthStates = pgTable(
   "oauth_states",
   {
     id: id(),
@@ -225,10 +225,10 @@ export const oauthStates = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("oauth_states_expires_at_idx").on(t.expiresAt)],
-);
+).enableRLS();
 
 /** Log of system emails (invitations, password resets…), shown in Diagnóstico. No body: it may hold a link. */
-export const systemEmails = sqliteTable(
+export const systemEmails = pgTable(
   "system_emails",
   {
     id: id(),
@@ -243,4 +243,4 @@ export const systemEmails = sqliteTable(
     ...timestamps(),
   },
   (t) => [index("system_emails_created_at_idx").on(t.createdAt)],
-);
+).enableRLS();

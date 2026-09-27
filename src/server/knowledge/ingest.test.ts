@@ -110,6 +110,22 @@ describe("processing without an OpenRouter key [CON-05] [CON-12] [ARR-14]", () =
     expect((await doc(row.id)).status).toBe("ready");
     expect(embeddingCalls(fake)).toHaveLength(0);
   });
+
+  it("text extracted with NUL characters (Postgres refuses them) is stored and chunked without them", async () => {
+    // After the first 8 KB, where the file is still taken for text.
+    const filler = "Normas del salón para las citas y los cambios. ".repeat(200);
+    const text = `## Normas\n\n${filler}\n\n## Tintes\n\nEl tinte\u0000 completo cuesta 40 euros.\u0000\u0000`;
+    const row = await addFile("normas.md", new TextEncoder().encode(text));
+    expect(await processDocument(row.id, budget(), { storage })).toBe("done");
+    const stored = await doc(row.id);
+    expect(stored).toMatchObject({ status: "ready", error: null });
+    expect(stored.contentMd).toContain("## Tintes\n\nEl tinte completo cuesta 40 euros.");
+    const chunks = await chunksOf(row.id);
+    expect(chunks.some((chunk) => chunk.section === "Tintes")).toBe(true);
+    expect(JSON.stringify([stored, chunks])).not.toContain("\\u0000");
+    const search = await searchKnowledge({ kbIds: [kbId], query: "tinte completo" });
+    expect(search.results[0]?.content).toContain("El tinte completo cuesta 40 euros.");
+  });
 });
 
 describe("embeddings with a key [CON-11]", () => {

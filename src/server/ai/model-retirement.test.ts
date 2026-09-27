@@ -6,7 +6,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { db } from "@/db";
 import { agents, appKv, businessSettings, integrationSettings, jobs, notifications } from "@/db/schema";
 import { createOpenRouterClient } from "@/lib/openrouter/client";
-import { LibsqlJobQueue } from "@/server/adapters/job-queue";
+import { PgJobQueue } from "@/server/adapters/job-queue";
 import { tick } from "@/server/jobs";
 import { NOTIFICATIONS_DELIVER_JOB } from "@/server/notifications/notify";
 import { createAgentRow, createBusiness, createUser, type TestUser } from "@/test/factories";
@@ -181,7 +181,7 @@ describe("the list is downloaded again every 12 hours, only with a key [MOD-01] 
     const later = fakeFetch(routes({ "GET /models/user": () => jsonResponse({ data: withExpiration(RETIRING, "2026-10-15") }) }));
     vi.stubGlobal("fetch", later.fetch);
     vi.stubEnv("OPENROUTER_BASE_URL", FAKE_BASE_URL);
-    const summary = await tick({ budgetMs: 30_000, maxJobs: 1, queue: new LibsqlJobQueue({ now: inTwelveHours }) });
+    const summary = await tick({ budgetMs: 30_000, maxJobs: 1, queue: new PgJobQueue({ now: inTwelveHours }) });
     expect(summary).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
     expect(later.calls.map((call) => call.path)).toEqual(["/models/user"]);
     expect(later.calls[0].headers.get("authorization")).toBe(`Bearer ${FAKE_OPENROUTER_KEY}`);
@@ -194,7 +194,7 @@ describe("the list is downloaded again every 12 hours, only with a key [MOD-01] 
     await db.delete(jobs).where(eq(jobs.type, NOTIFICATIONS_DELIVER_JOB));
     const quiet = fakeFetch(() => jsonResponse({ data: [] }));
     vi.stubGlobal("fetch", quiet.fetch);
-    const next = await tick({ budgetMs: 30_000, maxJobs: 1, queue: new LibsqlJobQueue({ now: () => new Date(again.runAt.getTime() + 1_000) }) });
+    const next = await tick({ budgetMs: 30_000, maxJobs: 1, queue: new PgJobQueue({ now: () => new Date(again.runAt.getTime() + 1_000) }) });
     expect(next).toMatchObject({ claimed: 1, completed: 1 });
     expect(quiet.calls).toHaveLength(0);
   });

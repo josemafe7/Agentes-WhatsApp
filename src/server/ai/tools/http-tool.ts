@@ -14,6 +14,7 @@ import { BlockList, isIP, type LookupFunction } from "node:net";
 import type { HttpMethod } from "@/lib/enums";
 import { formatNumber, trimLineEnds } from "@/lib/format";
 import { REDACTED } from "@/server/redact";
+import { storableJson } from "@/server/storable-text";
 import {
   createNodeTransport,
   decodeText,
@@ -418,9 +419,12 @@ export async function executeHttpTool(target: HttpToolTarget, args: Record<strin
   }
 }
 
-/** What the model reads of a call ([HER-03]): short, in Spanish, never the secret headers. */
+/**
+ * What the model reads of a call ([HER-03]): short, in Spanish, never the secret headers. The service's answer is made
+ * storable (src/server/storable-text.ts): a NUL character in it never reaches the model's reply or anything saved.
+ */
 export function toolResultForModel(outcome: HttpToolOutcome): Record<string, unknown> {
-  const answer = outcome.data === null ? {} : { respuesta: outcome.data };
+  const answer = outcome.data === null ? {} : { respuesta: storableJson(outcome.data) };
   const truncated = outcome.truncated ? { recortada: true } : {};
   if (outcome.ok) return { ok: true, estado: outcome.status, ...answer, ...truncated };
   return {

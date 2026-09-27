@@ -22,7 +22,7 @@ Datos comprobados el 26-09-2026:
   hora, y el cron cada minuto suma unas 43.200 al mes; si se supera el límite, la función queda parada 30 días
   (`docs/plataforma-despliegue.md`, «Consumo del plan Hobby»).
 - Turso cuenta como leída cada fila que recorre una consulta, aunque no la devuelva: las consultas del sondeo
-  deben ir por índice (`docs/plataforma-despliegue.md`, «Plan gratuito»).
+  deben ir por índice (`docs/plataforma-despliegue.md`, «Plan gratuito»; ver 0024).
 - Varias instancias de un servidor sin estado no comparten memoria: un aviso guardado en memoria no llega a la
   instancia que atiende a otra pestaña. El cambio tiene que quedar en la base de datos.
 
@@ -49,7 +49,8 @@ Sondeo cada 3–5 s a `/api/realtime?cursor=…`, detrás de la interfaz `Realti
   y [BAN-03] pide 5 s como máximo.)
 - El chat web sondea su propia API, con sus límites por IP, visitante y dominio.
 - Los avisos push de la PWA (`docs/notificaciones-push.md`) cubren el caso de la app cerrada.
-- En el futuro, una implementación con Supabase Realtime sustituye a esta sin tocar a quien usa la interfaz.
+- En el futuro, una implementación con Supabase Realtime sustituye a esta sin tocar a quien usa la interfaz (ver
+  0024: se sigue con el sondeo, porque Supabase Realtime reparte los cambios según los usuarios de Supabase Auth).
 
 ## Consecuencias
 

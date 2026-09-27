@@ -1,6 +1,6 @@
 // Channels (WhatsApp numbers, mailboxes, web chats, Telegram), agent channel membership and WhatsApp templates.
 import { sql } from "drizzle-orm";
-import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 import {
   CHANNEL_STATUSES,
   CHANNEL_TYPES,
@@ -24,7 +24,7 @@ export type ChannelHealth = {
 /** One registration attempt of a WhatsApp number ([WA-18]: 10 per 72 h). */
 export type RegisterAttempt = { at: string; ok: boolean; code?: number };
 
-export const channels = sqliteTable(
+export const channels = pgTable(
   "channels",
   {
     id: id(),
@@ -89,10 +89,10 @@ export const channels = sqliteTable(
       .where(sql`phone_number_id IS NOT NULL`),
     index("channels_waba_id_idx").on(t.wabaId),
   ],
-);
+).enableRLS();
 
 /** Channels of each user with the Agent role; no rows = all channels ([PER-02], [USU-17]). */
-export const channelMembers = sqliteTable(
+export const channelMembers = pgTable(
   "channel_members",
   {
     id: id(),
@@ -108,10 +108,10 @@ export const channelMembers = sqliteTable(
     uniqueIndex("channel_members_user_channel_uq").on(t.userId, t.channelId),
     index("channel_members_channel_id_idx").on(t.channelId),
   ],
-);
+).enableRLS();
 
 /** Templates synced from Meta for each number ([WA-22]). */
-export const whatsappTemplates = sqliteTable(
+export const whatsappTemplates = pgTable(
   "whatsapp_templates",
   {
     id: id(),
@@ -132,4 +132,4 @@ export const whatsappTemplates = sqliteTable(
     ...timestamps(),
   },
   (t) => [uniqueIndex("whatsapp_templates_channel_name_language_uq").on(t.channelId, t.name, t.language)],
-);
+).enableRLS();

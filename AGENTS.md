@@ -42,10 +42,10 @@ cuál y propón otra forma.
 - Si una dependencia publica un parche de seguridad, avísame y propón aplicarlo.
 - Los datos se leen y se escriben en el servidor, no desde el navegador, y siempre a través de
   `src/data/`, que comprueba en el servidor el rol y el alcance del usuario en cada lectura y escritura, con
-  pruebas. Al pasar a Supabase, todas las tablas tendrán Row Level Security desde que se crean.
-- Te conectes como te conectes a la base de datos (el archivo local, la CLI de Turso o, en el futuro,
-  Supabase), hazlo solo a la de esta app. Si tiene datos reales, no escribas en ella sin mi permiso expreso
-  y sin una copia de seguridad reciente, y las pruebas nunca se ejecutan contra datos reales.
+  pruebas. Todas las tablas tienen Row Level Security desde la migración que las crea.
+- Te conectes como te conectes a la base de datos (la base integrada de la demo o Supabase, por su conexión
+  o por su servidor MCP), hazlo solo a la de esta app. Si tiene datos reales, no escribas en ella sin mi
+  permiso expreso y sin una copia de seguridad reciente, y las pruebas nunca se ejecutan contra datos reales.
 - Cada página privada, acción y ruta de la API comprueba en el servidor quién es el usuario y si puede
   tocar ese dato concreto. Ocultar algo en la pantalla no lo protege.
 - Todo lo que llega del usuario (formularios, URL, cabeceras, archivos) se valida en el servidor con Zod.
@@ -70,7 +70,7 @@ Salen del encargo y se cumplen siempre, como las de «Seguridad».
 - Migraciones solo aditivas.
 - Secretos del negocio siempre cifrados: nunca en claro, en el navegador ni en los logs.
 - Nunca se llama a la IA dentro de un webhook: se responde enseguida y la IA trabaja después.
-- Código portable, de SQLite a Postgres y de Vercel a un VPS: SQL propio solo en los adaptadores.
+- Código portable de Vercel a un VPS: el SQL propio de Postgres, solo en los adaptadores y las migraciones.
 - La demo funciona siempre desde un clon limpio.
 - WhatsApp, solo con la API oficial de Meta: nunca APIs no oficiales, Embedded Signup, coexistencia con la
   app del móvil ni `override_callback_uri`.
@@ -122,9 +122,9 @@ actual, y enséñame qué cambia. Una regla de seguridad se cambia por su equiva
 - Framework: [Next.js], que se crea como dice «Crear el proyecto» en `docs/conventions.md`
 - Lenguaje: [TypeScript]
 - Diseño: [Tailwind CSS + shadcn/ui]
-- Datos: [SQLite con libSQL y Drizzle; Turso al publicar; Supabase en el futuro]
+- Datos: [Postgres con Drizzle: Supabase al publicar; Postgres integrado (PGlite) para la demo y las pruebas]
 - Usuarios: [Better Auth]
-- Archivos: [disco en local, Vercel Blob al publicar]
+- Archivos: [disco en local, Supabase Storage al publicar]
 - IA: [OpenRouter, sin AI SDK]
 - Pruebas: [Vitest] para la lógica y [Playwright] para recorrer la app como un usuario
 - Despliegue: [solo local por ahora; Vercel para pruebas; VPS con Dokploy en el futuro]
@@ -142,18 +142,19 @@ si ha cambiado, avísame y usa lo actual. Instala siempre la última versión es
 Estos comandos los prepara la fase 0. Si alguno cambia, actualiza esta sección.
 
 - `pnpm dev`: arranca la app en local. Si faltan `.env.local` o la base, antes prepara la instalación
-  (secretos, `data/local.db`, migraciones y demo). Lanza el trabajo en segundo plano cada unos 15 s.
+  (secretos, `data/pglite`, migraciones y demo). Lanza el trabajo en segundo plano cada unos 15 s.
 - `pnpm lint` y `pnpm typecheck`: revisan el código y los tipos.
 - `pnpm test`: pruebas de Vitest, sin modo vigilancia.
 - `pnpm test:e2e`: pruebas de Playwright. Compila y arranca la app en su propio puerto, con su propia base
-  (`data/e2e.db`) y los servicios externos simulados.
+  (`data/e2e-pglite`) y los servicios externos simulados.
 - `pnpm build`: compila la app como en producción.
 - `pnpm seed [--sector=…]`: carga la demo (peluquería si no se indica sector) y los usuarios de prueba.
   Nunca donde hay datos reales: se niega.
 - `pnpm seed:embeddings`: recalcula los embeddings de la demo guardados en el repositorio. Gasta IA.
 - `pnpm db:reset`: borra todo y deja la demo recién cargada. `pnpm db:fresh`: borra todo y deja una
   instalación vacía, con el asistente de arranque. Los dos borran datos: nunca con datos reales.
-- `pnpm worker`: ejecuta el trabajo en segundo plano en bucle, para un servidor propio (VPS).
+- `pnpm worker`: ejecuta el trabajo en segundo plano en bucle, para un servidor propio (VPS). Funciona con
+  Supabase: la base integrada no la pueden abrir dos procesos a la vez.
 - La preparación sola se lanza con `pnpm run setup`, con `run`: `pnpm setup` es una orden de pnpm que
   cambia el PATH del ordenador.
 

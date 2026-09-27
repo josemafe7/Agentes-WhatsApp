@@ -22,8 +22,8 @@ const envLocal = () => path.join(rootDir, ".env.local");
 const readEnvLocal = () => fs.readFileSync(envLocal(), "utf8");
 
 beforeEach(async () => {
-  // The .env.local under test says DATABASE_URL=file:./data/local.db: make sure the test database wins.
-  expect(process.env.DATABASE_URL).toMatch(/dominia-vitest-/);
+  // The .env.local under test has its own DATABASE_URL (empty: data/pglite): make sure the test database wins.
+  expect(process.env.DATABASE_URL).toMatch(/^pglite:memory#/);
   envBefore = { ...process.env };
   rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "dominia-setup-"));
   fs.writeFileSync(path.join(rootDir, ".env.example"), EXAMPLE);

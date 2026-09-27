@@ -8,6 +8,7 @@ import { isOpenRouterError } from "@/lib/openrouter/errors";
 import type { ChatResult } from "@/lib/openrouter/types";
 import { catalogSupport } from "@/server/ai/models";
 import { safeErrorMessage } from "@/server/redact";
+import { storableText } from "@/server/storable-text";
 import { baseMimeType } from "./limits";
 
 export const IMAGE_DESCRIPTION_TIMEOUT_MS = 30_000;
@@ -64,7 +65,8 @@ export async function describeImage(input: DescribeImageInput, deps: DescribeIma
     error = isOpenRouterError(caught) ? caught.userMessage : UNEXPECTED_ERROR;
     if (!isOpenRouterError(caught)) console.warn(`[media] Fallo inesperado al describir una imagen: ${safeErrorMessage(caught)}`);
   }
-  const description = result?.content?.trim().slice(0, MAX_DESCRIPTION_CHARS).trim() || null;
+  // Storable (src/server/storable-text.ts): a NUL character in what the model wrote never stops saving it.
+  const description = storableText(result?.content ?? "").trim().slice(0, MAX_DESCRIPTION_CHARS).trim() || null;
   await recordAiRun({
     kind: "image_description",
     mode: "live",

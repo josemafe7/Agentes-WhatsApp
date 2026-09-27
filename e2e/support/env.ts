@@ -14,12 +14,13 @@ export const DEMO_URL = `http://localhost:${DEMO_PORT}`;
 export const FRESH_URL = `http://localhost:${FRESH_PORT}`;
 export const RESTAURANT_URL = `http://localhost:${RESTAURANT_PORT}`;
 
+// Each app server has its own embedded database (PGlite): a folder under data/ that only that server opens.
 /** Demo install: migrations + demo seed, prepared before the build (e2e/support/prepare-databases.mjs). */
-export const DEMO_DATABASE_URL = "file:./data/e2e.db";
+export const DEMO_DATABASE_URL = "pglite:./data/e2e-pglite";
 /** Empty install (migrations only) for the setup wizard. */
-export const FRESH_DATABASE_URL = "file:./data/e2e-fresh.db";
+export const FRESH_DATABASE_URL = "pglite:./data/e2e-fresh-pglite";
 /** The restaurant demo (`pnpm seed --sector=restaurante`): the agenda by capacity ([AGD-06], [AGD-11]). */
-export const RESTAURANT_DATABASE_URL = "file:./data/e2e-restaurante.db";
+export const RESTAURANT_DATABASE_URL = "pglite:./data/e2e-restaurante-pglite";
 
 /**
  * Generated once per run and kept in process.env, so the runner, its workers (which inherit the environment)
@@ -56,14 +57,15 @@ export const EXTERNAL_SERVICE_ENV = {
 } as const;
 
 /**
- * Next.js also reads the developer's .env.local, but a variable already present in the process (even empty)
- * wins. Blanking these keeps real keys, Turso and Vercel Blob out of the test servers.
+ * Next.js and the scripts that prepare the databases also read the developer's .env.local, but a variable already
+ * present in the process (even empty) wins. Blanking these keeps real keys and the real Supabase Storage out of the
+ * test servers (DATABASE_URL is always set, to each server's own database).
  */
 const BLANKED_ENV = {
   OPENROUTER_API_KEY: "",
+  SUPABASE_URL: "",
+  SUPABASE_SECRET_KEY: "",
   DATABASE_AUTH_TOKEN: "",
-  BLOB_READ_WRITE_TOKEN: "",
-  BLOB_STORE_ID: "",
   VERCEL_PROJECT_PRODUCTION_URL: "",
 } as const;
 

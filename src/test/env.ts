@@ -7,5 +7,17 @@ export const TEST_ENV = {
   CRON_SECRET: "test-only-cron-secret-0123456789",
 } as const;
 
-/** Real credentials and remote services the tests must never inherit from the shell. */
-export const UNSET_IN_TESTS = ["OPENROUTER_API_KEY", "DATABASE_AUTH_TOKEN", "BLOB_READ_WRITE_TOKEN", "BLOB_STORE_ID", "DEMO_MODE"];
+/**
+ * Real credentials and remote services the tests must never inherit from the shell: the database (Supabase or any
+ * server), Supabase Storage and OpenRouter. src/test/setup.ts then points DATABASE_URL at the test file's own database.
+ * VERCEL too: with it the app refuses the embedded database (src/db/index.ts); tests that need it stub it.
+ */
+export const UNSET_IN_TESTS = [
+  "OPENROUTER_API_KEY",
+  "DATABASE_URL",
+  "DATABASE_AUTH_TOKEN",
+  "SUPABASE_URL",
+  "SUPABASE_SECRET_KEY",
+  "DEMO_MODE",
+  "VERCEL",
+];

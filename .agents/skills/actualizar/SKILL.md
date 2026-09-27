@@ -14,7 +14,7 @@ Pasas la instalación de un negocio a una versión nueva siguiendo «9. Publicar
 - Las migraciones solo pueden añadir (tablas, columnas, índices). Si una borra, renombra o cambia datos, para y explícaselo a la persona.
 - Nunca borres, saltes ni cambies una prueba para que pase: arregla el código o pregunta.
 - Nunca `pnpm db:fresh`, `pnpm db:reset` ni `pnpm seed` contra la base de un negocio.
-- Ningún secreto pasa por el chat ni por tu terminal: los tokens de Turso los crea y los usa la persona en su terminal. No leas ni muestres archivos `.env*`, salvo `.env.example`.
+- Ningún secreto pasa por el chat ni por tu terminal: la dirección de la base de Supabase (lleva la contraseña) la usa la persona en su terminal, solo para cada orden y nunca guardada en `.env.local`; tú solo llegas a la base con el conector de Supabase (su servidor MCP), limitado al proyecto de esta app y con su permiso. No leas ni muestres archivos `.env*`, salvo `.env.example`.
 - Con datos reales, escribir en la base (también aplicar migraciones) solo con el permiso expreso de la persona.
 - No hagas commit ni push sin permiso: con la app publicada desde GitHub, subir a `main` la publica.
 - Antes de instalar o actualizar un paquete, di qué es y para qué, y espera un sí. Solo con pnpm y respetando el margen de 7 días de `../../../docs/security.md`.
@@ -23,7 +23,7 @@ Pasas la instalación de un negocio a una versión nueva siguiendo «9. Publicar
 
 1. La versión publicada: `curl -s https://<dominio>/api/health` (campo `"version"`; en PowerShell, `curl.exe`). La nueva: `version` de `../../../package.json`.
 2. Resume para la persona, en lenguaje llano, qué trae la versión nueva (con los cambios del historial de Git) y si es un parche de seguridad.
-3. Las migraciones nuevas: los archivos de `../../../drizzle/` que no estaban en la versión publicada (compáralo con Git). Léelas: solo `CREATE TABLE`, `CREATE INDEX` o `ALTER TABLE … ADD COLUMN`. Nada de `DROP`, de `RENAME` ni de cambios masivos de datos.
+3. Las migraciones nuevas: los archivos de `../../../drizzle/` que no estaban en la versión publicada (compáralo con Git). Léelas: solo `CREATE TABLE` (con su `ENABLE ROW LEVEL SECURITY`), `CREATE INDEX` o `ALTER TABLE … ADD COLUMN`. Nada de `DROP`, de `RENAME` ni de cambios masivos de datos. Cada tabla nueva tiene que activar Row Level Security en la misma migración.
 
 ## 2. Pruebas en local
 
@@ -31,20 +31,20 @@ En la versión nueva: `pnpm install`, `pnpm lint`, `pnpm typecheck`, `pnpm test`
 
 ## 3. Copia de seguridad
 
-Con la app en Vercel y Turso, la persona, en su terminal:
+Con la app en Vercel y Supabase, la persona, en su terminal:
 
-1. Anota la hora, en UTC: la base se podrá llevar a ese momento con la restauración de Turso (24 horas en el plan gratuito, 10 días en Developer).
-2. Hace la copia: `turso db export <base> --output-file <base>-<fecha>.db`. Se guarda cifrada, fuera de la carpeta del proyecto y nunca en Git: lleva datos personales.
-3. La comprueba: `turso db create prueba-copia --from-file <base>-<fecha>.db`, mira que está y la borra con `turso db destroy prueba-copia`.
+1. Anota la hora, en UTC. Con Supabase Pro hay además una copia de cada día (7 días) y, si tiene PITR (de pago), se puede volver a ese minuto.
+2. Hace la copia con la CLI de Supabase (necesita Docker Desktop encendido) y la dirección del «Session pooler» (puerto 5432), como el apartado 10 de la guía: `roles.sql`, `schema.sql` y `data.sql`. Se guardan cifrados, fuera de la carpeta del proyecto y nunca en Git: llevan datos personales.
+3. La comprueba: los tres archivos existen, no están vacíos y `data.sql` trae datos de las tablas de la app (por ejemplo, busca `conversations`). Cada pocos meses, además, se restaura en un proyecto de Supabase de pruebas.
 4. Confirma que `APP_ENCRYPTION_KEY` sigue en su gestor de contraseñas: sin ella, las claves guardadas en la copia no se pueden leer.
 
-En un servidor propio o en local: se paran la app y el worker, se copia entera la carpeta `data/` (la base y los archivos) fuera del proyecto y se vuelven a arrancar.
+Los archivos de Supabase Storage no entran en esa copia. En local (la demo, con la base integrada): se paran `pnpm dev` y lo demás que la use, se copia entera la carpeta `data/` (la base, `data/pglite`, y los archivos) fuera del proyecto y se vuelve a arrancar.
 
 ## 4. Migraciones en producción
 
-Con el permiso de la persona y la copia hecha: ella crea un token de un día (`turso db tokens create <base> --expiration 1d`) y lanza `pnpm db:migrate` en su terminal con `DATABASE_URL` y `DATABASE_AUTH_TOKEN`, como en el apartado 2 de la guía. Tiene que salir «Base de datos al día: la base de datos remota (Turso)». Como las migraciones solo añaden, la versión publicada sigue funcionando mientras tanto.
+Con el permiso de la persona y la copia hecha: ella lanza `pnpm db:migrate` en su terminal con la dirección de la base solo para esa orden, como en el apartado 2 de la guía (nunca guardada en `.env.local`). Tiene que salir «Base de datos al día: la base de datos de Supabase.». O, con su permiso, las aplicas tú con el conector de Supabase, dejándolas anotadas en `drizzle.__drizzle_migrations` como hace `pnpm db:migrate`. Como las migraciones solo añaden, la versión publicada sigue funcionando mientras tanto. Después, el Security Advisor de Supabase (Advisors) no tiene errores nuevos: una tabla sin Row Level Security sale como error.
 
-En local, basta `pnpm db:migrate`.
+En local, basta `pnpm db:migrate` (con `pnpm dev` parado: la base integrada solo la abre un proceso).
 
 ## 5. Publicar
 
@@ -60,7 +60,7 @@ En local, basta `pnpm db:migrate`.
 ## 7. Si algo va mal
 
 - **La versión nueva falla:** con permiso, vuelve a la anterior desde Deployments en Vercel o con `pnpm dlx vercel rollback`. La base ya migrada sirve también para la versión anterior.
-- **Los datos se han dañado:** con permiso, restaura. En Turso, la restauración crea una base nueva (`turso db create <nueva> --from-db <base> --timestamp <hora en UTC>`, o `--from-file` con la copia). La persona crea su token, cambia `DATABASE_URL` y `DATABASE_AUTH_TOKEN` en Vercel y vuelve a desplegar.
+- **Los datos se han dañado:** con permiso, restaura. Con Supabase Pro, desde Database › Backups (la copia de un día o, con PITR, un minuto concreto); el proyecto no responde mientras se restaura. Con la copia de la CLI, se restaura con `psql` en un proyecto nuevo de Supabase, en la misma región (https://supabase.com/docs/guides/platform/migrating-within-supabase/backup-restore); después la persona cambia en Vercel `DATABASE_URL`, `SUPABASE_URL` y `SUPABASE_SECRET_KEY`, vuelve a crear el trabajo de cron y vuelve a desplegar. Los archivos de Storage no están en esa copia: siguen en el proyecto antiguo.
 - Si no está claro qué pasa, sigue con la skill `diagnostico`.
 
 ## 8. Al terminar

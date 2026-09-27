@@ -13,9 +13,10 @@ import {
   RESTAURANT_URL,
 } from "./e2e/support/env";
 
-// docs/testing.md: one build of the app started three times — the demo (data/e2e.db), an empty installation for
-// the setup wizard (data/e2e-fresh.db) and the restaurant demo for the agenda by capacity (data/e2e-restaurante.db) —
-// with every external service answered by e2e/mocks/server.mjs.
+// docs/testing.md: one build of the app started three times — the demo (data/e2e-pglite), an empty installation for
+// the setup wizard (data/e2e-fresh-pglite) and the restaurant demo for the agenda by capacity
+// (data/e2e-restaurante-pglite), each with its own embedded database (PGlite) that only that server opens — with every
+// external service answered by e2e/mocks/server.mjs.
 // Playwright starts webServers before globalSetup, so the databases are prepared at the head of the demo
 // server's command (e2e/support/prepare-databases.mjs), before the build.
 const BUILD_AND_START_TIMEOUT_MS = 600_000;
@@ -27,7 +28,7 @@ const E2E_START_FLAGS = { E2E_ALLOW_BASE_URL_OVERRIDES: "true" } as const;
 
 export default defineConfig({
   testDir: "e2e",
-  // The servers share their database files with every test: one test at a time.
+  // The servers share their databases with every test: one test at a time.
   workers: 1,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
