@@ -37,6 +37,8 @@ export function ChannelMembersForm({ channelId, people, initial }: ChannelMember
       setError(null);
       setSaved(selected);
       toast.success(result.message ?? "Cambios guardados.");
+      // Someone left without any channel now sees them all ([PER-02]).
+      if (result.data?.warning) toast.warning(result.data.warning);
     });
   }
 

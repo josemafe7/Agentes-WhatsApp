@@ -124,7 +124,7 @@ export async function transcribeAudio(input: TranscribeInput, deps: TranscribeDe
     const remaining = deadline - clock();
     try {
       if (remaining <= 0) throw new Error("sin tiempo");
-      const bytes = await convert({ bytes: input.bytes, extension: extensionForMime(input.mimeType), timeoutMs: Math.min(FFMPEG_TIMEOUT_MS, remaining) });
+      const bytes = await convert({ bytes: input.bytes, extension: extensionForMime(input.mimeType), mimeType: input.mimeType, timeoutMs: Math.min(FFMPEG_TIMEOUT_MS, remaining) });
       mp3 = { bytes, format: "mp3" };
     } catch (error) {
       console.warn(`[media] No se ha podido convertir un audio a MP3: ${safeErrorMessage(error)}`);

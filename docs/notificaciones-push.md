@@ -14,6 +14,8 @@ cuentas de desarrollador. Comprobado el 26-09-2026 (ver «Fuentes»).
    webhook.
 5. El servicio de push del navegador (Apple, Google, Mozilla…) lo entrega y el service worker lo muestra.
 6. Si el servicio responde que la suscripción ya no existe, se borra.
+7. Al cerrar sesión, la app apaga antes los avisos de ese dispositivo (mientras la sesión aún existe): quien use
+   después ese navegador no recibe los avisos de la persona anterior (`src/components/pwa/push-client.ts`).
 
 ## Dónde funciona
 
@@ -121,8 +123,11 @@ del canal). Es un punto a decidir en el widget, no en el push.
     sustituye al anterior de la misma conversación en lugar de acumularse.
   - `timeout`: tiempo máximo de la conexión, en milisegundos.
 - El payload va cifrado (`aes128gcm` por defecto) y debe ser pequeño: los servicios deben aceptar al menos
-  4.096 bytes y Apple rechaza lo que pasa de 4 KB. Solo lleva título, un texto corto y la ruta de la bandeja.
-  Sin nombres, teléfonos ni texto de los mensajes: se ve en la pantalla bloqueada.
+  4.096 bytes y Apple rechaza lo que pasa de 4 KB. Solo lleva el título, el texto corto de los avisos del sistema y
+  la ruta de la app. El título dice qué pasa y con qué contacto, con su nombre en una línea corta («Traspaso: Ana»,
+  [PWA-04]); nunca teléfonos, emails ni el texto de los mensajes, porque se ve en la pantalla bloqueada. Los avisos de
+  una conversación (traspaso, conversación nueva o asignada) no llevan texto fuera de la app: el motivo de un traspaso
+  puede repetir lo que escribió el cliente y solo se lee dentro, en la campana (`src/server/notifications/notify.ts`).
 - Tanto si se resuelve como si falla, el resultado trae `statusCode`, `headers` y `body`:
 
   | Respuesta | Qué significa | Qué hace la app |
@@ -149,6 +154,10 @@ del canal). Es un punto a decidir en el widget, no en el push.
   404 o un 410 borra la suscripción y que el payload no lleva datos personales.
 - Playwright no puede recibir un push real; las pruebas de extremo a extremo comprueban el botón, el guardado
   de la suscripción (con `PushManager` simulado) y que `/sw.js` y el manifiesto se sirven sin sesión.
+- La app lee el permiso con la API de permisos (`navigator.permissions.query`) y, si el navegador no la tiene para
+  las notificaciones, con `Notification.permission`: el Chromium sin ventana de las pruebas deja esta última en
+  «denied» aunque el permiso esté concedido, y un navegador real puede tardar en ponerla al día. Pedir el permiso sigue
+  siendo `Notification.requestPermission()`, en el mismo clic, como exige el iPhone.
 
 ## Fuentes
 

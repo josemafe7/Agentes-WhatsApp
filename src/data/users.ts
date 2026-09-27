@@ -7,12 +7,13 @@ import { z } from "zod";
 import { db, type Executor } from "@/db";
 import { account, businessSettings, channelMembers, channels, session, user, userRoles } from "@/db/schema";
 import { ROLES, type ChannelType, type Role } from "@/lib/enums";
-import { PERMISSIONS, type Actor } from "@/lib/permissions";
+import { can, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { CREDENTIAL_PROVIDER_ID, deleteUserAccount, revokeUserSessions } from "@/server/accounts";
 import { getRateLimiter } from "@/server/adapters/rate-limiter";
 import { ForbiddenError, NotFoundError, parseInput, RateLimitError, ValidationError } from "@/server/errors";
 import { writeAudit } from "./audit";
 import { assertCan } from "./guard";
+import { revokeInvitationsSentBy } from "./invitations";
 import { loadBusinessSettings } from "./settings";
 
 export type TeamMember = {
@@ -56,6 +57,11 @@ async function assertChannelsExist(executor: Executor, channelIds: string[]): Pr
   if (channelIds.length === 0) return;
   const found = await executor.select({ id: channels.id }).from(channels).where(inArray(channels.id, channelIds));
   if (found.length !== new Set(channelIds).size) throw new ValidationError("Alguno de los canales elegidos no existe.");
+}
+
+/** Whether someone with `role` may invite people (Settings › Usuarios): owner and admin ([USU-05]). */
+function roleCanInvite(userId: string, role: Role): boolean {
+  return can({ userId, role, name: "", channelIds: null }, PERMISSIONS.settings.users);
 }
 
 async function replaceChannels(executor: Executor, userId: string, channelIds: string[]): Promise<void> {
@@ -123,25 +129,40 @@ export async function changeRole(actor: Actor, input: unknown): Promise<void> {
       { actor, action: "user.role_changed", targetType: "user", targetId: target.id, metadata: { from: target.role, to: data.role } },
       tx,
     );
+    // Who can no longer invite leaves no invitation working behind ([USU-09]).
+    if (!roleCanInvite(target.id, data.role)) await revokeInvitationsSentBy(tx, actor, target.id, "inviter_role_changed");
   });
 }
 
 export const setAgentChannelsSchema = z.object({ userId: userIdInput, channelIds: channelIdsInput });
 
-/** Channels of a user with the Agent role; empty = all channels ([USU-17], [PER-02]). */
-export async function setAgentChannels(actor: Actor, input: unknown): Promise<void> {
+/** `warning`: the Agent was left without any channel, so from now on they see every channel ([PER-02]). */
+export type AgentChannelsResult = { warning: string | null };
+
+/**
+ * Channels of a user with the Agent role; empty = all channels ([USU-17], [PER-02]). Taking away the last one tells
+ * whoever did it that the person now sees every channel.
+ */
+export async function setAgentChannels(actor: Actor, input: unknown): Promise<AgentChannelsResult> {
   const data = parseInput(setAgentChannelsSchema, input);
   const target = await loadTarget(data.userId);
   assertCanManage(actor, target);
   if (target.role !== "agent") throw new ValidationError("Solo se eligen canales para el rol Agente.");
-  await db.transaction(async (tx) => {
+  const hadChannels = await db.transaction(async (tx) => {
     await assertChannelsExist(tx, data.channelIds);
+    const before = await tx.select({ channelId: channelMembers.channelId }).from(channelMembers).where(eq(channelMembers.userId, target.id));
     await replaceChannels(tx, target.id, data.channelIds);
     await writeAudit(
       { actor, action: "user.channels_changed", targetType: "user", targetId: target.id, metadata: { channels: data.channelIds.length } },
       tx,
     );
+    return before.length > 0;
   });
+  if (!hadChannels || data.channelIds.length > 0) return { warning: null };
+  const [row] = await db.select({ name: user.name }).from(user).where(eq(user.id, target.id));
+  return {
+    warning: `«${row?.name ?? "Esta persona"}» ya no tiene ningún canal asignado, así que desde ahora verá todos los canales. Si no es lo que quieres, elige al menos uno.`,
+  };
 }
 
 export const setUserDisabledSchema = z.object({ userId: userIdInput, disabled: z.boolean() });
@@ -155,7 +176,11 @@ export async function setUserDisabled(actor: Actor, input: unknown): Promise<voi
   if (target.id === actor.userId) throw new ForbiddenError("No puedes desactivar tu propia cuenta.");
   await db.transaction(async (tx) => {
     await tx.update(userRoles).set({ disabledAt: data.disabled ? new Date() : null }).where(eq(userRoles.userId, target.id));
-    if (data.disabled) await revokeUserSessions(tx, target.id);
+    if (data.disabled) {
+      await revokeUserSessions(tx, target.id);
+      // Their pending invitations stop working too, and stay revoked if they are reactivated ([USU-09], [USU-14]).
+      await revokeInvitationsSentBy(tx, actor, target.id, "inviter_disabled");
+    }
     await writeAudit(
       { actor, action: data.disabled ? "user.disabled" : "user.enabled", targetType: "user", targetId: target.id },
       tx,
@@ -171,6 +196,8 @@ export async function removeUser(actor: Actor, input: unknown): Promise<void> {
   if (target.role === "owner") throw new ForbiddenError("El propietario no se puede borrar.");
   if (target.id === actor.userId) throw new ForbiddenError("No puedes borrar tu propia cuenta.");
   await db.transaction(async (tx) => {
+    // Before the account goes (it would leave them without their sender): nobody joins on their word ([USU-09]).
+    await revokeInvitationsSentBy(tx, actor, target.id, "inviter_removed");
     await deleteUserAccount(tx, target.id);
     // Without personal data: the id only.
     await writeAudit({ actor, action: "user.removed", targetType: "user", targetId: target.id, metadata: { role: target.role } }, tx);

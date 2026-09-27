@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { corsHeaders, isOriginAllowed, requestOrigin } from "./cors";
+import { comesFromWidgetDemo, corsHeaders, isOriginAllowed, requestOrigin } from "./cors";
 
 // APP_URL in tests is http://localhost:3000 (src/test/env.ts).
 const APP_HOSTS = ["localhost:3000"];
@@ -11,16 +11,21 @@ describe("allowed domains [WEB-10]", () => {
     expect(isOriginAllowed("http://localhost:4000", [], APP_HOSTS)).toBe(false);
   });
 
-  it("allows exactly the listed hosts, and the app itself", () => {
+  it("allows exactly the listed hosts; the app itself only on /widget-demo", () => {
     const list = ["www.mipeluqueria.es"];
     expect(isOriginAllowed("https://www.mipeluqueria.es", list, APP_HOSTS)).toBe(true);
     expect(isOriginAllowed("http://www.mipeluqueria.es", list, APP_HOSTS)).toBe(true);
-    expect(isOriginAllowed("http://localhost:3000", list, APP_HOSTS)).toBe(true);
+    // A chat meant for the business's site does not run on any page of the app…
+    expect(isOriginAllowed("http://localhost:3000", list, APP_HOSTS)).toBe(false);
+    // …except /widget-demo, which outside the demo only the team can open.
+    expect(isOriginAllowed("http://localhost:3000", list, APP_HOSTS, { fromWidgetDemo: true })).toBe(true);
     // No implicit subdomains or look-alikes.
     expect(isOriginAllowed("https://mipeluqueria.es", list, APP_HOSTS)).toBe(false);
     expect(isOriginAllowed("https://tienda.www.mipeluqueria.es", list, APP_HOSTS)).toBe(false);
     expect(isOriginAllowed("https://www.mipeluqueria.es.evil.com", list, APP_HOSTS)).toBe(false);
     expect(isOriginAllowed("https://evil-www.mipeluqueria.es", list, APP_HOSTS)).toBe(false);
+    // Coming «from /widget-demo» only means something for the app itself.
+    expect(isOriginAllowed("https://otra-web.es", list, APP_HOSTS, { fromWidgetDemo: true })).toBe(false);
   });
 
   it("an entry with a port only matches that port; without one, any port of that host", () => {
@@ -44,6 +49,16 @@ describe("request origin", () => {
     expect(requestOrigin(new Headers({ origin: "null" }))).toBeNull();
     expect(requestOrigin(new Headers({ referer: "no es una url" }))).toBeNull();
     expect(requestOrigin(new Headers())).toBeNull();
+  });
+
+  it("knows a request of the /widget-demo page of that same origin", () => {
+    const app = "http://localhost:3000";
+    expect(comesFromWidgetDemo(new Headers({ referer: `${app}/widget-demo?canal=abc` }), app)).toBe(true);
+    expect(comesFromWidgetDemo(new Headers({ referer: `${app}/widget-demo` }), app)).toBe(true);
+    for (const referer of [`${app}/setup`, `${app}/widget-demo/otra`, `${app}/widget-demos`, "https://evil.example/widget-demo", "no es una url"]) {
+      expect(comesFromWidgetDemo(new Headers({ referer }), app), referer).toBe(false);
+    }
+    expect(comesFromWidgetDemo(new Headers(), app)).toBe(false);
   });
 });
 

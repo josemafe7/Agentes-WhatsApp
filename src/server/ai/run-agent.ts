@@ -15,7 +15,7 @@ import { AgentRunError } from "./errors";
 import { catalogSupport } from "./models";
 import { fallbackOfOtherProvider, getOpenRouterClient, isZdrEnabled, resolveDefaultModels, type OpenRouterDeps } from "./openrouter";
 import { buildPrompt, type PromptChannelKind, type PromptContact, type PromptHistoryMessage, type SimulatedChannel } from "./prompt";
-import { executeToolCall, skipToolCalls, toolDefinitions, toolsForAgent, type ToolCallRecord, type ToolContext } from "./tools";
+import { executeToolCall, loadAgentHttpTools, skipToolCalls, toolDefinitions, toolsForAgent, type HttpToolDeps, type ToolCallRecord, type ToolContext } from "./tools";
 import { addUsage, emptyUsageTotals, type RunUsage } from "./usage";
 
 /** «hasta 6 pasos de herramientas» ([MOT-08]). */
@@ -74,7 +74,12 @@ export type RunAgentInput = {
   simulateChannel?: SimulatedChannel;
 };
 
-export type RunAgentDeps = OpenRouterDeps & { now?: Date; clock?: () => number };
+export type RunAgentDeps = OpenRouterDeps & {
+  now?: Date;
+  clock?: () => number;
+  /** Tests: a fake service and DNS for the agent's custom HTTP tools. */
+  httpTools?: HttpToolDeps;
+};
 
 /** A knowledge fragment used in the reply ([PRU-02], [CON-20]); same shape as KnowledgeRetrieval. */
 export type AgentRetrieval = {
@@ -150,6 +155,8 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
   });
 
   const tools = toolsForAgent(agent.systemTools);
+  // The custom HTTP tools attached to the agent ([HER-11], [AGE-08]); never in place of a system tool.
+  for (const tool of await loadAgentHttpTools(agent.id, deps.httpTools)) if (!tools.has(tool.name)) tools.set(tool.name, tool);
   const retrievals: AgentRetrieval[] = [];
   const toolContext: ToolContext = {
     mode,

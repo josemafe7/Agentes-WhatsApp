@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, SearchX, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, CopyCheck, SearchX, Users } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { noPermissionDescription } from "@/components/app-shell/navigation";
@@ -7,6 +7,8 @@ import { ErrorState } from "@/components/error-state";
 import { NoPermission } from "@/components/no-permission";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
+import { getAgendaSettings } from "@/data/agenda-config";
+import { nextBookingsOf } from "@/data/bookings";
 import { listInboxChannels } from "@/data/channels";
 import { listContactLabels, listContacts } from "@/data/contacts";
 import { getBusinessProfile } from "@/data/settings";
@@ -16,8 +18,9 @@ import { ValidationError } from "@/server/errors";
 import { requirePageActor } from "@/server/session";
 import { ContactsFilters } from "./_components/contacts-filters";
 import { ContactsTable, type ContactRow } from "./_components/contacts-table";
+import { ExportContactsButton } from "./_components/export-contacts-button";
 import { NewContactDialog } from "./_components/new-contact-dialog";
-import { CONTACTS_PATH, contactsHref, contactsQueryFromSearchParams } from "./_lib/search-params";
+import { CONTACTS_PATH, contactsHref, contactsQueryFromSearchParams, DUPLICATES_PATH } from "./_lib/search-params";
 import { contactDisplayName } from "./_lib/view";
 
 export const metadata: Metadata = { title: "Contactos" };
@@ -27,8 +30,10 @@ type PageProps = { searchParams: Promise<Record<string, string | string[] | unde
 type ContactsPage = Awaited<ReturnType<typeof listContacts>>;
 
 /**
- * Contactos ([CTO-01]): search, filters by channel and label, the channels of each contact, its last conversation
- * and pages of 25. An Agent only sees the contacts with a conversation in their channels ([PER-02]).
+ * Contactos ([CTO-01]): search, filters by channel and label, the channels of each contact, its last conversation,
+ * its next booking (docs/pantallas.md «Contactos») and pages of 25. An Agent only sees the contacts with a
+ * conversation in their channels ([PER-02]). Whoever may merge sees «Posibles duplicados» ([CTO-04]) and may pick two
+ * to merge them ([CTO-05]); whoever may export gets «Exportar», of the whole list or of a selection ([CTO-06]).
  */
 export default async function ContactsListPage({ searchParams }: PageProps) {
   const actor = await requirePageActor({ next: CONTACTS_PATH });
@@ -47,6 +52,23 @@ export default async function ContactsListPage({ searchParams }: PageProps) {
   // afterwards, so the button is only for those who see every contact.
   const canCreate = can(actor, PERMISSIONS.contacts.edit) && channelFilter(actor) === null;
   const newContact = canCreate ? <NewContactDialog /> : null;
+  const bulk = { merge: can(actor, PERMISSIONS.contacts.merge), export: can(actor, PERMISSIONS.contacts.export), erase: can(actor, PERMISSIONS.contacts.delete) };
+  // The export takes the whole list with the same search and filters, not only this page.
+  const exportFilter = { search: filter.search, label: filter.label, channelId: filter.channelId };
+  const headerActions = (
+    <>
+      {bulk.merge ? (
+        <Button asChild variant="outline">
+          <Link href={DUPLICATES_PATH}>
+            <CopyCheck aria-hidden />
+            Posibles duplicados
+          </Link>
+        </Button>
+      ) : null}
+      {bulk.export ? <ExportContactsButton filter={exportFilter} /> : null}
+      {newContact}
+    </>
+  );
   const hasFilters = Object.keys(query).length > 0;
   const clearFilters = (
     <Button asChild variant="outline">
@@ -56,7 +78,7 @@ export default async function ContactsListPage({ searchParams }: PageProps) {
 
   const header = (
     <>
-      <PageHeader title="Contactos" description="Las personas que escriben al negocio, con sus datos y su historial." actions={newContact} />
+      <PageHeader title="Contactos" description="Las personas que escriben al negocio, con sus datos y su historial." actions={headerActions} />
       <ContactsFilters key={JSON.stringify(query)} query={query} channels={channels} labels={labels} />
     </>
   );
@@ -71,6 +93,10 @@ export default async function ContactsListPage({ searchParams }: PageProps) {
   }
 
   const now = new Date();
+  const seesAgenda = can(actor, PERMISSIONS.agenda.view);
+  const [nextBookings, agenda] = seesAgenda
+    ? await Promise.all([nextBookingsOf(actor, page.items.map((item) => item.id), { now }), getAgendaSettings(actor)])
+    : [new Map<string, { id: string; startsAt: Date }>(), null];
   const rows: ContactRow[] = page.items.map((item) => ({
     id: item.id,
     displayName: contactDisplayName(item),
@@ -82,6 +108,7 @@ export default async function ContactsListPage({ searchParams }: PageProps) {
     lastConversation: item.lastConversationAt
       ? { relative: formatRelative(item.lastConversationAt, profile.timezone, now), full: formatDateTime(item.lastConversationAt, profile.timezone) }
       : null,
+    nextBooking: nextBookingOf(nextBookings.get(item.id), profile.timezone),
   }));
 
   return (
@@ -102,7 +129,7 @@ export default async function ContactsListPage({ searchParams }: PageProps) {
         </div>
       ) : (
         <>
-          <ContactsTable rows={rows} />
+          <ContactsTable rows={rows} nextBookingLabel={agenda ? `Próxima ${agenda.terminology.booking}` : null} bulk={bulk.merge || bulk.export ? bulk : null} />
           <nav aria-label="Páginas" className="flex flex-wrap items-center justify-between gap-3 text-sm">
             <p className="text-muted-foreground tabular-nums">
               {formatNumber(page.total)} {page.total === 1 ? "contacto" : "contactos"} · Página {page.page} de {page.pageCount}
@@ -130,4 +157,13 @@ export default async function ContactsListPage({ searchParams }: PageProps) {
       )}
     </div>
   );
+}
+
+/** The contact's next pending or confirmed booking, opening its card in the agenda ([AGD-19]). */
+function nextBookingOf(booking: { id: string; startsAt: Date } | undefined, timezone: string): ContactRow["nextBooking"] {
+  if (!booking) return null;
+  return {
+    text: formatDateTime(booking.startsAt, timezone, { pattern: "EEE d MMM, HH:mm" }),
+    href: `/agenda?cita=${encodeURIComponent(booking.id)}`,
+  };
 }

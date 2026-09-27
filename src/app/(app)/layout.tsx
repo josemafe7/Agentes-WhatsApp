@@ -11,6 +11,7 @@ import { InboxUnreadProvider } from "@/components/app-shell/inbox-unread";
 import { loadShellData } from "@/components/app-shell/shell-data";
 import { isDemoMode } from "@/components/banners/banner-state";
 import { DemoBanner } from "@/components/banners/demo-banner";
+import { HydrationGate } from "@/components/hydration-gate";
 import { OpenRouterBanner } from "@/components/banners/openrouter-banner";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { loadBusinessSettings } from "@/data/settings";
@@ -50,36 +51,39 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const sidebarOpen = cookieStore.get(SIDEBAR_COOKIE)?.value !== "false";
 
   return (
-    <div
-      className="flex min-h-svh flex-col"
-      style={{ "--app-banner-h": demo ? "2rem" : "0px" } as CSSProperties}
-    >
-      {/* Business colour for this installation: values are always computed #rrggbb, never raw input. */}
-      <style>{shell.brandStyleSheet}</style>
-      <a
-        href="#contenido"
-        className="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm font-medium focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:ring-2 focus:ring-ring"
+    // Every control waits for the page to be interactive, so an early click or keystroke is never lost.
+    <HydrationGate>
+      <div
+        className="flex min-h-svh flex-col"
+        style={{ "--app-banner-h": demo ? "2rem" : "0px" } as CSSProperties}
       >
-        Saltar al contenido
-      </a>
-      {demo ? <DemoBanner /> : null}
-      <InboxUnreadProvider initial={shell.inboxUnread}>
-        <SidebarProvider defaultOpen={sidebarOpen} className="min-h-[calc(100svh-var(--app-banner-h))]">
-          <AppSidebar business={shell.business} user={shell.user} sectionKeys={shell.sectionKeys} />
-          <div className="flex min-w-0 flex-1 flex-col bg-background">
-            <AppTopbar business={shell.business} />
-            <main
-              id="contenido"
-              tabIndex={-1}
-              className="flex-1 px-4 pt-6 pb-[calc(3.5rem+env(safe-area-inset-bottom)+1.5rem)] outline-none md:px-6 md:pb-8"
-            >
-              {shell.openRouterNotice ? <OpenRouterBanner variant={shell.openRouterNotice} /> : null}
-              {children}
-            </main>
-          </div>
-          <BottomNav user={shell.user} sectionKeys={shell.sectionKeys} />
-        </SidebarProvider>
-      </InboxUnreadProvider>
-    </div>
+        {/* Business colour for this installation: values are always computed #rrggbb, never raw input. */}
+        <style>{shell.brandStyleSheet}</style>
+        <a
+          href="#contenido"
+          className="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm font-medium focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:ring-2 focus:ring-ring"
+        >
+          Saltar al contenido
+        </a>
+        {demo ? <DemoBanner /> : null}
+        <InboxUnreadProvider initial={shell.inboxUnread}>
+          <SidebarProvider defaultOpen={sidebarOpen} className="min-h-[calc(100svh-var(--app-banner-h))]">
+            <AppSidebar business={shell.business} user={shell.user} sectionKeys={shell.sectionKeys} />
+            <div className="flex min-w-0 flex-1 flex-col bg-background">
+              <AppTopbar business={shell.business} />
+              <main
+                id="contenido"
+                tabIndex={-1}
+                className="flex-1 px-4 pt-6 pb-[calc(3.5rem+env(safe-area-inset-bottom)+1.5rem)] outline-none md:px-6 md:pb-8"
+              >
+                {shell.openRouterNotice ? <OpenRouterBanner variant={shell.openRouterNotice} /> : null}
+                {children}
+              </main>
+            </div>
+            <BottomNav user={shell.user} sectionKeys={shell.sectionKeys} />
+          </SidebarProvider>
+        </InboxUnreadProvider>
+      </div>
+    </HydrationGate>
   );
 }

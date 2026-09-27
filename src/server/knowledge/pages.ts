@@ -1,6 +1,7 @@
 // Pages inside the extracted Markdown ([CON-06]): a PDF is stored in kb_documents.content_md as one Markdown with a
 // marker line before each page, so the chunks keep their page and a long OCR can go on where it stopped. The
 // marker is an HTML comment: invisible if the Markdown is ever rendered.
+import "server-only";
 
 export type PageText = { page: number | null; markdown: string };
 

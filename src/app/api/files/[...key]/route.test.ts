@@ -194,6 +194,104 @@ describe("message files: only for people who can see that conversation [MED-08] 
   });
 });
 
+describe("byte ranges of audio and video, which Safari and iOS need to play them [MED-08] [SEG-04]", () => {
+  const VIDEO_KEY = "media/2026/09/3c3c3c3c-aaaa-4bbb-8ccc-123456789abc.mp4";
+  const VIDEO = Uint8Array.from({ length: 100 }, (_, index) => index);
+
+  const ranged = (key: string, headers: Record<string, string>) =>
+    GET(new Request(`http://localhost:3000/api/files/${key}`, { headers }), { params: Promise.resolve({ key: key.split("/") }) });
+  const bytesOf = async (response: Response) => [...new Uint8Array(await response.arrayBuffer())];
+
+  beforeAll(async () => {
+    await getFileStorage().put(VIDEO_KEY, VIDEO, "video/mp4");
+  });
+
+  beforeEach(async () => {
+    for (const table of [messages, conversations, contactIdentities, contacts]) await db.delete(table);
+    const channel = await createChannel({ type: "webchat" });
+    const { contact } = await createContactWithIdentity("webchat");
+    const conversation = await createConversation(channel.id, contact.id);
+    await createMessage(conversation, { contentType: "video", text: null, media: { fileKey: VIDEO_KEY, mimeType: "video/mp4", size: VIDEO.byteLength } });
+    await createMessage(conversation, { contentType: "audio", text: null, media: { fileKey: AUDIO_KEY, mimeType: "audio/ogg; codecs=opus", size: 10 } });
+    await createMessage(conversation, { contentType: "document", text: null, media: { fileKey: PDF_KEY, mimeType: "application/pdf", size: PDF.byteLength } });
+    signIn((await createUser("owner")).userId);
+  });
+
+  it("says it accepts ranges, and answers one with 206, Content-Range and only those bytes", async () => {
+    const whole = await call(VIDEO_KEY);
+    expect(whole.status).toBe(200);
+    expect(whole.headers.get("accept-ranges")).toBe("bytes");
+    expect(await bytesOf(whole)).toHaveLength(100);
+
+    const cases: [string, number, number][] = [
+      ["bytes=0-1", 0, 1],
+      ["bytes=10-19", 10, 19],
+      ["bytes=90-", 90, 99],
+      ["bytes=-5", 95, 99],
+      ["bytes=95-500", 95, 99],
+    ];
+    for (const [range, start, end] of cases) {
+      const response = await ranged(VIDEO_KEY, { range });
+      expect(response.status, range).toBe(206);
+      expect(response.headers.get("content-range"), range).toBe(`bytes ${start}-${end}/100`);
+      expect(response.headers.get("content-length"), range).toBe(String(end - start + 1));
+      expect(response.headers.get("accept-ranges")).toBe("bytes");
+      // Still private, never sniffed, sandboxed and shown in the page.
+      expect(response.headers.get("content-type")).toBe("video/mp4");
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(response.headers.get("content-security-policy")).toBe("sandbox");
+      expect(response.headers.get("content-disposition")).toBe("inline");
+      expect(await bytesOf(response), range).toEqual([...VIDEO.slice(start, end + 1)]);
+    }
+  });
+
+  it("voice notes too", async () => {
+    const response = await ranged(AUDIO_KEY, { range: "bytes=0-3" });
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe("bytes 0-3/10");
+    expect(new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()))).toBe("OggS");
+  });
+
+  it("a range past the end answers 416 with the size, and no bytes", async () => {
+    for (const range of ["bytes=100-", "bytes=500-600", "bytes=-0"]) {
+      const response = await ranged(VIDEO_KEY, { range });
+      expect(response.status, range).toBe(416);
+      expect(response.headers.get("content-range"), range).toBe("bytes */100");
+      expect(await bytesOf(response)).toEqual([]);
+    }
+  });
+
+  it("anything that is not one plain range, or comes with If-Range, gets the whole file", async () => {
+    for (const range of ["bytes=5-2", "bytes=0-1,5-6", "items=0-1", "bytes=a-b", "bytes=-", "bytes=1.5-2"]) {
+      const response = await ranged(VIDEO_KEY, { range });
+      expect(response.status, range).toBe(200);
+      expect(await bytesOf(response), range).toHaveLength(100);
+    }
+    const conditional = await ranged(VIDEO_KEY, { range: "bytes=0-1", "if-range": '"otra-version"' });
+    expect(conditional.status).toBe(200);
+  });
+
+  it("documents and images are always served whole", async () => {
+    const response = await ranged(PDF_KEY, { range: "bytes=0-1" });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("accept-ranges")).toBeNull();
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(PDF);
+  });
+
+  it("the permission checks come first: without a session 401, without permission 404, never a byte", async () => {
+    signIn(null);
+    const anonymous = await ranged(VIDEO_KEY, { range: "bytes=0-1" });
+    expect(anonymous.status).toBe(401);
+    expect(anonymous.headers.get("content-range")).toBeNull();
+    const otherChannel = await createChannel({ type: "webchat" });
+    signIn((await createUser("agent", { channelIds: [otherChannel.id] })).userId);
+    const outsider = await ranged(VIDEO_KEY, { range: "bytes=0-1" });
+    expect(outsider.status).toBe(404);
+    expect(outsider.headers.get("content-range")).toBeNull();
+  });
+});
+
 describe("response headers of served files", () => {
   it("images are shown inline; anything that could run code is downloaded and sandboxed", async () => {
     const { fileResponseHeaders } = await import("./serve");

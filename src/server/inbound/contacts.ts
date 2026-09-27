@@ -3,6 +3,7 @@
 // (e.g. the wa_id next to the BSUID) join the same contact. System code of the ingest pipeline (no actor).
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
+import { contactSearchText } from "@/data/contacts-search";
 import type { Executor } from "@/db";
 import { contactIdentities, contacts } from "@/db/schema";
 import type { ChannelType } from "@/lib/enums";
@@ -48,7 +49,7 @@ export async function upsertContactForSender(tx: Executor, channelType: ChannelT
       ...(contact && !contact.phone && phone ? { phone } : {}),
       ...(contact && !contact.email && email ? { email } : {}),
     };
-    if (Object.keys(fill).length > 0) await tx.update(contacts).set({ ...fill, updatedAt: now }).where(eq(contacts.id, contactId));
+    if (Object.keys(fill).length > 0) await tx.update(contacts).set({ ...fill, searchText: contactSearchText({ ...contact, ...fill }), updatedAt: now }).where(eq(contacts.id, contactId));
     for (const row of existing.filter((identity) => identity.contactId === contactId)) {
       const changes = {
         ...(phone && row.phone !== phone ? { phone } : {}),
@@ -59,7 +60,7 @@ export async function upsertContactForSender(tx: Executor, channelType: ChannelT
   } else {
     const [contact] = await tx
       .insert(contacts)
-      .values({ name: displayName, phone, email, createdAt: now, updatedAt: now })
+      .values({ name: displayName, phone, email, searchText: contactSearchText({ name: displayName, phone, email }), createdAt: now, updatedAt: now })
       .returning({ id: contacts.id });
     contactId = contact.id;
     created = true;

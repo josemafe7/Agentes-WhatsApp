@@ -32,10 +32,10 @@ leyendo solo esto.
 | `docs/guia-whatsapp.md` (fase 3) | Guía para que el negocio conecte su número: portfolio y acceso de administrador para quien implanta, app de Meta, número, token, publicación, pago, límites y cuándo verificar la empresa, tope de 15 apps, prueba con el número de Meta y problemas frecuentes (contenido mínimo en [ARR-23]) | Cuando cambia el asistente de WhatsApp o Meta |
 | `docs/guia-correo.md` (fase 6) | Guía para conectar Gmail (Google Cloud), Outlook (Microsoft Entra) u otro servidor IMAP/SMTP, paso a paso | Cuando cambia el asistente de correo, Google o Microsoft |
 | `docs/guia-agentes-y-conocimiento.md` (fases 1 y 4) | Guía para crear, ajustar y probar agentes y darles el conocimiento del negocio: archivos de contexto, bases con documentos, webs y preguntas frecuentes, «Probar búsqueda» y las fuentes de cada respuesta | Cuando cambian los agentes o el conocimiento |
-| `docs/guia-agenda.md` (fase 7) | Guía para configurar la agenda: servicios, recursos, horarios y recordatorios | Cuando cambia la agenda |
-| `docs/checklist-puesta-en-marcha.md` (fase 7) | Lista para poner en marcha un negocio real, de `pnpm db:fresh` a la primera conversación | Cuando cambia algún paso de la puesta en marcha |
-| `docs/contrato-encargo-tratamiento.md` (fase 7) | Plantilla de contrato de encargo del tratamiento de datos personales, marcada «revisar con un abogado» | Cuando cambia la ley o los servicios que tratan datos |
-| `docs/decisions/` | Por qué el proyecto es como es: una decisión técnica por archivo | Cada vez que se toma una |
+| `docs/guia-agenda.md` (fase 5) | Guía para preparar la agenda: palabras, modo por recurso o por aforo, servicios, recursos, horarios, ausencias y bloqueos, el calendario, qué hace el agente con las citas, las citas de prueba y los recordatorios | Cuando cambia la agenda |
+| `docs/checklist-puesta-en-marcha.md` (fase 7) | Lista para poner en marcha un negocio real, de `pnpm db:fresh` a la primera conversación, con la privacidad de OpenRouter y las comprobaciones de cada semana y cada mes (también en la app, en `/ayuda/puesta-en-marcha`) | Cuando cambia algún paso de la puesta en marcha |
+| `docs/contrato-encargo-tratamiento.md` (fase 7) | Plantilla de contrato de encargo del tratamiento de datos personales, marcada «revisar con un abogado» ([CUM-09]); se queda en `docs/`, no en Ayuda | Cuando cambia la ley o los servicios que tratan datos |
+| `docs/decisions/` | Por qué el proyecto es como es: una decisión técnica por archivo (la lista, abajo en «Decisiones») | Cada vez que se toma una |
 
 ## Normas
 
@@ -62,3 +62,31 @@ leyendo solo esto.
   textos ni lo que se cambia en un minuto.
 - Se guarda como «propuesta» y pasa a «aceptada» o «rechazada» cuando se decide. No se borra ni se
   reescribe: si cambia, se crea una nueva y en la antigua solo cambia el estado, a «sustituida por NNNN».
+
+Las decisiones de hoy:
+
+| Decisión | De qué trata |
+|---|---|
+| 0001 | Una instalación por negocio (single-tenant) |
+| 0002 | Next.js con el runtime de Node en todas las rutas |
+| 0003 | Datos en libSQL (archivo local y Turso), Supabase en el futuro |
+| 0004 | Usuarios con Better Auth y roles en una tabla propia |
+| 0005 | IA con OpenRouter y un cliente propio, sin AI SDK |
+| 0006 | Solo pnpm |
+| 0007 | Publicación: solo en local, Vercel para pruebas después y un VPS con Dokploy en el futuro |
+| 0008 | Trabajo en segundo plano con la tabla `jobs` y `tick()` |
+| 0009 | Tiempo real por sondeo |
+| 0010 | Archivos en disco en local y en Vercel Blob privado al publicar |
+| 0011 | WhatsApp con la Cloud API oficial de Meta como desarrollador directo |
+| 0012 | Correo con la API de Gmail, Microsoft Graph e IMAP/SMTP, con credenciales de cada negocio |
+| 0013 | Embeddings de 1536 dimensiones fijas |
+| 0014 | Construcción autónoma por fases, con agentes en paralelo |
+| 0015 | Diseño propio, recogido en `DESIGN.md` |
+| 0016 | Código de instalación para crear el primer propietario |
+| 0017 | Cómo se comprueban los modelos y qué se acota de la IA |
+| 0018 | El respaldo de la transcripción, solo si no guarda datos |
+| 0019 | WhatsApp solo con un token de usuario del sistema |
+| 0020 | Topes de los avisos de WhatsApp antes de comprobar la firma (sustituida en parte por 0022) |
+| 0021 | Relevancia del conocimiento, embeddings pendientes al arrancar y modelos de reordenación |
+| 0022 | La firma de los avisos de WhatsApp, antes de leer el aviso |
+| 0023 | Cómo se cuentan las cifras de los informes |

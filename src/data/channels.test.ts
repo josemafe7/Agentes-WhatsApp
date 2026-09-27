@@ -233,3 +233,44 @@ describe("channel members [USU-17]", () => {
     expect((await getChannel(users.owner.actor, channel.id)).memberIds).toEqual([]);
   });
 });
+
+describe("an agent left without any channel sees them all: the admin is told [PER-02] [USU-17]", () => {
+  it("taking an agent off their only channel warns that they will now see every channel; one who keeps another is not named", async () => {
+    const web = await createChannel({ name: "Web" });
+    const other = await createChannel({ name: "Otra" });
+    const ana = await createUser("agent", { name: "Ana Recepción", channelIds: [web.id] });
+    await createUser("agent", { name: "Luis Tardes", channelIds: [web.id, other.id] });
+    const result = await setChannelMembers(users.owner.actor, { channelId: web.id, userIds: [] });
+    expect(result.agentsSeeingAll).toEqual([{ id: ana.userId, name: "Ana Recepción" }]);
+    expect(result.warning).toBe(
+      "«Ana Recepción» ya no tiene ningún canal asignado, así que desde ahora verá todos los canales. Si no es lo que quieres, asígnale sus canales en Ajustes › Usuarios.",
+    );
+  });
+
+  it("several at once are named together; when nobody is left without channels there is no warning", async () => {
+    const web = await createChannel({ name: "Web" });
+    const ana = await createUser("agent", { name: "Ana", channelIds: [web.id] });
+    const bea = await createUser("agent", { name: "Bea", channelIds: [web.id] });
+    const carla = await createUser("agent", { name: "Carla", channelIds: [web.id] });
+    const all = await setChannelMembers(users.owner.actor, { channelId: web.id, userIds: [] });
+    expect(all.agentsSeeingAll.map((agent) => agent.name).sort()).toEqual(["Ana", "Bea", "Carla"]);
+    expect(all.warning).toMatch(/^«(Ana|Bea|Carla)», «(Ana|Bea|Carla)» y «(Ana|Bea|Carla)» ya no tienen ningún canal asignado, así que desde ahora verán todos los canales\./);
+    expect(all.warning).toContain("asígnales sus canales en Ajustes › Usuarios.");
+    // Giving the channel back, or adding someone, leaves nobody without channels.
+    expect(await setChannelMembers(users.owner.actor, { channelId: web.id, userIds: [ana.userId, bea.userId, carla.userId] })).toEqual({ agentsSeeingAll: [], warning: null });
+    const two = await setChannelMembers(users.owner.actor, { channelId: web.id, userIds: [ana.userId] });
+    expect(two.warning).toMatch(/^«(Bea|Carla)» y «(Bea|Carla)» ya no tienen/);
+  });
+
+  it("deleting an agent's only channel warns the same way; a channel whose agents keep others, or has none, does not", async () => {
+    const web = await createChannel({ name: "Web" });
+    const other = await createChannel({ name: "Otra" });
+    const empty = await createChannel({ name: "Sin personas" });
+    const ana = await createUser("agent", { name: "Ana", channelIds: [web.id] });
+    await createUser("agent", { name: "Luis", channelIds: [other.id, empty.id] });
+    expect(await deleteChannel(users.owner.actor, empty.id)).toEqual({ agentsSeeingAll: [], warning: null });
+    const deleted = await deleteChannel(users.owner.actor, web.id);
+    expect(deleted.agentsSeeingAll).toEqual([{ id: ana.userId, name: "Ana" }]);
+    expect(deleted.warning).toBe("«Ana» ya no tiene ningún canal asignado, así que desde ahora verá todos los canales. Si no es lo que quieres, asígnale sus canales en Ajustes › Usuarios.");
+  });
+});

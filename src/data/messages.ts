@@ -11,8 +11,10 @@ import type { MessageContentType, MessageDirection, MessageStatus, SenderType } 
 import { whatsappWindowState } from "@/lib/meta/window";
 import { can, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
+import { getFileStorage, type FileStorage } from "@/server/adapters/file-storage";
 import { getJobQueue } from "@/server/adapters/job-queue";
 import { defaultCapabilitiesOf } from "@/server/channels/capabilities";
+import { isOptedOut, OptedOutError } from "@/server/compliance/opt-out";
 import { replyDedupeKey } from "@/server/engine/schedule";
 import { AuthError, ConflictError, parseInput, ValidationError } from "@/server/errors";
 import { recordFirstHumanResponse } from "@/server/handoff/service";
@@ -22,6 +24,7 @@ import { resendOutbound, sendDraft, sendOutbound, type SendOutboundResult } from
 import { publishConversationEvent } from "@/server/realtime/events";
 import { writeAudit } from "./audit";
 import { detectLogoFormat, fileUrl } from "./business";
+import { deleteFileQuietly } from "./knowledge";
 import { loadConversationFor } from "./conversation-scope";
 
 /** Longest text a person sends from the inbox (WhatsApp's limit for a text message). */
@@ -42,6 +45,8 @@ export type MessageItem = {
   transcriptionFailed: boolean;
   /** Served only through /api/files, with permission on this conversation ([MED-08]). */
   media: { url: string | null; mimeType: string | null; size: number | null; fileName: string | null; downloadStatus: string | null } | null;
+  /** The daily clean-up removed its file ([CUM-05]); a voice note keeps its transcript. */
+  mediaRemoved: boolean;
   status: MessageStatus;
   error: MessageError | null;
   reactions: MessageReaction[];
@@ -97,6 +102,7 @@ function toItem(row: typeof messages.$inferSelect): MessageItem {
           downloadStatus: media.downloadStatus ?? null,
         }
       : null,
+    mediaRemoved: !media && typeof row.metadata.mediaDeletedAt === "string",
     status: row.status,
     error: row.error,
     reactions: row.reactions,
@@ -195,7 +201,12 @@ export function detectAttachment(bytes: Uint8Array): { kind: "image" | "document
  * A person sends a file (with an optional text) from the inbox, when the channel takes that kind of file ([BAN-14],
  * [CAN-14], [SEG-13]): checked by content and size, stored privately and sent like any reply, so it also pauses the AI.
  */
-export async function sendHumanAttachment(actor: Actor, input: unknown, file: { bytes: Uint8Array; fileName: string }): Promise<SendHumanResult> {
+export async function sendHumanAttachment(
+  actor: Actor,
+  input: unknown,
+  file: { bytes: Uint8Array; fileName: string },
+  options: { storage?: FileStorage } = {},
+): Promise<SendHumanResult> {
   const data = parseInput(sendAttachmentSchema, input);
   const conversation = await loadConversationFor(actor, PERMISSIONS.inbox.reply, data.conversationId);
   const now = new Date();
@@ -210,15 +221,26 @@ export async function sendHumanAttachment(actor: Actor, input: unknown, file: { 
     throw new ValidationError(undefined, { file: [detected.kind === "image" ? "Este canal no admite imágenes." : "Este canal no admite documentos."] });
   }
 
-  const media = await storeInboundMedia({ bytes: file.bytes, mimeType: detected.mimeType, fileName: file.fileName }, { now });
-  const sent = await sendOutbound({
-    conversationId: conversation.id,
-    sender: { type: "human", userId: actor.userId, name: actor.name },
-    text: data.text || null,
-    contentType: detected.kind,
-    media,
-    now,
-  });
+  // A customer who opted out of the channel gets nothing from a person ([CUM-03]): refused before the file is stored.
+  if (await isOptedOut(conversation.contactId, conversation.channelId)) throw new OptedOutError();
+
+  const storage = options.storage ?? getFileStorage();
+  const media = await storeInboundMedia({ bytes: file.bytes, mimeType: detected.mimeType, fileName: file.fileName }, { now, storage });
+  let sent: SendOutboundResult;
+  try {
+    sent = await sendOutbound({
+      conversationId: conversation.id,
+      sender: { type: "human", userId: actor.userId, name: actor.name },
+      text: data.text || null,
+      contentType: detected.kind,
+      media,
+      now,
+    });
+  } catch (error) {
+    // Refused before anything was stored (the customer opted out a moment ago): the file would point nowhere.
+    if (error instanceof OptedOutError) await deleteFileQuietly(storage, media.fileKey);
+    throw error;
+  }
   const aiPausedUntil = await afterHumanReply(actor, conversation, sent.messageId, now);
   return { messageId: sent.messageId, status: sent.status, error: sent.error, aiPausedUntil };
 }

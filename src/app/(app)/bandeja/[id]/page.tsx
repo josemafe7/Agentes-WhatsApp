@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { NoPermission } from "@/components/no-permission";
+import { getEmailThread, isEmailChannelType } from "@/data/email-drafts";
 import { getWhatsAppInboxState } from "@/data/whatsapp-send";
 import { can, PERMISSIONS } from "@/lib/permissions";
 import { requirePageActor } from "@/server/session";
@@ -10,11 +11,18 @@ import { ConversationHeader } from "../_components/conversation-header";
 import { ConversationLive } from "../_components/conversation-live";
 import { HandoffNotice } from "../_components/handoff-notice";
 import { MessageTimeline } from "../_components/message-timeline";
+import { ConversationBookings } from "./_bookings/conversation-bookings";
+import { sendEmailAttachmentAction, sendEmailReplyAction } from "./_email/actions";
+import { EmailReplyInfo } from "./_email/reply-info";
+import { EmailThreadProvider } from "./_email/thread-context";
+import { EmailThreadHeader } from "./_email/thread-header";
 import { loadConversationScreen } from "./_lib/load";
 import { canConvertToFaq } from "./_sources/permissions";
 import { WindowNotice } from "./_whatsapp/window-notice";
 
 export const metadata: Metadata = { title: "Conversación" };
+/** Seconds its Server Actions may run: reactivating the AI answers right after ([BAN-16], bandeja/actions.ts). */
+export const maxDuration = 60;
 
 type PageProps = { params: Promise<{ id: string }> };
 
@@ -36,6 +44,10 @@ export default async function ConversationPage({ params }: PageProps) {
   const { conversation, permissions, timezone, now } = screen;
   // WhatsApp: the 24 h window (also closed after Meta's 131047) and the approved templates ([BAN-08], [WA-43]).
   const whatsapp = conversation.channel.type === "whatsapp" ? await getWhatsAppInboxState(actor, conversation.id, { now }) : null;
+  // Email: the thread (subject, from and to, folded quotes) and the reply with the business signature ([BAN-09], [COR-21]).
+  const email = isEmailChannelType(conversation.channel.type)
+    ? await getEmailThread(actor, { conversationId: conversation.id, messageIds: screen.messages.map((message) => message.id) })
+    : null;
   return (
     <ContactPanelProvider>
       <div className="flex min-h-0 flex-1">
@@ -53,22 +65,25 @@ export default async function ConversationPage({ params }: PageProps) {
             now={now}
           />
           {conversation.openHandoff ? <HandoffNotice handoff={conversation.openHandoff} timezone={timezone} now={now} /> : null}
-          <MessageTimeline
-            key={`timeline-${conversation.id}`}
-            conversationId={conversation.id}
-            messages={screen.messages}
-            hasMore={screen.hasMore}
-            sources={screen.sources}
-            notes={screen.notes}
-            channel={{ type: conversation.channel.type, name: conversation.channel.name }}
-            contactName={conversation.contact?.name ?? null}
-            timezone={timezone}
-            now={now}
-            canRetry={permissions.reply}
-            canReviewDrafts={permissions.drafts}
-            canOpenDocuments={permissions.viewKnowledge}
-            canConvertFaq={canConvertToFaq(actor, conversation.channel.id)}
-          />
+          {email ? <EmailThreadHeader thread={email} /> : null}
+          <EmailThreadProvider key={`email-${conversation.id}`} thread={email}>
+            <MessageTimeline
+              key={`timeline-${conversation.id}`}
+              conversationId={conversation.id}
+              messages={screen.messages}
+              hasMore={screen.hasMore}
+              sources={screen.sources}
+              notes={screen.notes}
+              channel={{ type: conversation.channel.type, name: conversation.channel.name }}
+              contactName={conversation.contact?.name ?? null}
+              timezone={timezone}
+              now={now}
+              canRetry={permissions.reply}
+              canReviewDrafts={permissions.drafts}
+              canOpenDocuments={permissions.viewKnowledge}
+              canConvertFaq={canConvertToFaq(actor, conversation.channel.id)}
+            />
+          </EmailThreadProvider>
           <Composer
             key={`composer-${conversation.id}`}
             conversationId={conversation.id}
@@ -93,10 +108,28 @@ export default async function ConversationPage({ params }: PageProps) {
             canReply={permissions.reply}
             canNote={permissions.notes}
             attachments={{ images: conversation.channel.capabilities.images, documents: conversation.channel.capabilities.documents }}
+            email={email ? <EmailReplyInfo thread={email} /> : null}
+            replyAction={email ? sendEmailReplyAction : undefined}
+            attachmentAction={email ? sendEmailAttachmentAction : undefined}
           />
         </div>
         <ContactPanelFrame>
-          <ContactPanel conversation={conversation} contact={screen.contact} timezone={timezone} now={now} canOpenContact={permissions.viewContact} />
+          <ContactPanel
+            conversation={conversation}
+            contact={screen.contact}
+            timezone={timezone}
+            now={now}
+            canOpenContact={permissions.viewContact}
+            bookings={
+              <ConversationBookings
+                actor={actor}
+                conversationId={conversation.id}
+                channelId={conversation.channel.id}
+                contact={conversation.contact}
+                canOpenContact={permissions.viewContact}
+              />
+            }
+          />
         </ContactPanelFrame>
       </div>
     </ContactPanelProvider>

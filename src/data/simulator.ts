@@ -2,12 +2,15 @@
 // (the demo's WhatsApp and email, a web chat, or a real channel). The message goes through the SAME ingest pipeline as
 // a real one (contact and identity, message stored once, conversation, screens, grouped reply job), marked as
 // simulated, so the AI answers as it would, and its replies never leave the app ([AJU-13]: they go through the
-// DemoAdapter). Files are the ready-made samples (seed/media) or one of the person's, checked by content and size.
+// DemoAdapter). It never touches a real customer: it writes only as its own simulated customers, whose identities live
+// in a space of their own that no channel ever gives, so they always have their own contact and conversation (a
+// simulated «BAJA», a booking or a hand-off stay with them). Files are the ready-made samples (seed/media) or one of the
+// person's, checked by content and size.
 import "server-only";
-import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { agents, channels, consents, contactIdentities, contacts, conversations } from "@/db/schema";
+import { agents, channels, contactIdentities, contacts, conversations } from "@/db/schema";
 import type { ChannelStatus, ChannelType } from "@/lib/enums";
 import { isWithinOpeningHours } from "@/lib/opening-hours";
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
@@ -22,6 +25,7 @@ import { buildSimulatedEvent } from "@/server/channels/demo-adapter";
 import { capabilitiesOf } from "@/server/channels/registry";
 import type { ChannelCapabilities, ChannelRecord } from "@/server/channels/types";
 import { detectWidgetMedia } from "@/server/channels/webchat/upload";
+import { isOptedOut } from "@/server/compliance/opt-out";
 import { evaluateReplyChecks, testModeIdentifiers, type ReplySkipReason } from "@/server/engine/checks";
 import { NotFoundError, parseInput, ValidationError } from "@/server/errors";
 import { ingestEvents, type IngestResult } from "@/server/inbound/ingest";
@@ -36,6 +40,19 @@ import { isAiConfigured } from "./settings";
 export const MAX_SIMULATOR_UPLOAD_BYTES = 1_000_000;
 const MAX_TEXT = 4_096;
 const CONTACTS_PER_TYPE = 50;
+/**
+ * The simulator's customers have identities of their own ([AJU-13]): this prefix, which no channel ever gives (BSUIDs,
+ * phone numbers, email addresses, visitor and Telegram ids never start with it), keeps them apart from real customers.
+ */
+export const SIMULATED_IDENTITY_PREFIX = "sim:";
+/** Longest identity of a simulated message (the DemoAdapter's limit). */
+const MAX_SIMULATED_ID = 200;
+
+/** Email threads of the simulator: never a real Message-ID. */
+const SIMULATED_THREAD_PREFIX = "sim-thread-";
+
+const simulatedIdentity = (id: string) => `${SIMULATED_IDENTITY_PREFIX}${id}`;
+const isSimulatedIdentity = (externalId: string) => externalId.startsWith(SIMULATED_IDENTITY_PREFIX);
 
 export const SIMULATOR_CONTENT_TYPES = ["text", "audio", "image", "document"] as const;
 export type SimulatorContentType = (typeof SIMULATOR_CONTENT_TYPES)[number];
@@ -57,7 +74,7 @@ export type SimulatorContact = { id: string; name: string | null; externalId: st
 
 export type SimulatorOptions = {
   channels: SimulatorChannel[];
-  /** Contacts with an identity in each channel type, most recent first. */
+  /** The simulator's own customers with an identity in each channel type, most recent first (never a real one). */
   contactsByType: Partial<Record<ChannelType, SimulatorContact[]>>;
 };
 
@@ -82,7 +99,7 @@ export async function loadSimulatorOptions(actor: Actor): Promise<SimulatorOptio
         })
         .from(contactIdentities)
         .innerJoin(contacts, eq(contacts.id, contactIdentities.contactId))
-        .where(inArray(contactIdentities.channelType, types))
+        .where(and(inArray(contactIdentities.channelType, types), like(contactIdentities.externalId, `${SIMULATED_IDENTITY_PREFIX}%`)))
         .orderBy(desc(contacts.updatedAt), asc(contactIdentities.createdAt))
     : [];
   const contactsByType: SimulatorOptions["contactsByType"] = {};
@@ -90,7 +107,9 @@ export async function loadSimulatorOptions(actor: Actor): Promise<SimulatorOptio
     const list = (contactsByType[identity.channelType] ??= []);
     // One entry per contact (its first identity in the type), and a short list.
     if (list.length >= CONTACTS_PER_TYPE || list.some((contact) => contact.id === identity.id)) continue;
-    list.push({ id: identity.id, name: identity.name, externalId: identity.externalId, phone: identity.phone, email: identity.email });
+    // Shown as the channel would give it.
+    const externalId = identity.externalId.slice(SIMULATED_IDENTITY_PREFIX.length);
+    list.push({ id: identity.id, name: identity.name, externalId, phone: identity.phone, email: identity.email });
   }
   return {
     channels: rows.map(({ channel, agentName }) => {
@@ -207,10 +226,16 @@ type Sender = { id: string; name: string | null; phone: string | null; email: st
 const digitsOf = (phone: string | undefined) => (phone ? phone.replace(/\D/g, "") : null);
 const randomDigits = (length: number) => [...crypto.getRandomValues(new Uint8Array(length))].map((byte, index) => (index === 0 ? 1 + (byte % 9) : byte % 10)).join("");
 
-/** The customer's identity in the channel: an existing contact's, or a new one as the channel would give it. */
+const REAL_CUSTOMER_REFUSED =
+  "Es un cliente real: el simulador nunca escribe en sus conversaciones. Elige uno de los clientes creados con el simulador o «Un cliente nuevo».";
+
+/**
+ * The customer's identity in the channel: one of the simulator's own customers, or a new one as the channel would give
+ * it, always in the simulator's space ([AJU-13]). A real customer is refused: nothing of theirs is touched.
+ */
 async function resolveSender(channel: ChannelRecord, contact: z.output<typeof simulatorMessageSchema>["contact"]): Promise<Sender> {
   if (contact.mode === "existing") {
-    const [row] = await db
+    const rows = await db
       .select({
         id: contacts.id,
         name: contacts.name,
@@ -222,9 +247,10 @@ async function resolveSender(channel: ChannelRecord, contact: z.output<typeof si
       .from(contacts)
       .innerJoin(contactIdentities, and(eq(contactIdentities.contactId, contacts.id), eq(contactIdentities.channelType, channel.type)))
       .where(eq(contacts.id, contact.contactId))
-      .orderBy(asc(contactIdentities.createdAt))
-      .limit(1);
-    if (!row) throw new ValidationError(undefined, { contact: ["Ese contacto no tiene identidad en este canal: elige otro o crea uno nuevo."] });
+      .orderBy(asc(contactIdentities.createdAt));
+    if (rows.length === 0) throw new ValidationError(undefined, { contact: ["Ese contacto no tiene identidad en este canal: elige otro o crea uno nuevo."] });
+    const row = rows.find((identity) => isSimulatedIdentity(identity.externalId));
+    if (!row) throw new ValidationError(undefined, { contact: [REAL_CUSTOMER_REFUSED] });
     // As the channel would send it: the name the channel shows, not the one the team may have written.
     return { id: row.externalId, name: row.displayName ?? row.name, phone: row.phone, email: row.email, contactId: row.id };
   }
@@ -233,26 +259,35 @@ async function resolveSender(channel: ChannelRecord, contact: z.output<typeof si
   const name = contact.name || null;
   if (channel.type.startsWith("email_")) {
     if (!email) throw new ValidationError(undefined, { contact: ["Escribe el email del contacto: en el correo es su identidad."] });
-    return { id: email, name, phone, email, contactId: null };
+    const id = simulatedIdentity(email);
+    if (id.length > MAX_SIMULATED_ID) throw new ValidationError(undefined, { email: ["El email es demasiado largo para el simulador."] });
+    return { id, name, phone, email, contactId: null };
   }
   // WhatsApp gives a BSUID (country, dot, digits) that is not the phone ([WA-39]); the web chat, a visitor id.
-  if (channel.type === "whatsapp") return { id: `ES.${randomDigits(20)}`, name, phone, email, contactId: null };
-  if (channel.type === "telegram") return { id: randomDigits(10), name, phone, email, contactId: null };
-  return { id: crypto.randomUUID(), name, phone, email, contactId: null };
+  if (channel.type === "whatsapp") return { id: simulatedIdentity(`ES.${randomDigits(20)}`), name, phone, email, contactId: null };
+  if (channel.type === "telegram") return { id: simulatedIdentity(randomDigits(10)), name, phone, email, contactId: null };
+  return { id: simulatedIdentity(crypto.randomUUID()), name, phone, email, contactId: null };
 }
 
-/** An email continues the contact's latest thread in the channel; the first one opens a new thread ([CAN-12]). */
+/** An email continues the contact's latest simulated thread in the channel; the first one opens a new one ([CAN-12]). */
 async function emailThread(channel: ChannelRecord, contactId: string | null): Promise<string> {
   if (contactId) {
     const [latest] = await db
       .select({ threadId: conversations.externalThreadId })
       .from(conversations)
-      .where(and(eq(conversations.channelId, channel.id), eq(conversations.contactId, contactId), eq(conversations.isTest, false)))
+      .where(
+        and(
+          eq(conversations.channelId, channel.id),
+          eq(conversations.contactId, contactId),
+          eq(conversations.isTest, false),
+          like(conversations.externalThreadId, `${SIMULATED_THREAD_PREFIX}%`),
+        ),
+      )
       .orderBy(desc(conversations.lastMessageAt))
       .limit(1);
     if (latest?.threadId) return latest.threadId;
   }
-  return `sim-thread-${crypto.randomUUID()}`;
+  return `${SIMULATED_THREAD_PREFIX}${crypto.randomUUID()}`;
 }
 
 /** The file of the message, stored as every inbound file is (generated key, checked type and size). */
@@ -283,21 +318,13 @@ async function forecastReply(channel: ChannelRecord, conversationId: string, now
         .from(contactIdentities)
         .where(and(eq(contactIdentities.contactId, conversation.contactId), eq(contactIdentities.channelType, channel.type)))
     : [];
-  const [optOut] = conversation.contactId
-    ? await db
-        .select({ type: consents.type })
-        .from(consents)
-        .where(and(eq(consents.contactId, conversation.contactId), eq(consents.channelId, channel.id), or(eq(consents.type, "opt_out"), eq(consents.type, "opt_in"))))
-        .orderBy(desc(consents.createdAt))
-        .limit(1)
-    : [];
   const business = await loadPromptBusinessData();
   const check = evaluateReplyChecks({
     channel,
     conversation,
     window24h: capabilitiesOf(channel).window24h,
     identifiers: testModeIdentifiers(channel.type, identities),
-    optedOut: optOut?.type === "opt_out",
+    optedOut: await isOptedOut(conversation.contactId, channel.id),
     withinBusinessHours: isWithinOpeningHours(now, business.timezone, business.hours, business.closures),
     now,
   });

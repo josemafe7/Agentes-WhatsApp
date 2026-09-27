@@ -1,8 +1,8 @@
 # Crear agentes y darles el conocimiento del negocio
 
 Esta guía explica cómo crear un agente de IA que atienda a tus clientes, cómo ajustarlo, cómo probarlo, cómo
-ponerlo a responder en un canal y cómo darle el conocimiento del negocio (documentos, páginas web y preguntas
-frecuentes) para que responda con tus datos y diga de dónde los saca.
+ponerlo a responder en un canal, cómo darle el conocimiento del negocio (documentos, páginas web y preguntas
+frecuentes) para que responda con tus datos y diga de dónde los saca, y cómo conectarlo con otros programas.
 
 ## Antes de empezar
 
@@ -54,8 +54,10 @@ ejemplo, el nombre vacío), no se guarda y el error aparece junto al campo.
   permite), el razonamiento (bajo por defecto, para que responda rápido) y la longitud máxima de la respuesta.
 - **Conocimiento:** sus archivos de contexto, las bases de conocimiento que usa y cuándo busca en ellas:
   «Automático» (busca cuando lo necesita) o «Buscar siempre» (busca antes de cada respuesta). Ver el apartado 7.
-- **Herramientas:** «Pasar a una persona», siempre activa, y «Buscar en el conocimiento», que se enciende aquí (un
-  agente nuevo la tiene apagada). Las demás (agenda, datos del contacto) aparecen como «Próximamente».
+- **Herramientas:** «Pasar a una persona», siempre activa; «Buscar en el conocimiento»; y las de la agenda y los datos
+  del cliente (consultar huecos, crear, cambiar y cancelar citas, guardar sus datos), que explica
+  la guía de la agenda (en Ayuda). Un agente nuevo las trae apagadas: se encienden aquí. También las herramientas
+  HTTP, que conectan el agente con otros programas (ver el apartado 8).
 - **Traspaso:** cuándo pasa la conversación a una persona (palabras clave, temas sensibles y número de «no lo
   sé»), el mensaje que recibe el cliente dentro y fuera de horario, y a quién avisar.
 - **Canales:** en qué canales responde este agente, con el interruptor «Activo aquí». Si el canal ya tenía otro
@@ -272,6 +274,64 @@ palabras. Cada base guarda el modelo con que los calculó (por defecto `openai/t
   encuentra la búsqueda y se queda con los 6 más útiles. Mejora las respuestas y cada búsqueda cuesta un poco más.
   Con «Sin retención de datos» solo se puede usar `qwen/qwen3-reranker-8b`; con otro modelo, la pantalla lo avisa y
   no se reordena.
+- **La orden `pnpm seed:embeddings`** es solo para quien mantiene el proyecto: vuelve a calcular los embeddings de la
+  demo, que se guardan en el repositorio para que su búsqueda por significado funcione nada más poner la clave.
+  Necesita la clave de OpenRouter en `.env.local` y gasta un poco de IA. Un negocio real no la necesita: la app
+  calcula sola los embeddings de tus bases cuando hay clave.
+
+## 8. Herramientas HTTP: conectar con otros programas
+
+Una herramienta HTTP deja que el agente consulte o envíe datos a otro programa a través de una dirección web: por
+ejemplo, un flujo de n8n que mira el estado de un pedido, o tu CRM (el programa donde guardas tus clientes) para
+apuntar a alguien interesado. HTTP es la forma en que los programas se hablan por internet.
+
+Las crean y las cambian el propietario y los administradores. Cada herramienta se define una vez: en **Agentes**, pulsa
+**Herramientas HTTP** (`/agentes/herramientas`) y **Nueva herramienta**. Esa pantalla también dice qué agentes usa
+cada una. Después se enciende en cada agente que la necesite.
+
+### Crear una herramienta
+
+- **Nombre:** corto y sin espacios, por ejemplo `consultar_pedido`. Es como la ve el agente.
+- **Descripción para la IA:** qué hace y cuándo usarla. El agente decide por ella, así que sé concreto: «Consulta el estado de un
+  pedido de la tienda online con su número. Úsala cuando el cliente pregunte por su pedido».
+- **Datos que envía la IA** (los parámetros): los datos que el agente tiene que enviar, cada uno con su nombre, su tipo
+  y una explicación (por ejemplo, `numero_pedido`: «el número de pedido que da el cliente»). Pide solo los
+  imprescindibles. Se pueden meter en la dirección entre llaves: `https://tu-crm.com/api/pedidos/{numero_pedido}`.
+- **Método:** GET, POST, PUT, PATCH o DELETE, según lo que espere el otro programa. Por defecto, POST.
+- **Dirección (URL):** una dirección pública que empiece por `https://`. La app no llama a direcciones sin HTTPS ni a
+  las de una red interna (como `localhost` o las que empiezan por `192.168.`), ni sigue redirecciones. Solo mientras
+  pruebas la app en tu ordenador con `pnpm dev` deja llamar a un n8n de pruebas de tu red.
+- **Cabeceras secretas:** la contraseña o el token que pide el otro programa, por ejemplo en la cabecera
+  `Authorization`. Se guardan cifradas y después solo se ven como `••••1234`. Nunca llegan al agente ni a los
+  registros, tampoco cuando la herramienta da un error.
+- **Tiempo máximo:** cuánto se espera la respuesta (10 segundos por defecto). Si tarda más, se corta y el agente
+  recibe un error.
+
+Pruébala con **Probar** y valores de ejemplo antes de dársela a un agente. La respuesta del otro programa se recorta a un tamaño
+corto: haz que devuelva solo lo que el agente necesita, unas líneas de texto o un JSON pequeño. Lo que responda son
+datos para el agente, nunca órdenes: no cambia sus reglas.
+
+### Dársela a un agente
+
+1. En el agente, pestaña **Herramientas**, apartado «Herramientas HTTP», enciende la herramienta: se guarda al momento
+   y vale desde su siguiente mensaje. «Gestionar herramientas HTTP» lleva a la lista.
+2. En **Probar**, haz una pregunta que la necesite. En «Ver detalles» verás la herramienta que usó, los datos que
+   envió y lo que le respondieron.
+3. Si la herramienta cambia algo en el otro programa (crea un pedido, apunta una baja…), escribe en las instrucciones
+   del agente que lo confirme antes con el cliente.
+
+Lo que el agente envía a una herramienta sale de la app: añade ese programa a tu política de privacidad y al contrato
+de encargo del tratamiento.
+
+### Con n8n
+
+- Usa un nodo **Webhook** y copia su dirección de producción, no la de pruebas (la que lleva `webhook-test`).
+- Protégelo con autenticación por cabecera (Header Auth) y pon esa misma cabecera como cabecera secreta de la
+  herramienta.
+- Haz que el flujo devuelva el resultado (por ejemplo, con el nodo **Respond to Webhook**) y déjalo activo
+  (publicado): si no, la dirección de producción no responde.
+
+[Captura: el formulario de una herramienta HTTP con su dirección y la cabecera secreta enmascarada]
 
 ## Problemas frecuentes
 
@@ -298,3 +358,8 @@ palabras. Cada base guarda el modelo con que los calculó (por defecto `openai/t
 - **«Este archivo ya está en la base»:** ese mismo archivo ya se subió. Si lo has cambiado, bórralo y sube el nuevo.
 - **Un archivo de contexto no se guarda:** los archivos de contexto del agente no pueden pasar de 30.000 tokens en
   total. Pasa el más largo a una base de conocimiento.
+- **Una herramienta HTTP da error o se agota el tiempo:** comprueba que la dirección es pública y empieza por
+  `https://`, que el otro programa responde (en n8n, la dirección de producción y el flujo activo) y que la cabecera
+  secreta es la correcta. Si el programa es lento, sube el tiempo máximo. Pruébala con valores de ejemplo.
+- **El agente no usa una herramienta HTTP:** tiene que estar encendida en su pestaña Herramientas, y su descripción
+  tiene que decir con claridad cuándo usarla.

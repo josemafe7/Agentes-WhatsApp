@@ -14,6 +14,8 @@ import { tz } from "@date-fns/tz";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { inArray } from "drizzle-orm";
+import { contactSearchText } from "@/data/contacts-search";
+import { messageSearchText } from "@/server/inbound/message-search";
 import { DEFAULT_AI_DISCLOSURE_TEXT } from "@/data/legal-texts";
 import { loadBusinessSettings, loadIntegrationSettings } from "@/data/settings";
 import type { Transaction } from "@/db";
@@ -779,11 +781,11 @@ export const conversationsStep: SeedStep = {
 
 /** Parents before children: foreign keys are enforced and nothing relies on cascades. */
 export async function insertDemoConversations(tx: Transaction, rows: DemoConversationRows): Promise<void> {
-  await tx.insert(contacts).values(rows.contacts);
+  await tx.insert(contacts).values(rows.contacts.map((row) => ({ ...row, searchText: contactSearchText(row) })));
   await tx.insert(contactIdentities).values(rows.identities);
   if (rows.consents.length > 0) await tx.insert(consents).values(rows.consents);
   await tx.insert(conversations).values(rows.conversations);
-  await tx.insert(messages).values(rows.messages);
+  await tx.insert(messages).values(rows.messages.map((row) => ({ ...row, searchText: messageSearchText(row.text) })));
   await tx.insert(aiRuns).values(rows.aiRuns);
   if (rows.handoffEvents.length > 0) await tx.insert(handoffEvents).values(rows.handoffEvents);
   if (rows.notes.length > 0) await tx.insert(internalNotes).values(rows.notes);

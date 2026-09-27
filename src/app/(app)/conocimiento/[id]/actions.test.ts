@@ -6,7 +6,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@/db";
 import { auditLog, jobs, kbChunks, kbDocuments, knowledgeBases, rateLimits } from "@/db/schema";
 import { createKnowledgeBase } from "@/data/knowledge";
-import { listKnowledgeFaqs } from "@/data/knowledge-documents";
+import { addKnowledgeText, listKnowledgeFaqs } from "@/data/knowledge-documents";
 import type { Role } from "@/lib/enums";
 import type { Actor } from "@/lib/permissions";
 import { AuthError } from "@/server/errors";
@@ -42,6 +42,7 @@ import {
   addKnowledgeFaqAction,
   addKnowledgeUrlAction,
   deleteKnowledgeDocumentAction,
+  renameKnowledgeDocumentAction,
   reprocessKnowledgeDocumentAction,
   setKnowledgeDocumentRefreshAction,
   testKnowledgeSearchAction,
@@ -195,6 +196,53 @@ describe("«Reintentar», «Reprocesar» and «Refrescar» [CON-05] [CON-09]", (
   it("an unknown document answers «not found»", async () => {
     expect(await reprocessKnowledgeDocumentAction(crypto.randomUUID())).toEqual(DOCUMENT_NOT_FOUND);
     expect(await reprocessKnowledgeDocumentAction("../../etc/passwd")).toEqual(DOCUMENT_NOT_FOUND);
+  });
+});
+
+describe("«Cambiar título» of a document [CON-10]", () => {
+  async function readyText(title: string): Promise<string> {
+    const { id } = await addKnowledgeText(users.owner.actor, kbId, { title, text: "## Horario\n\nAbrimos de lunes a sábado de 9 a 20 h sin cerrar a mediodía." });
+    await processDocument(id, budget());
+    vi.mocked(kickTick).mockClear();
+    return id;
+  }
+
+  it.each(MANAGERS)("%s renames it: its fragments are processed again with the new title, starting at once", async (role) => {
+    const id = await readyText("Horario");
+    state.actor = users[role].actor;
+    expect(await renameKnowledgeDocumentAction(id, { title: "Horario del salón" })).toEqual({ ok: true, message: "Título guardado. Los fragmentos se actualizan en segundo plano." });
+    expect(await documentRow(id)).toMatchObject({ title: "Horario del salón", status: "chunking" });
+    expect(kickTick).toHaveBeenCalledWith({ maxDurationSec: 60 });
+    await processDocument(id, budget());
+    const titles = await db.select({ title: kbChunks.title }).from(kbChunks).where(eq(kbChunks.documentId, id));
+    expect(titles.length).toBeGreaterThan(0);
+    expect(titles.every((chunk) => chunk.title === "Horario del salón")).toBe(true);
+  });
+
+  it("the same title changes nothing; an empty one is refused on its field; a FAQ is renamed through its question", async () => {
+    const id = await readyText("Horario");
+    expect(await renameKnowledgeDocumentAction(id, { title: "Horario" })).toEqual({ ok: true, message: "El título no ha cambiado." });
+    expect(await renameKnowledgeDocumentAction(id, { title: " " })).toMatchObject({ ok: false, fieldErrors: { title: expect.any(Array) } });
+    expect(kickTick).not.toHaveBeenCalled();
+    const faq = await readyFaq("¿Abrís?", "Sí.");
+    expect(await renameKnowledgeDocumentAction(faq, { title: "Apertura" })).toMatchObject({ ok: false, fieldErrors: { title: expect.any(Array) } });
+    expect(await documentRow(id)).toMatchObject({ title: "Horario", status: "ready" });
+    expect(await renameKnowledgeDocumentAction(crypto.randomUUID(), { title: "Otro" })).toEqual(DOCUMENT_NOT_FOUND);
+  });
+
+  it.each(NOT_MANAGERS)("%s cannot rename it; nothing changes and no work starts", async (role) => {
+    const id = await readyText("Horario");
+    state.actor = users[role].actor;
+    expect(await renameKnowledgeDocumentAction(id, { title: "Intruso" })).toEqual(FORBIDDEN);
+    expect(await documentRow(id)).toMatchObject({ title: "Horario", status: "ready" });
+    expect(kickTick).not.toHaveBeenCalled();
+  });
+
+  it("it counts in the limit of processing content again, since it costs AI [SEG-07]", async () => {
+    const id = await readyText("Horario");
+    for (let n = 0; n < KNOWLEDGE_REPROCESS_LIMIT.limit; n += 1) expect(await renameKnowledgeDocumentAction(id, { title: `Horario ${n}` })).toMatchObject({ ok: true });
+    expect(await renameKnowledgeDocumentAction(id, { title: "Uno más" })).toEqual({ ok: false, error: REPROCESS_LIMITED });
+    expect((await documentRow(id)).title).toBe(`Horario ${KNOWLEDGE_REPROCESS_LIMIT.limit - 1}`);
   });
 });
 

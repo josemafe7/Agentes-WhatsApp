@@ -125,7 +125,10 @@ Detalles del conocimiento que salieron al construirlo (fase 4, sin cambiar el es
 
 - `contacts`: nombre, teléfono y email (solo como datos, nunca para identificar), etiquetas, campos
   personalizados y notas. Al fusionar, las identidades, conversaciones, citas y consentimientos pasan al que
-  queda ([CTO-01]–[CTO-05]).
+  queda ([CTO-01]–[CTO-05]). `search_text` guarda nombre, teléfono y email en minúsculas y sin tildes para buscar
+  sin tildes en Contactos y en la Bandeja («jose» encuentra «José»); se escribe con cada cambio de esos campos y, en
+  una base anterior a la columna, lo rellena una vez el arranque del servidor. Es una copia de datos personales:
+  quien borra o anonimiza esos campos la borra también.
 - `contact_identities`: `contact_id`, `channel_type`, `external_id` y `phone` opcional. **Única por
   `channel_type` + `external_id`** ([CTO-03], [CAN-13]). `external_id` es el BSUID en WhatsApp (o el `wa_id`
   como identificador provisional si un aviso antiguo no trae BSUID), el email en correo, el id del visitante en
@@ -167,6 +170,10 @@ Detalles del conocimiento que salieron al construirlo (fase 4, sin cambiar el es
 - `content_type`, `text`, `media` (JSON: `fileKey`, `mimeType`, `size`, `fileName`, `sha256`, `durationSec` y
   `downloadStatus`) y `transcript` ([WA-36], [MED-04]). La clave del archivo es siempre generada; el nombre del
   cliente solo se guarda para mostrarlo y descargarlo.
+- `search_text`: el texto en minúsculas y sin tildes, para buscar en la Bandeja sin tildes («cancelacion» encuentra
+  «cancelación», [BAN-02]); se escribe con el texto (al llegar, al enviar, al aprobar un borrador editado) y, en una
+  base anterior a la columna (migración 0005), lo rellena una vez el arranque del servidor. Es una copia de lo que se
+  dijo: la limpieza lo vacía con el texto y borrar el contacto lo borra con el mensaje.
 - `status`: `received`, `queued`, `sent`, `delivered`, `read`, `played`, `failed` o `draft`, y `error`.
   Los estados de salida solo avanzan (`queued` < `sent` < `delivered` < `read` < `played`) y `failed` solo
   sustituye a `queued` o `sent` ([WA-38]). `played` no está en el §4 del encargo: Meta lo envía desde el
@@ -210,12 +217,26 @@ Detalles del conocimiento que salieron al construirlo (fase 4, sin cambiar el es
 | `resource_time_off` | Ausencias de un recurso y huecos bloqueados, con inicio, fin y motivo. | [AGD-02], [AGD-09], [AGD-18] |
 | `service_resources` | Qué recursos hacen cada servicio. Único servicio + recurso. | [AGD-04], [AGD-12] |
 | `bookings` | Contacto, servicio, recurso, inicio y fin, franja ocupada (inicio − margen, fin + margen), personas, estado `pending`, `confirmed`, `cancelled`, `completed` o `no_show`, origen `ai` (con su canal), `human` o `web`, conversación, notas, autor con la copia del nombre, `is_test` y cuándo se envió el recordatorio. | [AGD-13], [AGD-14], [AGD-17], [AGD-19], [AGD-25], [PRU-04] |
-| `booking_events` | Historial de cada cita: quién (persona, IA, cliente o sistema), qué cambió y cuándo. | [AGD-15] |
+| `booking_events` | Historial de cada cita: quién (persona, IA, cliente o sistema), qué cambió y cuándo. Acciones: `created`, `moved`, `updated`, `status_changed`, `cancelled`, `notice_sent` (aviso al cliente), `reminder_sent` y `reminder_failed` (con el motivo). | [AGD-15], [AGD-23], [AGD-25] |
 | `reminder_settings` | Recordatorio: activado (no, por defecto), antelación, canal (plantilla de WhatsApp con sus variables asignadas, o email) y texto. | [AGD-20], [AGD-24], [AGD-25] |
+| `service_secondary_resources` y `booking_secondary_resources` | Preparadas, sin uso todavía (fase 5, migración `0004`): el segundo tipo de recurso que necesita un servicio a la vez (por ejemplo, profesional y sala) y el que ocupa cada cita durante la misma franja. Únicos servicio + recurso y cita + recurso. El motor de disponibilidad ya rechaza esos servicios. | [AGD-07] |
 
 Solo ocupan hueco las citas `pending` y `confirmed`: las canceladas y los no presentados lo liberan
 ([AGD-09]). Al borrar un contacto, sus citas se anonimizan en vez de borrarse, para que los informes cuadren
 ([CTO-07]).
+
+Detalles de la agenda que salieron al construirla (fase 5, sin cambiar las tablas de la fase 0):
+
+- **Recordatorio una sola vez ([AGD-25]):** `bookings.reminder_sent_at` es la marca. Antes de enviar, una sola sentencia la
+  pone solo si estaba vacía; si otra ronda ya la había puesto, esa cita se salta. Se pone también si el envío falla (el
+  motivo queda en `booking_events` como `reminder_failed`): no se reintenta. Al mover una cita se vacía si su nuevo
+  momento de recordatorio aún no ha llegado, para que se recalcule.
+- **Citas de prueba ([PRU-04]):** `is_test`, sin contacto ni conversación; ocupan su hueco como las demás, nunca
+  reciben avisos ni recordatorios y se borran todas juntas con su historial.
+- **Origen:** `source` `ai` guarda además `channel_id` y `conversation_id`; `human` guarda quién la creó y la copia de
+  su nombre; una cita sin ficha de contacto (un cliente que llamó por teléfono) guarda solo `contact_name`.
+- **Aviso al equipo de una cita pendiente ([AGD-22]):** el suceso `booking_pending` de `notifications`, con enlace a
+  `/agenda?cita=<id>`.
 
 ### Sin dobles reservas
 
@@ -252,6 +273,31 @@ reconexión ([SEG-03]).
 La limpieza diaria ([CUM-05], [CUM-06]) actúa sobre `conversations` y `messages` (12 meses por defecto), los
 archivos de audio ya transcritos (30 días), los adjuntos (90 días) y `webhook_events` (14 días, entre 7 y 30);
 `realtime_events` y los trabajos terminados de `jobs` se borran antes, porque no tienen valor pasado un rato.
+
+Cómo lo hace (fase 7, `src/server/compliance/retention.ts`, sin cambiar el esquema):
+
+- **Archivos:** se borran del almacén antes que su fila, salvo si otro mensaje usa el mismo archivo (la demo comparte
+  los suyos). El mensaje se queda sin `media` (con `metadata.mediaDeletedAt`) y conserva su texto y su transcripción.
+  Una nota de voz sin transcripción espera el plazo de los adjuntos.
+- **Conversaciones, «Borrar»:** una conversación cuya última actividad (`last_message_at`) pasa del plazo se borra con
+  sus mensajes, notas, traspasos y `message_retrievals`; `ai_runs` y `bookings` se quedan, sin el enlace. En las que
+  siguen vivas se borran los mensajes, notas y traspasos más antiguos que el plazo, y su resumen acumulado se vacía
+  para rehacerlo con lo que queda ([MOT-13]).
+- **Conversaciones, «Anonimizar»:** las filas se quedan para los informes (quién escribió, cuándo, estados, coste),
+  pero los mensajes pierden texto (y su `search_text`), transcripción, archivo, `metadata` y reacciones; la conversación, su contacto
+  (`contact_id` vacío), su resumen, su `metadata` y su hilo; los traspasos, su motivo y su resumen; y las notas se
+  borran. Un mensaje o una conversación ya anonimizados no se vuelven a tocar. El contacto no forma parte de la
+  limpieza: borrarlo es otra cosa ([CTO-07]).
+- **Avisos del equipo** (`notifications`): siguen el plazo de las conversaciones. Los contadores de `rate_limits` se
+  borran a los 7 días.
+- **Por tandas:** cada tanda vuelve a buscar lo caducado, así que se puede parar en cualquier momento y nada se borra
+  dos veces; los totales de una ronda que no cabe en un trabajo se guardan en `app_kv`
+  (`compliance.retention.round`) y el resumen final, en el registro de actividad y en `compliance.retention.last_round`.
+
+Bajas ([CUM-03]): la baja por «BAJA» o «STOP» se guarda en `consents` con `source` `keyword` (y la palabra en
+`note`); la que quita una persona, como `opt_in` con `source` `person`, quién y cuándo. Manda la más reciente de las
+dos en cada canal. Los clientes que crea el simulador llevan identidades con el prefijo `sim:`, que ningún canal
+da, así que nunca comparten contacto ni conversación con un cliente real ([AJU-13]).
 
 ## Fuentes
 

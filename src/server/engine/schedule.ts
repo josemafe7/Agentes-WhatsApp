@@ -1,8 +1,12 @@
 // When the reply to a conversation runs ([MOT-01]): a few seconds after the customer's message (4–8 s), waiting again
 // if more messages arrive, but never more than 20 s after the first unanswered one. All of them get one reply.
 import "server-only";
+import { and, eq, gte } from "drizzle-orm";
 import { z } from "zod";
+import { db } from "@/db";
+import { messages } from "@/db/schema";
 import { getJobQueue, type EnqueueResult, type JobQueue } from "@/server/adapters/job-queue";
+import { pendingInbound } from "./pending";
 
 export const REPLY_JOB = "reply";
 export const REPLY_DEBOUNCE_MIN_MS = 4_000;
@@ -54,4 +58,22 @@ export async function scheduleReply(input: ScheduleReplyInput): Promise<EnqueueR
     maxRunAt,
     maxAttempts: REPLY_MAX_ATTEMPTS,
   });
+}
+
+/**
+ * A person turned the AI of the conversation back on ([BAN-16]): if the customer's last messages are still unanswered,
+ * the AI answers them a few seconds later, as it would a new message (the reply job runs every check of [MOT-03]).
+ * Nothing when a draft of the AI already waits for review for them. Returns the job, or null.
+ */
+export async function scheduleReplyToUnanswered(conversationId: string, options: { now?: Date; queue?: JobQueue } = {}): Promise<EnqueueResult | null> {
+  const newest = (await pendingInbound(conversationId)).at(-1);
+  if (!newest) return null;
+  const [draft] = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(and(eq(messages.conversationId, conversationId), eq(messages.direction, "outbound"), eq(messages.status, "draft"), gte(messages.createdAt, newest.createdAt)))
+    .limit(1);
+  if (draft) return null;
+  const now = options.now ?? new Date();
+  return scheduleReply({ conversationId, lastInboundMessageId: newest.id, firstPendingAt: now, now, queue: options.queue });
 }

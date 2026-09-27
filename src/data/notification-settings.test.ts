@@ -24,7 +24,7 @@ beforeEach(async () => {
 });
 
 describe("defaults", () => {
-  it("covers hand-offs, new and assigned conversations, channel errors, WhatsApp quality and retiring models [AJU-08]", () => {
+  it("covers hand-offs, new and assigned conversations, channel errors, WhatsApp quality, retiring models [AJU-08] and bookings waiting for confirmation [AGD-22]", () => {
     expect([...NOTIFICATION_EVENTS]).toEqual([
       "handoff",
       "new_conversation",
@@ -32,6 +32,7 @@ describe("defaults", () => {
       "channel_error",
       "whatsapp_quality",
       "model_deprecated",
+      "booking_pending",
     ]);
     const settings = resolveNotificationSettings({});
     expect(settings.handoff).toEqual({ enabled: true, roles: ["owner", "admin", "supervisor", "agent"] });

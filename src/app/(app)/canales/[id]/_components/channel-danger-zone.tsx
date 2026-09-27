@@ -38,6 +38,8 @@ export function ChannelDangerZone({ channelId, channelName, enabled, reconnectHr
       return;
     }
     toast.success(result.message ?? "Canal borrado.");
+    // An Agent whose only channel it was now sees them all ([PER-02]).
+    if (result.data?.warning) toast.warning(result.data.warning);
     router.push("/canales");
   }
 

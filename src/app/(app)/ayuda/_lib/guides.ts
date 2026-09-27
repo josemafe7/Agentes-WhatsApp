@@ -19,14 +19,29 @@ export type HelpGuide = {
 
 export const HELP_GUIDES: readonly HelpGuide[] = [
   {
+    slug: "agenda",
+    file: "guia-agenda.md",
+    description: "Preparar la agenda del negocio: palabras, servicios, recursos, horarios, ausencias, modo por recurso o por aforo, recordatorios y qué hace el agente con las citas.",
+  },
+  {
     slug: "agentes-y-conocimiento",
     file: "guia-agentes-y-conocimiento.md",
     description: "Crear un agente desde la plantilla de tu sector, darle el conocimiento del negocio (archivos y bases), probarlo y ver de dónde saca cada respuesta.",
   },
   {
+    slug: "correo",
+    file: "guia-correo.md",
+    description: "Conectar un buzón de Gmail (Google Cloud), Outlook o Microsoft 365 (Microsoft Entra) u otro servidor IMAP/SMTP: paso a paso, modos de respuesta, filtros y problemas.",
+  },
+  {
     slug: "despliegue",
     file: "guia-despliegue.md",
     description: "Publicar la app en Vercel con Turso, Vercel Blob y el cron, y más adelante en un servidor propio.",
+  },
+  {
+    slug: "puesta-en-marcha",
+    file: "checklist-puesta-en-marcha.md",
+    description: "Lista de puesta en marcha de un negocio real: de la instalación vacía a la primera conversación, con la privacidad de OpenRouter, los textos legales, el equipo y las comprobaciones de cada semana y cada mes.",
   },
   {
     slug: "whatsapp",

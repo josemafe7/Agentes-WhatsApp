@@ -1,4 +1,5 @@
 // Small real files for the media tests: a text PDF built by hand (with a correct cross-reference table) and a PNG.
+import "server-only";
 
 /** A PDF with one page per string, written in Helvetica. */
 export function makePdf(pages: readonly string[]): Uint8Array {

@@ -6,7 +6,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
 import { channels, jobs, notifications, realtimeEvents, systemEmails, userRoles } from "@/db/schema";
 import { createBusiness, createChannel, createUser } from "@/test/factories";
-import { deliverNotification, NOTIFICATIONS_DELIVER_JOB, notify, resolveRecipients } from "./notify";
+import { deliverJobPayload, deliverNotification, NOTIFICATIONS_DELIVER_JOB, notify, resolveRecipients } from "./notify";
 import { registerPushSender, type PushPayload } from "./push";
 
 const outboxDir = fs.mkdtempSync(path.join(os.tmpdir(), "dominia-notify-"));
@@ -86,6 +86,39 @@ describe("email and push delivery [PWA-07]", () => {
     expect(email.subject).toContain("Traspaso: Ana");
     expect(pushed).toEqual([[owner.userId, { title: "Traspaso: Ana", body: "Pide una persona", link: "/bandeja/x" }]]);
     registerPushSender(async () => "skipped");
+  });
+
+  it("[PWA-04] a hand-off's email and push say what happened and with whom; what the customer said stays in the app", async () => {
+    const owner = await createUser("owner", { name: "Olga" });
+    await db.update(userRoles).set({ notificationPreferences: { handoff: { inApp: true, email: true, push: true } } }).where(eq(userRoles.userId, owner.userId));
+    const customerText = "Dice que le duele la muela desde el martes";
+    await notify({ event: "handoff", title: "Traspaso: Ana", body: customerText, link: "/bandeja/x" });
+
+    const [inApp] = await db.select().from(notifications).where(eq(notifications.userId, owner.userId));
+    expect(inApp).toMatchObject({ title: "Traspaso: Ana", body: customerText });
+    const [job] = await db.select().from(jobs).where(eq(jobs.type, NOTIFICATIONS_DELIVER_JOB));
+    expect(job.payload).toMatchObject({ title: "Traspaso: Ana", body: null, link: "/bandeja/x", email: true, push: true });
+
+    const pushed: PushPayload[] = [];
+    registerPushSender(async (_userId, payload) => {
+      pushed.push(payload);
+      return "sent";
+    });
+    await deliverNotification(deliverJobPayload.parse(job.payload), { mailer: { outboxDir, smtp: null } });
+    registerPushSender(async () => "skipped");
+    expect(pushed).toEqual([{ title: "Traspaso: Ana", body: null, link: "/bandeja/x" }]);
+    const [email] = await db.select().from(systemEmails);
+    expect(email.subject).toContain("Traspaso: Ana");
+    const saved = fs.readFileSync(path.join(outboxDir, email.outboxFile ?? ""), "utf8");
+    expect(saved).not.toContain("muela");
+  });
+
+  it("other notices keep their details by email and push (a channel's error is not the customer's text)", async () => {
+    const owner = await createUser("owner");
+    await db.update(userRoles).set({ notificationPreferences: { channel_error: { inApp: true, email: true, push: true } } }).where(eq(userRoles.userId, owner.userId));
+    await notify({ event: "channel_error", title: "El canal Web tiene un error", body: "El token de Meta ha caducado." });
+    const [job] = await db.select().from(jobs).where(eq(jobs.type, NOTIFICATIONS_DELIVER_JOB));
+    expect(job.payload).toMatchObject({ body: "El token de Meta ha caducado." });
   });
 
   it("a deactivated person gets nothing", async () => {

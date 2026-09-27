@@ -31,6 +31,16 @@ export async function updateDocument(documentId: string, changes: Partial<typeof
     .where(eq(kbDocuments.id, documentId));
 }
 
+/** Sets the title only if it is still `from` (somebody may have renamed the document meanwhile): true if it changed. */
+export async function replaceDocumentTitle(documentId: string, from: string, to: string, executor: Executor = db): Promise<boolean> {
+  const rows = await executor
+    .update(kbDocuments)
+    .set({ title: to, updatedAt: new Date() })
+    .where(and(eq(kbDocuments.id, documentId), eq(kbDocuments.title, from)))
+    .returning({ id: kbDocuments.id });
+  return rows.length > 0;
+}
+
 /**
  * Deletes the chunks matching `where` (a condition on kb_chunks), clearing first the retrievals that point to them
  * (they keep their copied title, section and page for «¿Por qué respondió esto?»).

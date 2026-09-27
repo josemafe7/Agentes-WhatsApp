@@ -97,33 +97,42 @@ test("[WA-28][CAN-16][CAN-17] «Desconectar» erases the credentials and, confir
   request,
   mock,
 }, testInfo) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   const number = testNumber(testInfo, "WhatsApp desconectar");
+  // Another number of the same Meta app that stays connected: its App Secret still checks the signature of what Meta
+  // sends for the disconnected one, which is verified before the body is read ([WA-32]).
+  const sibling = testNumber(testInfo, "WhatsApp misma app");
   const customer = testCustomer(testInfo, "Cliente desconexión");
-  const channelId = await connectWhatsAppNumber(page, number);
-  const before = uniqueMessage(testInfo, "Mensaje antes de desconectar");
-  await deliverWebhook(request, webhookBody("text", { number, customer, text: before }));
-  await openConversationWith(page, before);
+  let siblingId: string | null = null;
+  try {
+    siblingId = await connectWhatsAppNumber(page, sibling);
+    const channelId = await connectWhatsAppNumber(page, number);
+    const before = uniqueMessage(testInfo, "Mensaje antes de desconectar");
+    await deliverWebhook(request, webhookBody("text", { number, customer, text: before }));
+    await openConversationWith(page, before);
 
-  await disconnectNumber(page, channelId, number.name, { removeFromMeta: true });
+    await disconnectNumber(page, channelId, number.name, { removeFromMeta: true });
 
-  // [WA-28] Out of Meta too: the WABA (no other channel uses it) and the number; the app's own subscription stays.
-  await expect.poll(async () => (await metaCalls(mock, "DELETE", graphPath(number.wabaId, "subscribed_apps"))).length).toBe(1);
-  expect(await metaCalls(mock, "POST", graphPath(number.phoneNumberId, "deregister"))).toHaveLength(1);
-  expect(await metaCalls(mock, "DELETE", graphPath(META.appId, "subscriptions"))).toHaveLength(0);
+    // [WA-28] Out of Meta too: the WABA (no other channel uses it) and the number; the app's own subscription stays.
+    await expect.poll(async () => (await metaCalls(mock, "DELETE", graphPath(number.wabaId, "subscribed_apps"))).length).toBe(1);
+    expect(await metaCalls(mock, "POST", graphPath(number.phoneNumberId, "deregister"))).toHaveLength(1);
+    expect(await metaCalls(mock, "DELETE", graphPath(META.appId, "subscriptions"))).toHaveLength(0);
 
-  // [CAN-16] «Desactivado», with its history.
-  await expectChannelState(page, number.name, /Desactivado/);
-  await openConversationWith(page, before);
+    // [CAN-16] «Desactivado», with its history.
+    await expectChannelState(page, number.name, /Desactivado/);
+    await openConversationWith(page, before);
 
-  // [CAN-17] Without its credentials Meta's webhooks for the number are answered and not stored ([WA-34]).
-  const after = uniqueMessage(testInfo, "Mensaje después de desconectar");
-  expect((await postWebhook(request, webhookBody("text", { number, customer, text: after }))).status()).toBe(200);
-  await expect(await searchInbox(page, after)).toHaveCount(0);
-  // And the panel never shows a secret again: there is none.
-  await page.goto(channelPanelPath(channelId));
-  await expect(page.getByText(/••••/)).toHaveCount(0);
-  // [WA-26] Nor the old green lights: a disconnected number is not checked with Meta.
-  for (const label of ["Token", "Registro", "Suscripción"]) await expectLight(page, label, "off");
-  await expect(page.getByText("Número desconectado: no se revisa con Meta.")).toBeVisible();
+    // [CAN-17] Without its credentials Meta's webhooks for the number are answered (signed by the app) and not stored ([WA-34]).
+    const after = uniqueMessage(testInfo, "Mensaje después de desconectar");
+    expect((await postWebhook(request, webhookBody("text", { number, customer, text: after }))).status()).toBe(200);
+    await expect(await searchInbox(page, after)).toHaveCount(0);
+    // And the panel never shows a secret again: there is none.
+    await page.goto(channelPanelPath(channelId));
+    await expect(page.getByText(/••••/)).toHaveCount(0);
+    // [WA-26] Nor the old green lights: a disconnected number is not checked with Meta.
+    for (const label of ["Token", "Registro", "Suscripción"]) await expectLight(page, label, "off");
+    await expect(page.getByText("Número desconectado: no se revisa con Meta.")).toBeVisible();
+  } finally {
+    await disableChannelQuietly(page, siblingId);
+  }
 });

@@ -1,5 +1,5 @@
-// Settings › Diagnóstico ([AJU-11]): database, background queue, realtime, the last webhook per channel and the
-// recent errors of the AI ([MOT-12]), for owner and admin. Errors shown are the stored Spanish, secret-free
+// Settings › Diagnóstico ([AJU-11]): database, background queue, realtime, the last webhook per channel, the mail each
+// mailbox ignored with its reason ([COR-16]) and the recent errors of the AI ([MOT-12]), for owner and admin. Errors shown are the stored Spanish, secret-free
 // messages, redacted once more ([SEG-02]).
 // «Reintentar» (failed job) and «Cancelar» (a job waiting to retry after an error) go through the JobQueue.
 import "server-only";
@@ -12,6 +12,8 @@ import { PERMISSIONS, type Actor } from "@/lib/permissions";
 import { pingDatabase } from "@/server/adapters/database-health";
 import { getDatabaseInfo } from "@/server/adapters/database-info";
 import { getJobQueue, type JobQueueStats } from "@/server/adapters/job-queue";
+import { EMAIL_CHANNEL_TYPES, readEmailConfig } from "@/server/channels/email/config";
+import { IGNORE_REASON_LABELS, IGNORE_REASONS, type IgnoreReason } from "@/server/channels/email/filters";
 import { NotFoundError, parseInput } from "@/server/errors";
 import { LAST_TICK_KV_KEY } from "@/server/jobs";
 import { getKv } from "@/server/kv";
@@ -63,6 +65,15 @@ export type ChannelWebhooks = {
   count: number;
 };
 
+/** What a mailbox did not pass to the inbox nor to the AI, by reason ([COR-16]). */
+export type IgnoredMail = {
+  channelId: string;
+  name: string;
+  isDemo: boolean;
+  total: number;
+  reasons: { reason: IgnoreReason; label: string; count: number }[];
+};
+
 /** A call to OpenRouter that failed in a real conversation (never «Probar agente»). */
 export type AiRunError = {
   id: string;
@@ -80,6 +91,8 @@ export type Diagnostics = {
   realtime: { count: number; lastAt: Date | null };
   /** Webhooks for no channel: only their time and the number or account they named ([WA-34]). */
   webhooks: { channels: ChannelWebhooks[]; unknown: { count: number; lastReceivedAt: Date | null; lastNumber: string | null } };
+  /** Mail each mailbox ignored since it was connected ([COR-16]). */
+  ignoredMail: IgnoredMail[];
   /** «Errores recientes»: a failed AI reply ends well for the queue (it hands off), so it is read from ai_runs. */
   aiErrors: AiRunError[];
 };
@@ -186,6 +199,19 @@ async function webhookDiagnostics(): Promise<Diagnostics["webhooks"]> {
   };
 }
 
+async function ignoredMailDiagnostics(): Promise<IgnoredMail[]> {
+  const rows = await db
+    .select({ id: channels.id, name: channels.name, isDemo: channels.isDemo, config: channels.config })
+    .from(channels)
+    .where(inArray(channels.type, [...EMAIL_CHANNEL_TYPES]))
+    .orderBy(channels.name);
+  return rows.map((row) => {
+    const { ignored } = readEmailConfig(row.config);
+    const reasons = IGNORE_REASONS.filter((reason) => (ignored[reason] ?? 0) > 0).map((reason) => ({ reason, label: IGNORE_REASON_LABELS[reason], count: ignored[reason] ?? 0 }));
+    return { channelId: row.id, name: row.name, isDemo: row.isDemo, total: reasons.reduce((sum, item) => sum + item.count, 0), reasons };
+  });
+}
+
 async function aiErrorDiagnostics(): Promise<AiRunError[]> {
   const rows = await db
     .select({
@@ -217,11 +243,18 @@ export async function getDiagnostics(actor: Actor): Promise<Diagnostics> {
       queue: { stats: { pending: 0, running: 0, done: 0, failed: 0, cancelled: 0, due: 0, oldestDueAt: null }, lastTick: null, jobsWithErrors: [] },
       realtime: { count: 0, lastAt: null },
       webhooks: { channels: [], unknown: { count: 0, lastReceivedAt: null, lastNumber: null } },
+      ignoredMail: [],
       aiErrors: [],
     };
   }
-  const [queue, realtime, webhooks, aiErrors] = await Promise.all([queueDiagnostics(), realtimeDiagnostics(), webhookDiagnostics(), aiErrorDiagnostics()]);
-  return { database, queue, realtime, webhooks, aiErrors };
+  const [queue, realtime, webhooks, ignoredMail, aiErrors] = await Promise.all([
+    queueDiagnostics(),
+    realtimeDiagnostics(),
+    webhookDiagnostics(),
+    ignoredMailDiagnostics(),
+    aiErrorDiagnostics(),
+  ]);
+  return { database, queue, realtime, webhooks, ignoredMail, aiErrors };
 }
 
 const jobIdInput = z.object({ jobId: z.string().trim().min(1, "Falta el trabajo.").max(100) });

@@ -92,10 +92,16 @@ export const auth = betterAuth({
     // Changing the password closes the other sessions ([USU-10]).
     revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user: account, url }) => {
-      // Queued, not sent here: the answer takes the same time whether the email exists or not ([USU-10]).
+      // Queued, not sent here: the answer takes the same time whether the email exists or not ([USU-10]). The job
+      // forgets the link as soon as the email is sent (src/server/jobs/handlers/system-email.ts).
       const payload: SystemEmailJobPayload = { template: "password_reset", to: account.email, name: account.name, url };
       await getJobQueue().enqueue({ type: SYSTEM_EMAIL_JOB, payload, maxAttempts: SYSTEM_EMAIL_MAX_ATTEMPTS });
     },
+  },
+  verification: {
+    // One-time tokens (the password reset link, the two-step sign-in) are stored as their SHA-256, never as they are:
+    // a copy of the database gives no working link ([USU-10], [SEG-02]). Better Auth hashes each lookup the same way.
+    storeIdentifier: "hashed",
   },
   session: {
     expiresIn: 7 * DAY_SECONDS,

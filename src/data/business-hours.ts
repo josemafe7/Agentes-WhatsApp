@@ -67,7 +67,7 @@ const hoursInputSchema = z
 type StoredRange = { weekday: number; startMin: number; endMin: number };
 
 /** Checks each day and returns its ranges in minutes, or the error of each wrong day under "day-<n>" ([AJU-15]). */
-function validateWeek(ranges: HoursRange[]): StoredRange[] {
+export function validateWeek(ranges: HoursRange[]): StoredRange[] {
   const errors: Record<string, string[]> = {};
   const stored: StoredRange[] = [];
   for (const weekday of WEEKDAYS) {

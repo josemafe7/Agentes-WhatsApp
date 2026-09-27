@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { MessageItem } from "@/data/messages";
 import { requestRealtimePoll } from "@/hooks/use-realtime";
+import { discardEmailDraftAction } from "../[id]/_email/actions";
+import { useEmailThread } from "../[id]/_email/thread-context";
 import { approveDraftAction, discardDraftAction } from "../actions";
 import { useInboxAction } from "./use-inbox-action";
 
@@ -29,6 +31,7 @@ export function DraftReview({ message, onDiscarded }: DraftReviewProps) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(message.text ?? "");
   const action = useInboxAction();
+  const emailThread = useEmailThread();
   const fieldId = useId();
   const trimmed = text.trim();
 
@@ -43,7 +46,8 @@ export function DraftReview({ message, onDiscarded }: DraftReviewProps) {
   }
 
   async function discard() {
-    const result = await discardDraftAction({ messageId: message.id });
+    // Email: the draft also leaves the mailbox's drafts at once ([COR-14]).
+    const result = await (emailThread ? discardEmailDraftAction : discardDraftAction)({ messageId: message.id });
     if (!result.ok) throw new Error(result.error);
     onDiscarded(message.id);
     requestRealtimePoll();

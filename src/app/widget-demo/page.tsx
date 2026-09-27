@@ -1,5 +1,6 @@
 // /widget-demo ([WEB-12], [PER-09]): a sample page of the business with its web chat working, to try it without a
-// website of one's own. Public, like the chat itself; the app's own address is always an allowed domain ([WEB-10]).
+// website of one's own. Public in the demo (local); in a real installation only for the team (a session), because
+// here the widget API accepts every enabled chat, also those meant only for the business's site ([WEB-10]).
 import { Info, MessagesSquare } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -18,8 +19,9 @@ import { idSchema } from "@/lib/validation";
 import { getAppUrl } from "@/server/app-url";
 import { listWidgetDemoChannels, type WidgetDemoChannel } from "@/server/channels/webchat/config";
 import { WidgetEmbed } from "@/components/webchat/widget-embed";
+import { requireWidgetDemoViewer } from "./_lib/access";
 
-// Read from the database on every request; no session needed.
+// Read from the database on every request.
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
@@ -37,16 +39,18 @@ const TRY_STEPS = [
   "Cambia el agente activo del canal en Canales y vuelve a escribir: responde el nuevo.",
 ];
 
-/** The chat asked for in ?canal=, else the first one that is on, else the first one. */
-function pickChat(chats: WidgetDemoChannel[], requested: unknown): WidgetDemoChannel | null {
-  const id = idSchema.safeParse(requested);
-  return (id.success ? chats.find((chat) => chat.id === id.data) : undefined) ?? chats.find((chat) => chat.available) ?? chats[0] ?? null;
+/** The chat asked for in ?canal=, else the first one (only enabled chats are listed). */
+function pickChat(chats: WidgetDemoChannel[], requestedId: string | null): WidgetDemoChannel | null {
+  return (requestedId ? chats.find((chat) => chat.id === requestedId) : undefined) ?? chats[0] ?? null;
 }
 
 export default async function WidgetDemoPage({ searchParams }: Props) {
   const params = await searchParams;
+  const requested = idSchema.safeParse(params.canal);
+  const requestedId = requested.success ? requested.data : null;
+  await requireWidgetDemoViewer(requestedId);
   const [info, chats] = await Promise.all([getPublicBusinessInfo(), listWidgetDemoChannels()]);
-  const selected = pickChat(chats, params.canal);
+  const selected = pickChat(chats, requestedId);
   const name = info.name.trim() || DEFAULT_BUSINESS_NAME;
   const snippet = selected ? `<script src="${getAppUrl()}/widget.js" data-channel="${selected.id}" async></script>` : "";
   const contact = [info.address, info.contactPhone, info.contactEmail, info.website].filter((value): value is string => Boolean(value));
@@ -101,7 +105,6 @@ export default async function WidgetDemoPage({ searchParams }: Props) {
                         {/* A full page load, so each chat starts clean. */}
                         <a href={`/widget-demo?canal=${chat.id}`} aria-current={chat.id === selected.id ? "page" : undefined}>
                           {chat.name}
-                          {chat.available ? null : " · desactivado"}
                         </a>
                       </Button>
                     </li>
@@ -109,12 +112,6 @@ export default async function WidgetDemoPage({ searchParams }: Props) {
                 </ul>
               </nav>
             ) : null}
-
-            {selected.available ? null : (
-              <p className="rounded-lg bg-warning-soft px-4 py-3 text-sm">
-                Este chat web está desactivado: el chat dirá que no está disponible. Actívalo en Canales para probarlo.
-              </p>
-            )}
 
             <Card>
               <CardHeader>
@@ -148,8 +145,8 @@ export default async function WidgetDemoPage({ searchParams }: Props) {
           <div className="rounded-xl border">
             <EmptyState
               icon={MessagesSquare}
-              title="No hay ningún chat web"
-              description="Crea uno en Canales."
+              title="No hay ningún chat web activo"
+              description="Crea uno en Canales, o activa uno de los que tienes."
               action={
                 <Button asChild variant="outline">
                   <Link href="/canales">Ir a Canales</Link>

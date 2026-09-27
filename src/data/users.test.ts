@@ -1,11 +1,13 @@
 import { eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 import { db } from "@/db";
-import { account, auditLog, channelMembers, conversations, messages, session, user, userRoles } from "@/db/schema";
+import { account, auditLog, channelMembers, conversations, invitations, messages, session, user, userRoles } from "@/db/schema";
 import type { Role } from "@/lib/enums";
+import { hashToken, randomToken } from "@/server/crypto";
 import { resolveActor } from "@/server/session";
 import { AuthError, ForbiddenError, RateLimitError, ValidationError } from "@/server/errors";
 import { actorFor, createBusiness, createChannel, createUser, TEST_PASSWORD } from "@/test/factories";
+import { getInvitationForToken } from "./invitations";
 import {
   changeRole,
   listUsers,
@@ -117,6 +119,19 @@ describe("setAgentChannels [USU-17]", () => {
     const supervisor = await createUser("supervisor");
     await expect(setAgentChannels(admin.actor, { userId: supervisor.userId, channelIds: [c1.id] })).rejects.toBeInstanceOf(ValidationError);
     await expect(setAgentChannels(admin.actor, { userId: agent.userId, channelIds: ["missing"] })).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("[PER-02] taking away an agent's last channel warns whoever did it that they now see every channel", async () => {
+    const admin = await createUser("admin");
+    const [c1, c2] = [await createChannel(), await createChannel()];
+    const agent = await createUser("agent");
+    expect(await setAgentChannels(admin.actor, { userId: agent.userId, channelIds: [c1.id, c2.id] })).toEqual({ warning: null });
+    expect(await setAgentChannels(admin.actor, { userId: agent.userId, channelIds: [c1.id] })).toEqual({ warning: null });
+    const { warning } = await setAgentChannels(admin.actor, { userId: agent.userId, channelIds: [] });
+    expect(warning).toContain(`«${agent.name}»`);
+    expect(warning).toContain("verá todos los canales");
+    // Already without channels: nothing changes, nothing to warn about.
+    expect(await setAgentChannels(admin.actor, { userId: agent.userId, channelIds: [] })).toEqual({ warning: null });
   });
 });
 
@@ -255,5 +270,91 @@ describe("require 2FA for owner and admins [USU-12]", () => {
 
   it.each(notAllowed)("%s cannot change the requirement", async (role) => {
     await expect(setRequireTwoFactor(actorFor(role), { enabled: true })).rejects.toBeInstanceOf(AuthError);
+  });
+});
+
+describe("pending invitations of someone who can no longer invite are revoked [USU-09] [USU-14] [SEG-04]", () => {
+  /** A pending invitation sent by `invitedBy`, and the token of its link. */
+  async function pendingInvitation(invitedBy: string, overrides: Partial<typeof invitations.$inferInsert> = {}) {
+    const token = randomToken();
+    const [row] = await db
+      .insert(invitations)
+      .values({
+        email: `invitado-${crypto.randomUUID().slice(0, 8)}@example.com`,
+        role: "agent",
+        tokenHash: hashToken(token),
+        expiresAt: new Date(Date.now() + 86_400_000),
+        invitedBy,
+        invitedByName: "Quien invita",
+        ...overrides,
+      })
+      .returning();
+    return { id: row.id, token };
+  }
+
+  const linkStatus = async (token: string) => (await getInvitationForToken(token)).status;
+
+  /** An admin with two pending invitations, one already accepted, and a pending one sent by somebody else. */
+  async function adminWithInvitations() {
+    const owner = await createUser("owner");
+    const admin = await createUser("admin");
+    const pending = [await pendingInvitation(admin.userId), await pendingInvitation(admin.userId, { role: "viewer" })];
+    const accepted = await pendingInvitation(admin.userId, { acceptedAt: new Date() });
+    const others = await pendingInvitation(owner.userId);
+    return { owner, admin, pending, accepted, others };
+  }
+
+  it("when the admin who sent them is deactivated: their links stop working, anyone else's keep working", async () => {
+    const { owner, admin, pending, accepted, others } = await adminWithInvitations();
+    expect(await linkStatus(pending[0].token)).toBe("valid");
+    await setUserDisabled(owner.actor, { userId: admin.userId, disabled: true });
+    for (const invitation of pending) expect(await linkStatus(invitation.token)).toBe("revoked");
+    expect(await linkStatus(accepted.token)).toBe("used");
+    expect(await linkStatus(others.token)).toBe("valid");
+    // Reactivating the admin does not bring them back.
+    await setUserDisabled(owner.actor, { userId: admin.userId, disabled: false });
+    expect(await linkStatus(pending[0].token)).toBe("revoked");
+  });
+
+  it("when the admin who sent them is deleted", async () => {
+    const { owner, admin, pending, others } = await adminWithInvitations();
+    await removeUser(owner.actor, { userId: admin.userId });
+    for (const invitation of pending) expect(await linkStatus(invitation.token)).toBe("revoked");
+    expect(await linkStatus(others.token)).toBe("valid");
+  });
+
+  it("when the admin who sent them gets a role that cannot invite", async () => {
+    for (const role of ["supervisor", "agent", "viewer"] as Role[]) {
+      const { owner, admin, pending, others } = await adminWithInvitations();
+      await changeRole(owner.actor, { userId: admin.userId, role });
+      for (const invitation of pending) expect(await linkStatus(invitation.token), role).toBe("revoked");
+      expect(await linkStatus(others.token), role).toBe("valid");
+    }
+  });
+
+  it("each revocation goes to the activity log, by whoever made the change [SEG-10]", async () => {
+    const { owner, admin, pending } = await adminWithInvitations();
+    await setUserDisabled(owner.actor, { userId: admin.userId, disabled: true });
+    const logged = (await db.select().from(auditLog).where(eq(auditLog.action, "user.invitation_revoked"))).filter((row) =>
+      pending.some((invitation) => invitation.id === row.targetId),
+    );
+    expect(logged).toHaveLength(2);
+    for (const row of logged) expect(row).toMatchObject({ actorUserId: owner.userId, targetType: "invitation", metadata: { reason: "inviter_disabled" } });
+  });
+
+  it("an owner who hands over the ownership (and stays as admin) keeps them: an admin can still invite", async () => {
+    const owner = await createUser("owner");
+    const other = await createUser("admin");
+    const invitation = await pendingInvitation(owner.userId);
+    await transferOwnership(owner.actor, { toUserId: other.userId, password: TEST_PASSWORD });
+    expect(await linkStatus(invitation.token)).toBe("valid");
+  });
+
+  it("nothing is revoked when the change is refused", async () => {
+    const admin = await createUser("admin");
+    const invitation = await pendingInvitation(admin.userId);
+    await expect(setUserDisabled(actorFor("supervisor"), { userId: admin.userId, disabled: true })).rejects.toBeInstanceOf(AuthError);
+    await expect(changeRole(actorFor("viewer"), { userId: admin.userId, role: "viewer" })).rejects.toBeInstanceOf(AuthError);
+    expect(await linkStatus(invitation.token)).toBe("valid");
   });
 });

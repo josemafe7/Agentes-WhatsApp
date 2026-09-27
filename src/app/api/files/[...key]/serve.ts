@@ -53,6 +53,75 @@ function contentDisposition(contentType: string, fileName: string | null | undef
   return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
 
+/** Audio and video: what browsers play in pieces (Safari and iOS ask for byte ranges before playing). */
+export function acceptsRanges(contentType: string): boolean {
+  const type = contentType.split(";")[0].trim().toLowerCase();
+  return type.startsWith("audio/") || type.startsWith("video/");
+}
+
+/** Inclusive byte positions of a range. */
+export type ByteRange = { start: number; end: number };
+
+const SINGLE_RANGE = /^bytes=(\d*)-(\d*)$/;
+
+/**
+ * The one byte range a Range header asks for (RFC 9110 §14): «bytes=first-last», «bytes=first-» or the last N bytes
+ * «bytes=-N», with `last` cut at the end of the file. "unsatisfiable" when it starts past the end (416). Null for no
+ * header or anything else (several ranges, other units, last before first): the whole file is served, as the RFC
+ * allows.
+ */
+export function parseRange(header: string | null, size: number): ByteRange | "unsatisfiable" | null {
+  const match = header ? SINGLE_RANGE.exec(header.trim()) : null;
+  if (!match) return null;
+  const [, first, last] = match;
+  if (first === "" && last === "") return null;
+  if (first === "") {
+    const length = Number(last);
+    if (!Number.isSafeInteger(length)) return null;
+    if (length === 0 || size === 0) return "unsatisfiable";
+    return { start: Math.max(0, size - length), end: size - 1 };
+  }
+  const start = Number(first);
+  const lastByte = last === "" ? null : Number(last);
+  if (!Number.isSafeInteger(start) || (lastByte !== null && (!Number.isSafeInteger(lastByte) || lastByte < start))) return null;
+  if (start >= size) return "unsatisfiable";
+  return { start, end: Math.min(lastByte ?? size - 1, size - 1) };
+}
+
+/**
+ * Only the bytes of `range` from a file stream; the source is cancelled as soon as they are out. Storage streams
+ * from the start (disk and Blob alike), so the bytes before the range are read and dropped, never kept in memory.
+ */
+export function sliceStream(source: ReadableStream<Uint8Array>, range: ByteRange): ReadableStream<Uint8Array> {
+  const reader = source.getReader();
+  let consumed = 0;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+        const chunkStart = consumed;
+        consumed += value.byteLength;
+        if (consumed <= range.start) continue;
+        const from = Math.max(0, range.start - chunkStart);
+        const to = Math.min(value.byteLength, range.end + 1 - chunkStart);
+        if (to > from) controller.enqueue(value.subarray(from, to));
+        if (consumed > range.end) {
+          controller.close();
+          await reader.cancel();
+        }
+        return;
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
+}
+
 /** Headers of a served file: stored type, never sniffed, sandboxed, and not cached by shared caches if private. */
 export function fileResponseHeaders(
   file: Pick<StoredFile, "contentType" | "size">,

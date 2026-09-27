@@ -108,6 +108,17 @@ describe("voice notes the model rejects [MED-02]", () => {
     expect(bodies(fake.calls).map((body) => body.input_audio.format)).toEqual(["mp3"]);
   });
 
+  it("the converter gets the audio's stored type, with which FFmpeg's input format is forced [SEG-13]", async () => {
+    const client = createOpenRouterClient({ apiKey: FAKE_OPENROUTER_KEY, baseUrl: FAKE_BASE_URL, fetchImpl: fakeFetch(routes({ "POST /audio/transcriptions": ok("Hola") })).fetch });
+    const received: (string | null | undefined)[] = [];
+    const ffmpeg: FfmpegRunner = async ({ mimeType }) => {
+      received.push(mimeType);
+      return MP3;
+    };
+    await transcribeAudio({ bytes: OGG, mimeType: "audio/amr" }, { client, model: WHISPER, ffmpeg });
+    expect(received).toEqual(["audio/amr"]);
+  });
+
   it("a failure that is not about the format goes straight to the fallback, without converting", async () => {
     const { fake, client, conversions, ffmpeg } = setup(down, ok("Hola"));
     const outcome = await transcribeAudio({ bytes: OGG, mimeType: "audio/webm" }, { client, model: WHISPER, ffmpeg, fallbackAllowed: privateFallback });

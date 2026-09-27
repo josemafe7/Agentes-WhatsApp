@@ -1,7 +1,12 @@
 // `pnpm worker`: runs the background work in a loop, for an own server (VPS) without the cron route
-// (docs/decisions/0008). Ctrl+C or SIGTERM lets the current job finish; a second one stops at once.
+// (docs/decisions/0008). Ctrl+C or SIGTERM lets the current job finish; a second one stops at once. It makes the same
+// start-up checks as the web server (src/server/startup-checks.ts): with an unsafe configuration it does not start.
 import { closeDb } from "../src/db";
+import { runImapIdleWatchers } from "../src/server/channels/email/imap/idle";
+import { ensureEmailPollingForAll } from "../src/server/channels/email/jobs";
 import { tick } from "../src/server/jobs";
+import { safeErrorMessage } from "../src/server/redact";
+import { checkStartupConfig, isStartupConfigError } from "../src/server/startup-checks";
 import { loadLocalEnv } from "./lib/cli";
 import { runWorkerLoop } from "./lib/worker-loop";
 
@@ -12,6 +17,14 @@ const IDLE_SLEEP_MS = 5_000;
 
 async function main(): Promise<void> {
   loadLocalEnv();
+  try {
+    for (const warning of checkStartupConfig()) console.warn(`[worker] ${warning}`);
+  } catch (error) {
+    // Only the explanation: never the value of a key or an address.
+    console.error(`[worker] No puede arrancar. ${isStartupConfigError(error) ? error.message : safeErrorMessage(error)}`);
+    process.exitCode = 1;
+    return;
+  }
   const workerId = `worker-${crypto.randomUUID()}`;
   const controller = new AbortController();
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -25,12 +38,17 @@ async function main(): Promise<void> {
     });
   }
   console.log("[worker] En marcha. Ctrl+C para parar.");
+  // Mailboxes: each connected one keeps its read every minute, and with EMAIL_IMAP_IDLE=true the IMAP ones with «Leer
+  // al momento» read new mail as it arrives (docs/integracion-correo.md §3.2). Neither stops the worker if it fails.
+  await ensureEmailPollingForAll().catch((error: unknown) => console.warn(`[worker] No se han podido revisar las lecturas de los buzones: ${safeErrorMessage(error)}`));
+  const idle = runImapIdleWatchers({ signal: controller.signal }).catch((error: unknown) => console.warn(`[worker] IMAP IDLE parado: ${safeErrorMessage(error)}`));
   try {
     await runWorkerLoop({
       runTick: () => tick({ budgetMs: JOB_BUDGET_MS, workerId, maxJobs: 1 }),
       signal: controller.signal,
       idleSleepMs: IDLE_SLEEP_MS,
     });
+    await idle;
     console.log("[worker] Parado.");
   } finally {
     closeDb();

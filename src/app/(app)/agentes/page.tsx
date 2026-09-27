@@ -1,4 +1,4 @@
-import { Bot, Plus } from "lucide-react";
+import { Bot, Plus, Webhook } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { noPermissionDescription } from "@/components/app-shell/navigation";
@@ -13,6 +13,7 @@ import { can, PERMISSIONS } from "@/lib/permissions";
 import { getCachedModelCatalog, modelWarnings } from "@/server/ai/models";
 import { requirePageActor } from "@/server/session";
 import { AgentCard } from "./_components/agent-card";
+import { HTTP_TOOLS_PATH } from "./herramientas/_lib/paths";
 
 export const metadata: Metadata = { title: "Agentes" };
 
@@ -23,6 +24,15 @@ export default async function AgentsPage() {
   const canManage = can(actor, PERMISSIONS.agents.manage);
   const [agents, profile, catalog] = await Promise.all([listAgents(actor), getBusinessProfile(actor), getCachedModelCatalog()]);
 
+  // The business's own HTTP tools, which each agent can use ([HER-11], [AGE-08]): owner and admin.
+  const httpTools = can(actor, PERMISSIONS.agents.customTools) ? (
+    <Button asChild variant="outline">
+      <Link href={HTTP_TOOLS_PATH}>
+        <Webhook aria-hidden />
+        Herramientas HTTP
+      </Link>
+    </Button>
+  ) : null;
   const newAgent = canManage ? (
     <Button asChild>
       <Link href="/agentes/nuevo">
@@ -34,7 +44,18 @@ export default async function AgentsPage() {
 
   return (
     <>
-      <PageHeader title="Agentes" description="Los agentes de IA que atienden a tus clientes y los canales donde responden." actions={agents.length > 0 ? newAgent : null} />
+      <PageHeader
+        title="Agentes"
+        description="Los agentes de IA que atienden a tus clientes y los canales donde responden."
+        actions={
+          httpTools || agents.length > 0 ? (
+            <>
+              {httpTools}
+              {agents.length > 0 ? newAgent : null}
+            </>
+          ) : null
+        }
+      />
       {agents.length === 0 ? (
         <div className="rounded-xl border">
           <EmptyState

@@ -10,7 +10,11 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
 ## Claves
 
 - Solo el código de servidor usa las claves: `src/data/` y `src/server/` empiezan con
-  `import 'server-only'`, y los scripts y el worker nunca llegan al navegador.
+  `import 'server-only'`, y los scripts y el worker nunca llegan al navegador. Los scripts y el worker cargan
+  esos módulos con `tsx --conditions=react-server`, y Vitest los sustituye por un módulo vacío. Solo dos módulos
+  sin claves ni datos no lo llevan, porque también los usa una pantalla del navegador: las constantes del correo
+  (`src/server/channels/email/constants.ts`) y la forma de una herramienta HTTP
+  (`src/server/ai/tools/http-tool-definition.ts`).
 - Next.js manda al navegador toda variable que empieza por `NEXT_PUBLIC_`: solo la llevan valores hechos
   para ser públicos. Lo que cambia en cada instalación (URL, nombre, clave pública VAPID) tampoco va ahí,
   porque esas variables se fijan al compilar: se lee en el servidor al usarlo.
@@ -41,8 +45,8 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
 - Nunca llegan al navegador: como mucho «••••1234», y solo para propietario y administrador. Un campo
   vacío al guardar conserva el valor ([AJU-16], [PER-07]).
 - Un secreto guardado solo vuelve a donde se guardó: si cambia a dónde se envía (servidor, puerto, seguridad o
-  usuario del SMTP; lo mismo, en el futuro, para IMAP y las cabeceras de las herramientas HTTP), hay que volver a
-  escribirlo. Si no, quien tenga una sesión de administrador podría mandar la contraseña real del negocio a un
+  usuario del SMTP del sistema y de un buzón IMAP/SMTP; el Client ID de la app de Google o de Microsoft; el servidor de
+  la dirección de una herramienta HTTP, para sus cabeceras secretas), hay que volver a escribirlo. Si no, quien tenga una sesión de administrador podría mandar la contraseña real del negocio a un
   servidor suyo. Y una contraseña nunca viaja sin cifrar (SMTP «Sin cifrar» solo sin contraseña).
 - Nunca aparecen en los logs ni en los errores que se guardan o se muestran, tampoco dentro de una URL (la
   de descarga de archivos de Telegram lleva el token del bot).
@@ -83,7 +87,12 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
   por `/api/files/…`, que comprueba la sesión y el permiso sobre ese archivo, con
   `X-Content-Type-Options: nosniff` y `Cache-Control: private, no-store` ([MED-08]).
   Sin sesión solo se sirve lo que debe verse fuera (el logo del negocio) y, en el chat web, lo de la
-  propia conversación del visitante.
+  propia conversación del visitante. Los audios y vídeos admiten trozos (`Range`, respuesta 206 con
+  `Content-Range`), que Safari y el iPhone piden antes de reproducirlos; siempre después de esas comprobaciones, con
+  las mismas cabeceras, y un trozo que empieza después del final responde 416.
+- Un archivo que un visitante del chat web sube y nunca envía en un mensaje se borra: su recibo dura una hora y
+  cada subida deja programado el trabajo `webchat.upload_cleanup` para una hora y cuarto después, que lo borra si
+  ningún mensaje lo usa (`src/server/channels/webchat/cleanup.ts`).
 - Mientras se construye y no hay datos reales, basta la base local. Antes de meter datos reales se separan:
   producción es una base nueva y limpia (en Turso, libSQL, nunca `--tursodb`), creada desde las
   migraciones, y la local o una de desarrollo se queda para construir y probar. Desde entonces el agente
@@ -123,12 +132,19 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
   dos pasos, recuperar la contraseña y «Mi cuenta» van por Server Actions, que añaden los límites por email y
   por usuario, el registro de actividad y la validación propia.
 - Enlaces de invitación y de recuperación: de un solo uso y con caducidad. Nadie sabe por la respuesta si
-  un email tiene cuenta ([USU-01], [USU-10]).
+  un email tiene cuenta ([USU-01], [USU-10]). De ninguno se guarda el token tal cual: de la invitación, su SHA-256;
+  de la recuperación y del paso de la verificación en dos pasos, también su SHA-256 (Better Auth,
+  `verification.storeIdentifier: "hashed"`). El enlace de recuperación va en el trabajo que envía el correo y
+  se borra de él en cuanto sale (o cuando el trabajo se da por fallido): una copia de la base de datos no da
+  enlaces que funcionen.
+- Las invitaciones pendientes que envió alguien se revocan cuando se le desactiva, se le borra o se le da un rol
+  que no puede invitar, y siguen revocadas aunque se le reactive: nadie entra por la palabra de quien ya no podría
+  invitarle. Cada una queda en el registro de actividad, a nombre de quien hizo el cambio ([USU-09], [USU-14]).
 - Verificación en dos pasos (TOTP) para quien quiera. Con «Exigir verificación en dos pasos» activado,
   propietario y administradores no usan la app hasta configurarla ([USU-12]). Better Auth no la exige por
   rol: lo comprueba `src/server/session.ts` en cada petición.
 - No se guardan tokens ni datos personales en `localStorage` (excepción: el identificador anónimo del
-  chat web y su token firmado, ver «Excepciones aprobadas»).
+  chat web, su token firmado y la fecha de la última respuesta leída, ver «Excepciones aprobadas»).
 - Los usuarios de prueba los crea el seed y solo existen en local y en la demo. En `README.md` solo
   aparecen esas credenciales, nunca unas reales, y en producción no existe ninguno de ellos: `pnpm seed` se
   niega en una instalación sin demo ([ARR-19]). Una demo pública con las credenciales a la vista la puede
@@ -164,7 +180,15 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
   direcciones por página que se añade, y un DOCX o XLSX se descomprime primero con tope (100 MB en total, 10.000
   entradas) antes de dárselo a su lector, sin fiarse de los tamaños que declara el archivo.
 - Los archivos que llegan por WhatsApp se descargan solo de los servidores de Meta (`src/lib/meta/client.ts`):
-  cada redirección, 3 como máximo, se vuelve a comprobar, y el token solo va a la primera dirección.
+  cada redirección, 3 como máximo, se vuelve a comprobar, y el token solo va a la primera dirección. Cada tipo tiene
+  el tope de `docs/integracion-whatsapp-mensajes.md` §10.3 (audio y vídeo 16 MB, imagen 5 MB, sticker 500 KB,
+  documento 100 MB) y la descarga se corta en cuanto lo pasa; por proceso, como mucho 3 descargas a la vez y 128 MB
+  reservados (`src/server/media/download-gate.ts`), porque `FileStorage` y el cliente de Meta trabajan con el
+  archivo entero en memoria.
+- FFmpeg (notas de voz a MP3) nunca adivina el formato de un archivo de un cliente: recibe `-f` según sus primeros
+  bytes o, si no se reconocen, su tipo guardado, y solo para los formatos de audio de `src/server/media/ffmpeg.ts`;
+  y solo puede abrir archivos locales y tuberías (`-protocol_whitelist file,pipe`). Una lista de reproducción o un
+  guion de «concat» disfrazado de audio no le hace abrir otros archivos ni direcciones.
 - Los cambios de datos van por Server Actions o POST, nunca por GET. Una Server Action se puede llamar
   desde fuera aunque no aparezca en la pantalla. `/api/cron/tick` acepta GET porque Vercel Cron llama así:
   exige el secreto y solo lanza trabajo que se puede repetir sin efecto.
@@ -176,30 +200,51 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
   el cron y el chat web no usan cookie: se protegen con su firma, su secreto o el identificador del
   visitante.
 - CORS: sin cabeceras CORS salvo que un dominio concreto necesite llamar a la API, y entonces solo ese. Nunca
-  `*`. El chat web responde solo a los dominios permitidos de su canal ([WEB-10]).
+  `*`. El chat web responde solo a los dominios permitidos de su canal ([WEB-10]). La propia app cuenta como
+  dominio permitido solo mientras esa lista está vacía; un chat pensado para la web del negocio solo funciona en la
+  app en `/widget-demo` (la API lo sabe por el `Referer`, que las páginas de la app mandan entero a la propia app y que
+  otra web no puede falsear desde el navegador). Fuera de la demo, `/widget-demo` pide sesión y solo ofrece los
+  chats activos; en la demo, que solo corre en local, es pública.
 
 ## Límites y errores
 
 - Los límites de peticiones van en la propia app, con el adaptador `RateLimiter` (hoy, una tabla de
   libSQL), para que funcionen igual en local, en Vercel y en un VPS ([SEG-07]):
-  - inicio de sesión, recuperación, verificación en dos pasos e invitaciones, por IP y por email;
+  - inicio de sesión, recuperación, verificación en dos pasos e invitaciones, por IP y por email. Al entrar, por
+    email: 5 intentos seguidos libres y, desde ahí, cada intento espera al anterior 1 minuto, luego 2, 4, 8 y como
+    mucho 15; lo que se intenta mientras se espera se rechaza sin alargar la espera, así que nadie (tampoco el
+    propietario) queda fuera más de 15 minutos seguidos. Una contraseña correcta lo pone a cero, y la racha se olvida
+    a las 24 horas. La espera es un «alquiler» de `app_kv` que se toma con una sola sentencia: varios intentos a la vez
+    no se la saltan (`src/app/(auth)/_lib/throttle.ts`);
   - avisos de los canales, por IP, con un límite amplio que no frene las ráfagas de Meta (1.800 por minuto en
     WhatsApp) y otro mucho menor para los que acaban rechazados (60 por minuto con 400, 401 o 413): quien no
-    tiene la firma no puede hacer trabajar a la app a voluntad. Antes de mirar la firma, un aviso de WhatsApp con
-    más de 1.000 actualizaciones (el máximo de Meta) o que nombra más de 100 números o cuentas se rechaza con 400
-    sin tocar la base de datos;
+    tiene la firma no puede hacer trabajar a la app a voluntad. La firma de un aviso de WhatsApp se comprueba con los
+    App Secret guardados antes de leer su JSON (decisión 0022); ya firmado, uno con más de 1.000 actualizaciones (el
+    máximo de Meta) o que nombra más de 100 números o cuentas se rechaza con 400 sin guardar nada. Las firmas
+    rechazadas se cuentan en memoria y se escriben como mucho una vez por minuto y canal, nunca una por petición;
   - WhatsApp, por persona: 30 plantillas por minuto desde la bandeja (Meta puede cobrar cada una), 5 códigos
     por SMS o llamada por hora, 10 intentos del código cada 15 minutos y 30 «Validar con Meta» o «Conectar»
     por minuto (`src/data/whatsapp-limits.ts`);
-  - chat web, por IP y por visitante ([WEB-08]);
+  - chat web, por IP y por visitante ([WEB-08]), siempre antes de leer nada de la base de datos: una avalancha de
+    peticiones solo cuesta un contador por petición. Un visitante con su token válido lee el motivo («Demasiados
+    mensajes, espera un momento»); sin token, la respuesta no lleva cabeceras CORS. Además, con la IA del chat
+    encendida, cada mensaje la hace responder y cuesta dinero: como mucho 100 al día por IP y 2.000 al día por chat, y
+    al pasarlos el visitante lee «Por hoy no podemos atender más mensajes por este chat…» y el mensaje no se guarda
+    (`src/server/channels/webchat/limits.ts`);
   - todo lo que gasta IA, por persona y minuto (`src/server/ai/limits.ts`): 20 mensajes de «Probar agente», 5
     borradores con IA y 10 veces «Actualizar lista» o comprobaciones de un modelo de embeddings;
   - conocimiento (fase 4): 20 búsquedas de «Probar búsqueda» por persona y minuto, 60 altas de contenido
-    (archivos, páginas web y preguntas frecuentes) por persona cada 10 minutos, porque cada documento gasta IA en
-    su resumen y sus embeddings, y 30 veces cada 10 minutos lo que vuelve a procesar (reprocesar, reintentar o
-    refrescar un documento, editar una pregunta frecuente y «Reindexar» una base), que gasta lo mismo. Los
-    archivos de contexto (propietario y administradores) y «Convertir en FAQ» (también el supervisor) no tienen
-    límite propio; cambiar el modelo de una base cuenta en el de comprobaciones de un modelo de embeddings.
+    (archivos, páginas web y preguntas frecuentes, también las de «Convertir en FAQ» desde la bandeja) por persona
+    cada 10 minutos, porque cada documento gasta IA en su resumen y sus embeddings, y 30 veces cada 10 minutos lo
+    que vuelve a procesar (reprocesar, reintentar o refrescar un documento, cambiar su título, editar una pregunta
+    frecuente y «Reindexar» una base), que gasta lo mismo. Los archivos de contexto (propietario y administradores)
+    no tienen límite propio; cambiar el modelo de una base cuenta en el de comprobaciones de un modelo de embeddings.
+- La IP de cada límite (`src/server/client-ip.ts`) sale de `X-Forwarded-For`, que escribe cada proxy de delante
+  añadiendo la dirección de la que recibe la petición; lo que queda a su izquierda lo pone el cliente y se puede
+  inventar. `TRUSTED_PROXY_HOPS` dice cuántos proxies hay: 1 por defecto (Vercel, que la sobrescribe con la del
+  cliente, o Traefik en Dokploy), y la IP es la entrada de ese puesto empezando por la derecha. Con 0 (la app
+  expuesta sin proxy, que no se recomienda) no se fía de ninguna cabecera: todos comparten los límites por IP, y los
+  límites por email, visitante y usuario siguen funcionando. Un valor no válido no deja arrancar la app.
 - Better Auth tiene su propio limitador, pero solo cubre las peticiones HTTP a `/api/auth/*` y, por
   defecto, solo en producción y en memoria, que Better Auth desaconseja sin un servidor fijo (como en
   Vercel): va con almacenamiento en la base de datos, para las pocas rutas que siguen abiertas por HTTP. Sus
@@ -225,15 +270,42 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
 
 ## Configuración
 
-- En `next.config.ts`: `poweredByHeader: false` y cabeceras de seguridad (`X-Content-Type-Options`,
-  `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy` y `Strict-Transport-Security`). Content
-  Security Policy cuando la app esté estable, con la guía de Next.js.
+- En `next.config.ts`: `poweredByHeader: false` y cabeceras de seguridad para todo (`X-Content-Type-Options:
+  nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`, `Permissions-Policy` con
+  el micrófono solo para la propia app, `Strict-Transport-Security` de dos años con subdominios y «preload» (que por sí
+  solo no apunta el dominio en la lista de precarga de los navegadores: pedirlo es decisión del negocio para su dominio), y `Cross-Origin-Opener-Policy: same-origin`). Nada que impida
+  cargar `/widget.js` en la web del negocio. `/sw.js` lleva las de la guía de PWA de Next.js: tipo JavaScript,
+  `Cache-Control: no-cache, no-store, must-revalidate` y su propia política, `default-src 'self'; script-src 'self'`.
+- Content Security Policy de cada página, con la guía de Next.js: la pone `src/proxy.ts` con un nonce nuevo en cada
+  petición (todas las páginas se generan por petición; el layout raíz lee el nonce para el script del tema).
+  Scripts solo con ese nonce y `'strict-dynamic'` (lo que cargan ellos, como el widget en `/widget-demo` y en el
+  asistente), sin `'unsafe-inline'` ni `eval` salvo en desarrollo; todo lo demás, de la propia app (`blob:` y `data:`
+  para imágenes y audios de vista previa); `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`,
+  `frame-ancestors 'none'`, `worker-src 'self'` para el service worker y, con HTTPS, `upgrade-insecure-requests`.
+  Los estilos admiten `'unsafe-inline'` (ver «Excepciones aprobadas»): React escribe atributos `style`, Radix, sonner
+  e input-otp añaden etiquetas `<style>`, el widget dibuja su Shadow DOM con una y el color del negocio es un bloque
+  `<style>`; un estilo no ejecuta código. Un script en línea nuevo tiene que llevar el nonce
+  (`headers().get("x-nonce")`), o no se ejecuta. La política es solo de las páginas de la app: el widget en la web del
+  negocio vive con la de esa web. Zod, que compilaría sus validaciones con `new Function`, va sin compilar en el
+  navegador (`z.config({ jitless: true })` en `src/instrumentation-client.ts`, antes de crear ningún esquema): la
+  política nunca tiene que admitir `eval`.
+- La versión compilada (`NODE_ENV=production`) no arranca sin `APP_URL` (o `BETTER_AUTH_URL`) con `https://` y sin
+  usuario ni contraseña, porque con ella se hacen los enlaces de los correos y Better Auth decide las cookies
+  `Secure`. La única excepción es `http://localhost` (o `127.0.0.1`, `[::1]`), para probar `pnpm build && pnpm start`
+  en el propio ordenador: arranca avisando de que solo funciona ahí, y Better Auth rechaza entrar desde cualquier otro
+  origen. Tampoco arranca con una dirección de servicio externo cambiada (`*_BASE_URL`), que mandaría las claves del
+  negocio y los mensajes de sus clientes a otro servidor, ni con `ALLOW_LOCAL_HTTP_TOOLS`, que dejaría a las
+  herramientas HTTP llegar a la red interna del servidor ([HER-14]). Solo los servidores de Playwright las cambian, con
+  `E2E_ALLOW_BASE_URL_OVERRIDES=true`. Las mismas comprobaciones las hace `pnpm worker` al arrancar
+  (`src/server/startup-checks.ts`, que usan `src/instrumentation.ts` y `scripts/worker.ts`). El error dice en español
+  qué variable falla, nunca su valor.
 - Cookies de sesión `HttpOnly`, `SameSite=Lax` y `Secure` con HTTPS (Better Auth lo decide por la URL de
   la app, `BETTER_AUTH_URL`).
 - Los despliegues de prueba no usan datos reales, y en producción no hay rutas de prueba ni de depuración.
   La demo (`DEMO_MODE`) solo se activa en local y nunca se carga al arrancar una app publicada ([ARR-18]).
 - El simulador de canales solo lo usan propietario y administrador, y lo que «envía» nunca sale a Meta,
-  Google, Microsoft ni a un servidor de correo ([AJU-13]).
+  Google, Microsoft ni a un servidor de correo ([AJU-13]). Escribe solo como sus propios clientes (identidades con el
+  prefijo `sim:`, que ningún canal da): nunca en la conversación, las citas ni los consentimientos de un cliente real.
 
 ## Si se publica en Vercel
 
@@ -260,8 +332,9 @@ cuenta.
   dentro de la imagen de Docker ni en el repositorio.
 - La app no se expone directamente a internet: va detrás del proxy inverso de Dokploy, con HTTPS en un
   dominio propio (los `traefik.me` no tienen HTTPS y Meta los rechaza).
-- Los límites de peticiones ya van en la app; para que lean la IP real, se indica qué proxy es de
-  confianza.
+- Los límites de peticiones ya van en la app; para que lean la IP real, `TRUSTED_PROXY_HOPS` dice cuántos
+  proxies hay delante: 1 con Traefik solo (el valor por defecto); 2 si además hay otro delante, como Cloudflare. Si
+  alguna vez la app quedara expuesta sin proxy, 0.
 - El servidor solo abre los puertos necesarios (22, 80 y 443; el 3000 del panel se cierra cuando tiene su
   dominio con HTTPS), se entra por SSH con clave y no con contraseña, y el sistema instala solo sus
   actualizaciones de seguridad.
@@ -371,11 +444,14 @@ Una app publicada se queda vieja aunque nadie la toque. Cuando pida el mantenimi
 
 | Punto | Motivo | Aprobada por y fecha |
 |---|---|---|
-| El chat web guarda en `localStorage` el identificador anónimo del visitante, el token que el servidor firma para ese mismo identificador y la fecha de la última respuesta leída (para el punto de «mensajes nuevos») | Permite volver a su conversación sin cuenta. El identificador lo crea el servidor al azar; el token (HMAC con una clave derivada de `APP_ENCRYPTION_KEY` solo para esto, atado al canal y al visitante, como mucho 365 días) solo abre la conversación de ese visitante en ese chat ([WEB-11]). No se guardan datos personales. Si el navegador bloquea el almacenamiento, se queda en memoria | Encargo del usuario (§6.4 de la especificación original), 26-09-2026; token y fecha añadidos al integrar la fase 2 (27-09-2026) dentro del mismo encargo |
+| El chat web guarda en `localStorage` el identificador anónimo del visitante | Permite volver a su conversación sin cuenta ([WEB-04]). El identificador lo crea el servidor al azar y no dice nada de la persona. No se guardan datos personales. Si el navegador bloquea el almacenamiento, se queda en memoria | Encargo del usuario (§6.4 de la especificación original), 26-09-2026 |
+| El chat web guarda también en `localStorage`, junto al identificador, el token que el servidor firma para él y la fecha de la última respuesta leída (para el punto de «mensajes nuevos») | Sin el token, cualquiera que copiara un identificador leería esa conversación: el token (HMAC con una clave derivada de `APP_ENCRYPTION_KEY` solo para esto, atado al canal y al visitante, como mucho 365 días) solo abre la conversación de ese visitante en ese chat ([WEB-11]). La fecha es solo un instante, sin contenido. Nada de esto lleva datos personales; si el navegador bloquea el almacenamiento, se queda en memoria | Permiso general del propietario, 2026-09-26 |
+| Meta exige el token de la app (`<APP_ID>\|<App Secret>`) como parámetro `access_token` de la dirección en `GET /debug_token` y en `/{APP_ID}/subscriptions`: no admite otra forma | Es la forma documentada (`docs/integracion-whatsapp.md` §2.2); el resto de llamadas lleva el token en la cabecera `Authorization`. Como la dirección lleva un secreto, nunca se escribe en los registros: el cliente (`src/lib/meta/client.ts`) no la anota, sus errores no la incluyen y `redactSecrets` (`src/server/redact.ts`) borra cualquier `access_token=` y los tokens de Meta (`EAA…`) de lo que se registra o se guarda | Permiso general del propietario, 2026-09-26 |
 | D1 · `next@16.3.6` y `eslint-config-next@16.3.6` (y los `@next/*` de esa misma versión, que `next` exige tal cual) entran por `minimumReleaseAgeExclude`, con versión exacta | 16.3.6 (22-09-2026) corrige un fallo crítico (CVE-2026-94545, GHSA-vcvr-r3jv-pc5j): ejecución remota de código en `ImageResponse` de `next/og`, que afecta a 16.2.0–16.3.5. **Quitar la exclusión de `pnpm-workspace.yaml` a partir del 29-09-2026**, cuando 16.3.6 cumpla 7 días | Permiso general del propietario, 2026-09-26 |
 | D2 · `trustPolicyExclude`: `eslint-import-resolver-typescript@3.10.1` y `semver@6.3.1` | Versiones antiguas que llegan de forma indirecta (por `eslint-config-next` y por `@babel/core` del CLI de shadcn), publicadas sin procedencia después de otras que sí la tenían: sin excluirlas, `trustPolicy: no-downgrade` impide instalar. Solo en desarrollo | Permiso general del propietario, 2026-09-26 |
 | D3 · `allowBuilds`: solo `ffmpeg-static` ejecuta su script de instalación | Descarga el binario de FFmpeg 6.1.1 (licencia GPL-3.0-or-later) desde las publicaciones del proyecto en GitHub, sin comprobación de suma visible; sin él no hay binario para convertir las notas de voz ([MED-02]). Los demás scripts (`esbuild`, `unrs-resolver`, `fsevents`, `sharp`) quedan denegados | Permiso general del propietario, 2026-09-26 |
 | D4 · ESLint 9.39.5, sin soporte desde el 06-08-2026 | `eslint-config-next` 16.3 no funciona con ESLint 10 (vercel/next.js#89764, abierta). ESLint solo se usa en desarrollo y nunca llega a producción. Pasar a ESLint 10 cuando `eslint-config-next` lo admita | Permiso general del propietario, 2026-09-26 |
+| La Content Security Policy de las páginas admite estilos en línea (`style-src 'self' 'unsafe-inline'`) | React escribe atributos `style` (anchos, colores de marca, alturas que calcula Radix), Radix, sonner e input-otp añaden etiquetas `<style>` sin nonce, y el color del negocio es un bloque `<style>` del layout. Un estilo no ejecuta código: los scripts siguen solo con el nonce de cada petición y `'strict-dynamic'`, sin `'unsafe-inline'` ni `eval`. Quitarla exigiría reescribir componentes de terceros | Permiso general del propietario, 2026-09-26 |
 | D5 · TypeScript 6.0.3 en vez de 7 | typescript-eslint 8.70 solo admite TypeScript < 6.1 y TypeScript 7 no trae la API de JavaScript que usa. `tsconfig.json` lleva `"types": ["node"]` porque TypeScript 6 ya no carga los tipos por defecto | Permiso general del propietario, 2026-09-26 |
 
 ## Fuentes

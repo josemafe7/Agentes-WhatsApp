@@ -3,6 +3,7 @@
 //   1 platform rules · 2 business profile · 3 agent instructions · 4 context files · 5 current data · 6 last messages.
 // The platform rules always go first and the agent's text cannot remove them. Customer messages, files, web pages
 // and tool results are data, never instructions ([HER-09]): they only appear as messages or marked sections.
+import "server-only";
 import type { AgentInstructions, Terminology } from "@/db/schema";
 import type { MessageContentType, Sector } from "@/lib/enums";
 import { formatDateTime, formatNumber, toSingleLine } from "@/lib/format";

@@ -1,11 +1,16 @@
 // What /setup shows for a request ([ASI-01], [ASI-11]): a pure decision from the installation state, the
 // signed-in role and ?paso=N, so it can be tested without rendering.
 import { z } from "zod";
+import { EMAIL_WIZARD_PATH } from "@/app/(app)/canales/nuevo/correo/_lib/steps";
+import { WA_WIZARD_PATH } from "@/app/(app)/canales/nuevo/whatsapp/_lib/steps";
 import { HOME_PATH, LOGIN_PATH, loginPathFor, SETUP_PATH } from "@/lib/auth-paths";
 import type { Role } from "@/lib/enums";
 
 export { LOGIN_PATH, SETUP_PATH };
 export const INBOX_PATH = HOME_PATH;
+/** Step 7 links to the channel wizards ([ASI-10]): finishing the setup can open them. */
+export const WHATSAPP_WIZARD_DESTINATION = WA_WIZARD_PATH;
+export const EMAIL_WIZARD_DESTINATION = EMAIL_WIZARD_PATH;
 const STEP_COUNT = 7;
 
 export function setupStepHref(step: number): string {

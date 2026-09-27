@@ -43,9 +43,12 @@ import { fail, fromZodError, ok, type ActionResult } from "@/lib/action-result";
 import { PERMISSIONS, type Action } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
 import { toActionFailure } from "@/server/errors";
+import { kickTick } from "@/server/inbound/ingest";
 import { requirePermission } from "@/server/session";
 
 const NOT_FOUND = "No se ha encontrado la conversación.";
+/** Same as `maxDuration` in [id]/page.tsx: the reply that follows reactivating the AI runs within this time. */
+const MAX_DURATION_SEC = 60;
 const conversationIdSchema = z.object({ conversationId: idSchema }).strict();
 
 /** Runs a change with the area permission and refreshes the screen; expected errors come back as a result. */
@@ -183,12 +186,16 @@ export async function discardDraftAction(input: unknown): Promise<ActionResult> 
 
 // ─── The conversation's AI, hand-off, status, labels, assignment and agent ──────────────────────────────
 
-/** IA on, off, or paused until a time, with the reason ([BAN-10]). */
+/**
+ * IA on, off, or paused until a time, with the reason ([BAN-10]). Switched on again with a customer's message left
+ * unanswered, the reply runs right after answering, not at the next round of the queue ([BAN-16], [MOT-15]).
+ */
 export async function setAiAction(input: unknown): Promise<ActionResult> {
   return change(PERMISSIONS.inbox.pauseAi, async (actor) => {
     const parsed = setConversationAiSchema.safeParse(input);
     if (!parsed.success) return fromZodError(parsed.error);
-    await setConversationAi(actor, parsed.data);
+    const { replyRunAt } = await setConversationAi(actor, parsed.data);
+    if (replyRunAt) kickTick({ maxDurationSec: MAX_DURATION_SEC, runAt: replyRunAt });
     return ok();
   });
 }

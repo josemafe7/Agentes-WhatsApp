@@ -199,15 +199,22 @@ function responseHeaders(raw: http.IncomingHttpHeaders): Headers {
 
 /**
  * A fetch over node:http/https that connects through `lookup` (publicOnlyLookup in production), never reuses a
- * socket and never follows redirects. Global fetch cannot take a custom lookup without an extra package.
+ * socket and never follows redirects. Global fetch cannot take a custom lookup without an extra package. GET unless
+ * `init.method` says otherwise; a text `init.body` is sent as it is (the custom HTTP tools, [HER-11]).
  */
 export function createNodeTransport(lookup: LookupFunction): WebTransport {
   return (url, init) =>
     new Promise<Response>((resolve, reject) => {
       const target = new URL(url);
       const client = target.protocol === "https:" ? https : http;
-      const headers = { ...Object.fromEntries(new Headers(init.headers)), "accept-encoding": "gzip, br" };
-      const request = client.request(target, { method: "GET", headers, lookup, agent: false, signal: init.signal ?? undefined }, (response) => {
+      const payload = typeof init.body === "string" ? Buffer.from(init.body, "utf8") : null;
+      const headers = {
+        ...Object.fromEntries(new Headers(init.headers)),
+        "accept-encoding": "gzip, br",
+        ...(payload ? { "content-length": String(payload.byteLength) } : {}),
+      };
+      const method = init.method ?? "GET";
+      const request = client.request(target, { method, headers, lookup, agent: false, signal: init.signal ?? undefined }, (response) => {
         const status = response.statusCode ?? 0;
         if (status < 200 || status > 599) {
           response.destroy();
@@ -235,7 +242,7 @@ export function createNodeTransport(lookup: LookupFunction): WebTransport {
         resolve(new Response(Readable.toWeb(body) as unknown as ReadableStream<Uint8Array>, responseInit));
       });
       request.on("error", reject);
-      request.end();
+      request.end(payload ?? undefined);
     });
 }
 

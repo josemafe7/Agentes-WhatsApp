@@ -74,10 +74,15 @@ export function ConversationList({ channels, timezone, initialNow, canConnectCha
   const [failedKey, setFailedKey] = useState<string | null>(null);
   const [retries, setRetries] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
+  /** The first page of the current filters: an answer for older filters is dropped. */
   const request = useRef(0);
+  /** Reloads of what is shown, counted apart: a reload never cancels the first page of new filters. */
+  const reloadRequest = useRef(0);
   const current = useRef<Loaded | null>(null);
+  const latestKey = useRef(key);
   useEffect(() => {
     current.current = loaded;
+    latestKey.current = key;
   });
 
   // First page of each filter combination.
@@ -97,19 +102,20 @@ export function ConversationList({ channels, timezone, initialNow, canConnectCha
     );
   }, [key, filters, retries]);
 
-  // News: reload what is already shown (same filters, as many rows as loaded), without a skeleton.
+  // News: reload what is already shown (same filters, as many rows as loaded), without a skeleton. A reload only
+  // applies while its filters are still the ones on screen: typing a search meanwhile never leaves the list loading.
   const reloadTimer = useRef<number | null>(null);
   const reload = useCallback(() => {
     if (reloadTimer.current !== null) window.clearTimeout(reloadTimer.current);
     reloadTimer.current = window.setTimeout(() => {
       reloadTimer.current = null;
       const shown = current.current;
-      if (!shown || shown.key !== key) return;
-      const id = ++request.current;
+      if (!shown || shown.key !== key || latestKey.current !== key) return;
+      const id = ++reloadRequest.current;
       const limit = Math.min(MAX_PAGE, Math.max(PAGE_SIZE, shown.items.length));
       loadInboxAction({ ...filters, limit }).then(
         (result) => {
-          if (id !== request.current || !result.ok || !result.data) return;
+          if (id !== reloadRequest.current || latestKey.current !== key || !result.ok || !result.data) return;
           setLoaded({ key, items: result.data.page.items, nextCursor: result.data.page.nextCursor, counts: result.data.counts });
         },
         // A failed reload keeps the list; the connection notice already says it is retrying.
@@ -117,11 +123,13 @@ export function ConversationList({ channels, timezone, initialNow, canConnectCha
       );
     }, RELOAD_DELAY_MS);
   }, [key, filters]);
+  // New filters (or leaving): a reload still waiting for the old ones is dropped.
   useEffect(
     () => () => {
       if (reloadTimer.current !== null) window.clearTimeout(reloadTimer.current);
+      reloadTimer.current = null;
     },
-    [],
+    [key],
   );
   useRealtime((events: RealtimeEvent[]) => {
     if (events.some((event) => event.type !== "notification.created")) reload();

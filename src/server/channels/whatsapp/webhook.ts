@@ -1,10 +1,12 @@
 // What /api/webhooks/whatsapp does ([CAN-09]–[CAN-11], [WA-31]–[WA-35], [WA-50], [SEG-08]). GET: Meta's verification
-// with the installation's verify token (constant time). POST: the body's channels are found by
-// metadata.phone_number_id (notices by entry[].id = WABA); the X-Hub-Signature-256 of the RAW bytes is checked with
-// each candidate channel's App Secret; wrong or missing → 401 and nothing stored; a valid body for no channel → 200
-// with only time and number in Diagnóstico. Then, per verified channel: identity changes, raw webhook saved, events
-// ingested (duplicates by wamid ignored), statuses (only forward, cost of the first pricing), notices, and media
-// downloads queued. It answers at once and NEVER calls the AI ([CAN-10]); the route kicks the queue afterwards.
+// with the installation's verify token (constant time). POST: FIRST the X-Hub-Signature-256 of the RAW bytes is checked
+// against the App Secrets stored in the installation, before the JSON is parsed or validated (docs/security.md
+// «Entradas y peticiones», decision 0022); a wrong, missing or unverifiable signature, or a body that cannot be parsed →
+// 401 and nothing stored. Then the body's channels are found by metadata.phone_number_id (notices by entry[].id = WABA)
+// and each must be one whose own App Secret signed it ([WA-32]); a signed body for no channel → 200 with only time and
+// number in Diagnóstico ([WA-34]). Then, per verified channel: identity changes, raw webhook saved, events ingested
+// (duplicates by wamid ignored), statuses (only forward, cost of the first pricing), notices, and media downloads
+// queued. It answers at once and NEVER calls the AI ([CAN-10]); the route kicks the queue afterwards.
 import "server-only";
 import { and, eq, inArray, or } from "drizzle-orm";
 import { markWhatsAppWebhookVerified, readWhatsAppVerifyToken } from "@/data/whatsapp";
@@ -61,17 +63,65 @@ export type WebhookPostResult = {
 export const invalidSignatureKey = (channelId: string) => `wa.invalid_signatures:${channelId}`;
 export type InvalidSignatureStats = { count: number; lastAt: string };
 
-/** Diagnóstico's «firmas rechazadas» of a channel ([WA-24]): a counter, never the rejected body. */
+/** Rejected signatures of a channel are written to app_kv at most once in this time (per process). */
+export const INVALID_SIGNATURE_WRITE_INTERVAL_MS = 60_000;
+
+type PendingInvalid = { count: number; lastAt: Date; writtenAt: number | null };
+const PENDING_INVALID = Symbol.for("dominia.whatsapp.invalidSignatures");
+type WithPendingInvalid = typeof globalThis & { [PENDING_INVALID]?: Map<string, PendingInvalid> };
+
+/**
+ * The counts not written yet, one entry per channel of the installation (never per request or per sender). On
+ * globalThis: every copy of this module in the process (each route bundle) shares it, so Diagnóstico sees them too.
+ */
+function pendingInvalid(): Map<string, PendingInvalid> {
+  const holder = globalThis as WithPendingInvalid;
+  holder[PENDING_INVALID] ??= new Map();
+  return holder[PENDING_INVALID];
+}
+
+/**
+ * Diagnóstico's «firmas rechazadas» of a channel ([WA-24]): a counter, never the rejected body. Unsigned requests must
+ * not buy a database write each ([SEG-07]): they are counted in memory and written at most once a minute per channel
+ * (the first one at once, so the diagnosis can tell right away). A failed write keeps the count for the next one.
+ */
 async function countInvalidSignature(channelIds: readonly string[], now: Date): Promise<void> {
+  const pending = pendingInvalid();
   for (const channelId of channelIds) {
-    const current = await getKv<InvalidSignatureStats>(invalidSignatureKey(channelId));
-    await setKv(invalidSignatureKey(channelId), { count: (current?.count ?? 0) + 1, lastAt: now.toISOString() });
+    const entry = pending.get(channelId) ?? { count: 0, lastAt: now, writtenAt: null };
+    entry.count += 1;
+    if (now >= entry.lastAt) entry.lastAt = now;
+    pending.set(channelId, entry);
+    if (entry.writtenAt !== null && now.getTime() - entry.writtenAt < INVALID_SIGNATURE_WRITE_INTERVAL_MS) continue;
+    // Taken before awaiting: a request arriving meanwhile counts in memory instead of writing too.
+    const count = entry.count;
+    const lastAt = entry.lastAt;
+    entry.count = 0;
+    entry.writtenAt = now.getTime();
+    try {
+      const stored = await getKv<InvalidSignatureStats>(invalidSignatureKey(channelId));
+      await setKv(invalidSignatureKey(channelId), { count: (stored?.count ?? 0) + count, lastAt: lastAt.toISOString() });
+    } catch (error) {
+      entry.count += count;
+      console.warn(`[whatsapp] No se pudo anotar una firma rechazada: ${safeErrorMessage(error)}`);
+    }
   }
 }
 
 /**
+ * The channels a rejected body is about, only to count it for them: a plain search of their ids (as JSON strings) in
+ * the bytes, never a parse of what nobody signed. Only channels with an App Secret: the others cannot check anything.
+ */
+function channelsNamedIn(raw: Uint8Array, signers: readonly SigningChannel[]): string[] {
+  const bytes = Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength);
+  return signers
+    .filter((channel) => channel.appSecret !== null && [channel.phoneNumberId, channel.wabaId].some((id) => id && bytes.includes(JSON.stringify(id))))
+    .map((channel) => channel.id);
+}
+
+/**
  * A body for no channel: only the time and the number (or account) are kept ([WA-34]), and only when one of our apps
- * signed it; anything else is just answered, so nobody can fill Diagnóstico with unsigned requests.
+ * signed it; anything else is refused before this, so nobody can fill Diagnóstico with unsigned requests.
  */
 async function recordUnknown(externalAccountId: string | null, now: Date): Promise<void> {
   await db.insert(webhookEvents).values({
@@ -88,31 +138,49 @@ async function recordUnknown(externalAccountId: string | null, now: Date): Promi
   console.info(`[whatsapp] Aviso para un número que no es de ningún canal (${externalAccountId ?? "sin número"}).`);
 }
 
+type SigningChannel = { id: string; phoneNumberId: string | null; wabaId: string | null; appSecret: string | null };
+
+/** The WhatsApp numbers that could sign a POST, with their App Secret (null: disconnected or unreadable, [SEG-03]). */
+async function signingChannels(): Promise<SigningChannel[]> {
+  // Demo channels never take real webhooks ([ARR-11]).
+  const rows = await db
+    .select({ id: channels.id, phoneNumberId: channels.phoneNumberId, wabaId: channels.wabaId, secretsEnc: channels.secretsEnc })
+    .from(channels)
+    .where(and(eq(channels.type, "whatsapp"), eq(channels.isDemo, false)));
+  return rows.map((row) => ({ id: row.id, phoneNumberId: row.phoneNumberId, wabaId: row.wabaId, appSecret: readWhatsAppSecrets(row)?.appSecret ?? null }));
+}
+
+/**
+ * The channels whose App Secret signed these exact bytes (all the numbers of that one Meta app), or none. Each distinct
+ * secret is tried once; the comparison is in constant time and a malformed header never matches ([SEG-08]).
+ */
+function channelsSignedBy(signers: readonly SigningChannel[], raw: Uint8Array, signature: string | null): Set<string> {
+  const verdict = new Map<string, boolean>();
+  const signed = new Set<string>();
+  for (const channel of signers) {
+    if (!channel.appSecret) continue;
+    if (!verdict.has(channel.appSecret)) verdict.set(channel.appSecret, verifyMetaSignature(raw, signature, channel.appSecret));
+    if (verdict.get(channel.appSecret)) signed.add(channel.id);
+  }
+  return signed;
+}
+
 async function candidateChannels(routing: { phoneNumberIds: string[]; wabaIds: string[] }): Promise<ChannelRecord[]> {
   const conditions = [
     ...(routing.phoneNumberIds.length > 0 ? [inArray(channels.phoneNumberId, routing.phoneNumberIds)] : []),
     ...(routing.wabaIds.length > 0 ? [inArray(channels.wabaId, routing.wabaIds)] : []),
   ];
   if (conditions.length === 0) return [];
-  // Demo channels never take real webhooks ([ARR-11]).
   return db.select().from(channels).where(and(eq(channels.type, "whatsapp"), eq(channels.isDemo, false), or(...conditions)));
 }
 
-/** Channels whose own App Secret signed these bytes: another app's secret never unlocks a channel ([WA-32]). */
-function verifiedChannels(candidates: readonly ChannelRecord[], raw: Uint8Array, signature: string | null): ChannelRecord[] {
-  const verdict = new Map<string, boolean>();
-  return candidates.filter((channel) => {
-    const secret = readWhatsAppSecrets(channel)?.appSecret;
-    if (!secret) return false;
-    if (!verdict.has(secret)) verdict.set(secret, verifyMetaSignature(raw, signature, secret));
-    return verdict.get(secret) === true;
-  });
-}
-
-/** Whether any stored App Secret signed the bytes (a number of one of our apps that is not connected here). */
-async function signedByAnyKnownApp(raw: Uint8Array, signature: string | null): Promise<boolean> {
-  const rows = await db.select().from(channels).where(and(eq(channels.type, "whatsapp"), eq(channels.isDemo, false)));
-  return verifiedChannels(rows, raw, signature).length > 0;
+/** The JSON of verified bytes, or undefined when they are not UTF-8 JSON. */
+function parseBody(raw: Uint8Array): unknown {
+  try {
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw)) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 type ChannelWork = { channel: ChannelRecord; messages: MessagesChange[]; account: AccountChange[] };
@@ -169,25 +237,33 @@ export async function processWhatsAppWebhook(
 ): Promise<WebhookPostResult> {
   const now = options.now ?? new Date();
   const result: WebhookPostResult = { status: 200, replyRunAt: null, queuedNow: false, channelIds: [] };
-  let body: unknown;
-  try {
-    // UTF-8 as Meta sends it; escaped or raw non-ASCII both parse. The signature is checked on `raw`, not on this.
-    body = JSON.parse(new TextDecoder("utf-8").decode(raw));
-  } catch {
-    return { ...result, status: 400 };
+
+  // 1. The signature, before anything of the body is parsed or validated: only an App Secret stored here can vouch
+  //    for it. Wrong, missing or unverifiable (no stored secret signed these bytes) → 401, nothing stored.
+  const signers = await signingChannels();
+  const signed = channelsSignedBy(signers, raw, signature);
+  if (signed.size === 0) {
+    await countInvalidSignature(channelsNamedIn(raw, signers), now);
+    return { ...result, status: 401 };
   }
+
+  // 2. Only now the JSON (UTF-8, as Meta sends it). A body that cannot be parsed is refused like an unsigned one.
+  const body = parseBody(raw);
+  if (body === undefined) return { ...result, status: 401 };
   const routing = webhookRouting(body);
   if (!routing) return { ...result, status: 400 };
 
+  // 3. Every channel it is about must be one whose own App Secret signed it: another app's never unlocks it ([WA-32]).
   const candidates = await candidateChannels(routing);
   const withSecrets = candidates.filter((channel) => readWhatsAppSecrets(channel) !== null);
-  const verified = verifiedChannels(withSecrets, raw, signature);
+  const verified = withSecrets.filter((channel) => signed.has(channel.id));
   if (withSecrets.length > 0 && verified.length === 0) {
     await countInvalidSignature(withSecrets.map((channel) => channel.id), now);
     return { ...result, status: 401 };
   }
   if (verified.length === 0) {
-    if (await signedByAnyKnownApp(raw, signature)) await recordUnknown(routing.phoneNumberIds[0] ?? routing.wabaIds[0] ?? null, now);
+    // Signed by one of our apps, for a number that is no channel (or disconnected, without credentials): noted only.
+    await recordUnknown(routing.phoneNumberIds[0] ?? routing.wabaIds[0] ?? null, now);
     return result;
   }
 
@@ -221,7 +297,10 @@ export async function processWhatsAppWebhook(
   return result;
 }
 
-/** Diagnóstico: rejected signatures of a channel ([WA-24] step 6). */
+/** Diagnóstico: rejected signatures of a channel ([WA-24] step 6), the stored ones plus those not written yet. */
 export async function invalidSignatureStats(channelId: string): Promise<InvalidSignatureStats | null> {
-  return getKv<InvalidSignatureStats>(invalidSignatureKey(channelId));
+  const stored = await getKv<InvalidSignatureStats>(invalidSignatureKey(channelId));
+  const pending = pendingInvalid().get(channelId);
+  if (!pending || pending.count === 0) return stored;
+  return { count: (stored?.count ?? 0) + pending.count, lastAt: pending.lastAt.toISOString() };
 }

@@ -94,6 +94,12 @@ export const messages = sqliteTable(
     externalId: text("external_id"),
     contentType: text("content_type", { enum: MESSAGE_CONTENT_TYPES }).notNull().default("text"),
     text: text("text"),
+    /**
+     * The text in lower case and without accents, for the search of the Bandeja («cancelacion» finds «cancelación»,
+     * [BAN-02]). Written with the text (src/server/inbound/message-search.ts); null until then. A copy of what was
+     * said: whoever clears or deletes the text (retention, [CUM-05]; erasing the contact, [CTO-07]) clears it too.
+     */
+    searchText: text("search_text"),
     media: json<MessageMedia>("media"),
     transcript: text("transcript"),
     status: text("status", { enum: MESSAGE_STATUSES }).notNull(),

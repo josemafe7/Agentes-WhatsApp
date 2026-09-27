@@ -4,7 +4,7 @@ import "server-only";
 import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 import { z } from "zod";
-import { db } from "@/db";
+import { db, type Executor } from "@/db";
 import { channels, invitations, user } from "@/db/schema";
 import { INVITABLE_ROLES, type InvitableRole } from "@/lib/enums";
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
@@ -193,6 +193,27 @@ export async function revokeInvitation(actor: Actor, input: unknown): Promise<vo
   const pending = await loadPending(invitationId);
   await db.update(invitations).set({ revokedAt: new Date() }).where(eq(invitations.id, pending.id));
   await writeAudit({ actor, action: "user.invitation_revoked", targetType: "invitation", targetId: pending.id });
+}
+
+/** Why the invitations someone sent stopped working: they can no longer invite. */
+export type InviterChange = "inviter_disabled" | "inviter_removed" | "inviter_role_changed";
+
+/**
+ * Revokes the pending invitations `inviterId` sent, when that person is deactivated, deleted or given a role that
+ * cannot invite: nobody joins on the word of someone who no longer could invite them ([USU-09], [USU-14]). Only
+ * for src/data/users.ts, inside the transaction of that change and after its permission checks; each revocation
+ * goes to the activity log by whoever made the change ([SEG-10]).
+ */
+export async function revokeInvitationsSentBy(executor: Executor, actor: Actor, inviterId: string, reason: InviterChange): Promise<number> {
+  const revoked = await executor
+    .update(invitations)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(invitations.invitedBy, inviterId), isNull(invitations.acceptedAt), isNull(invitations.revokedAt)))
+    .returning({ id: invitations.id });
+  for (const { id } of revoked) {
+    await writeAudit({ actor, action: "user.invitation_revoked", targetType: "invitation", targetId: id, metadata: { reason } }, executor);
+  }
+  return revoked.length;
 }
 
 type TokenLookup = { row: InvitationRow | null; reason: LinkUnavailableError["reason"] | null };

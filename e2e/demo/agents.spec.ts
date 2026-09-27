@@ -206,21 +206,21 @@ test.describe("as the demo owner", () => {
     expect(roleAt, "the agent's own instructions come after them").toBeGreaterThan(rulesAt);
   });
 
-  test("[HER-10][AGE-08] a new agent has the hand-off tool; «Buscar en el conocimiento» can be switched on (fase 4) and the rest are «Próximamente»", async ({
+  test("[HER-10][AGE-08] a new agent has the hand-off tool; the knowledge (fase 4) and agenda (fase 5) tools can be switched on and start off", async ({
     page,
   }) => {
     const agentId = await createAgentFromTemplate(page);
     await page.goto(agentPath(agentId, "herramientas"));
     const main = page.getByRole("main");
     await expect(main.getByRole("switch", { name: "Pasar a una persona" })).toBeChecked();
-    // The tools arrive with their phase ([HER-10]): the knowledge search came with fase 4, off for a new agent.
-    const search = main.getByRole("switch", { name: "Buscar en el conocimiento" });
-    await expect(search, "Buscar en el conocimiento is available").toBeEnabled();
-    await expect(search).not.toBeChecked();
-    for (const label of ["Consultar huecos libres", "Crear citas"]) {
-      await expect(main.getByRole("switch", { name: label }), `${label} is not available yet`).toBeDisabled();
+    // The tools arrive with their phase ([HER-10]): the knowledge search came with fase 4 and the booking tools with
+    // fase 5, all of them off for a new agent. Every system tool exists now, so nothing is «Próximamente».
+    for (const label of ["Buscar en el conocimiento", "Consultar huecos libres", "Crear citas"]) {
+      const tool = main.getByRole("switch", { name: label });
+      await expect(tool, `${label} is available`).toBeEnabled();
+      await expect(tool, `${label} starts off`).not.toBeChecked();
     }
-    await expect(main.getByText("Próximamente").first()).toBeVisible();
+    await expect(main.getByText("Próximamente")).toHaveCount(0);
   });
 
   test("[AGE-13] deleting an agent asks for confirmation and removes it from Agentes", async ({ page }, testInfo) => {

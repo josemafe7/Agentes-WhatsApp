@@ -94,15 +94,23 @@ describe("/api/webhooks/whatsapp", () => {
     expect((await POST(signedWebhookRequest(huge, { ip: nextIp() }))).status).toBe(413);
   });
 
-  it("a body that is not JSON is refused with 400", async () => {
-    expect((await POST(signedWebhookRequest("not json", { ip: nextIp() }))).status).toBe(400);
+  it("a body that is not JSON is refused with 401 and stores nothing, signed or not: the signature is checked first [WA-32]", async () => {
+    expect((await POST(signedWebhookRequest("not json", { ip: nextIp() }))).status).toBe(401);
+    expect((await POST(signedWebhookRequest("not json", { appSecret: WA_TEST.otherAppSecret, ip: nextIp() }))).status).toBe(401);
+    expect(await db.select().from(webhookEvents)).toHaveLength(0);
+    expect(scheduled).toHaveLength(0);
+  });
+
+  it("a signed body that is not a WhatsApp webhook is refused with 400 and stores nothing", async () => {
+    expect((await POST(signedWebhookRequest(JSON.stringify({ hola: "mundo" }), { ip: nextIp() }))).status).toBe(400);
+    expect(await db.select().from(webhookEvents)).toHaveLength(0);
   });
 
   it("requests that end refused (400, 401, 413) have a lower limit of their own per IP; accepted ones do not count [SEG-07]", async () => {
     const ip = nextIp();
     const key = `wa-webhook:rejected:ip:${ip}`;
     expect((await POST(signedWebhookRequest(fixtureText("text"), { appSecret: WA_TEST.otherAppSecret, ip }))).status).toBe(401);
-    expect((await POST(signedWebhookRequest("not json", { ip }))).status).toBe(400);
+    expect((await POST(signedWebhookRequest("not json", { ip }))).status).toBe(401);
     expect((await POST(signedWebhookRequest(fixtureText("text"), { ip }))).status).toBe(200);
     expect((await db.select().from(rateLimits).where(eq(rateLimits.key, key)))[0].count).toBe(2);
 

@@ -16,6 +16,8 @@ import type { ChannelCapabilities } from "@/server/channels/types";
 import { parseInput } from "@/server/errors";
 import { listActiveTeam } from "@/server/team";
 import { eligibleAssignees, openHandoffOf } from "@/server/handoff/service";
+import { messageSearchCondition } from "@/server/inbound/message-search";
+import { contactSearchCondition } from "./contacts-search";
 import { loadConversationFor } from "./conversation-scope";
 import { assertCan } from "./guard";
 
@@ -86,13 +88,14 @@ function modeCondition(mode: "ai" | "human" | "paused", now: Date): SQL | undefi
 /** Labels are a JSON array in text: a quoted label inside it matches (portable LIKE, no JSON functions). */
 const hasLabel = (label: string) => like(conversations.labels, `%${JSON.stringify(label)}%`);
 
+/**
+ * The contact or the text of a message, without accents or case («jose» finds «José», «cancelacion» finds
+ * «cancelación»: contacts-search.ts and src/server/inbound/message-search.ts).
+ */
 function searchCondition(search: string): SQL | undefined {
-  const pattern = `%${search}%`;
   return or(
-    like(contacts.name, pattern),
-    like(contacts.phone, pattern),
-    like(contacts.email, pattern),
-    exists(db.select({ id: messages.id }).from(messages).where(and(eq(messages.conversationId, conversations.id), like(messages.text, pattern)))),
+    contactSearchCondition(search),
+    exists(db.select({ id: messages.id }).from(messages).where(and(eq(messages.conversationId, conversations.id), messageSearchCondition(search)))),
   );
 }
 

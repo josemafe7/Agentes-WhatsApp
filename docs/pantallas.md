@@ -131,8 +131,9 @@ lateral: logo, stepper y una columna.
 5. **Primer agente** (fase 1): plantilla del sector u «Generar desde la web del negocio», con las instrucciones
    y las preguntas frecuentes propuestas editables ([ASI-08]).
 6. **Chat web de prueba** (fase 2): crea el canal y deja probarlo ahí mismo.
-7. **Conectar canales:** enlaces a los asistentes de WhatsApp (fase 3) y correo (fase 6); «Ir a la bandeja».
-   Hasta que existan, sus tarjetas dicen «Próximamente» y no enlazan a ninguna página.
+7. **Conectar canales:** una tarjeta para WhatsApp y otra para el correo, cada una con «Conectar WhatsApp» o
+   «Conectar el correo» (terminan el asistente y abren su asistente de Canales) y «Ver la guía» (su guía de Ayuda);
+   «Ir a la bandeja» termina y lleva a la bandeja ([ASI-10]).
 
 - **Áreas:** Asistente de arranque, Datos por sector, Modelos.
 - **Estados:** clave no válida con el motivo en español; web que no se puede leer al generar el agente
@@ -146,8 +147,9 @@ lateral: logo, stepper y una columna.
 - **Se ve:** lista de conversaciones de todos los canales permitidos con canal, contacto, último mensaje,
   hora, no leídos, estado, modo (IA, Persona, IA en pausa), asignado y etiquetas. En ordenador, a la derecha,
   la conversación elegida (o «Elige una conversación»).
-- **Acciones:** buscar; filtrar por canal, estado, asignado, IA o persona, sin leer y etiquetas; pestañas
-  rápidas «Pendientes de humano», «Mías», «Todas»; abrir una conversación.
+- **Acciones:** buscar por contacto o por el texto de los mensajes, sin distinguir tildes ni mayúsculas; filtrar por
+  canal, estado, asignado, IA o persona, sin leer y etiquetas; pestañas rápidas «Pendientes de humano», «Mías»,
+  «Todas»; abrir una conversación.
 - **Áreas:** Bandeja (lista, filtros, tiempo real, no leídos), Traspaso, Roles.
 - **Estados:** vacío sin canales: «Todavía no hay conversaciones · Cuando un cliente escriba por WhatsApp,
   correo o el chat web, aparecerá aquí» con «Conectar un canal» (quien pueda) y «Probar con el simulador»;
@@ -163,6 +165,9 @@ lateral: logo, stepper y una columna.
     cada mensaje enviado, su coste estimado («≈ 0,02 US$ estimado · Utilidad», «Gratis · Servicio» o «Sin estimar»).
   - Correo (fase 6): hilo con asunto y borradores para aprobar.
   - Fuentes de la IA (fase 4): «Ver fuentes» / «¿Por qué respondió esto?».
+  - Conservación (fase 7): un archivo que la limpieza diaria ya borró dice «El archivo se borró por la política de
+    conservación»; una nota de voz dice «El audio se borró por la política de conservación» y sigue enseñando su
+    transcripción.
 - **Acciones:** responder (pausa la IA 12 h por defecto), nota interna, adjuntar, enviar plantilla,
   aprobar/editar/descartar borrador, reintentar un envío fallido, cambiar estado (abierta, pendiente de
   humano, resuelta), asignar, pausar o reactivar la IA, traspasar a mano, etiquetas, cambiar el agente de
@@ -183,7 +188,9 @@ lateral: logo, stepper y una columna.
   conversación y próxima cita.
 - **Acciones:** buscar, filtrar por canal y etiqueta, abrir ficha, crear un contacto a mano; seleccionar para
   fusionar duplicados (elegir dos y qué datos se quedan; propietario, administrador y supervisor) o para
-  exportar y borrar (propietario y administrador). El agente solo ve los contactos de sus canales.
+  exportar (CSV) y borrar (propietario y administrador; se confirma escribiendo cuántos contactos son). «Posibles
+  duplicados» y «Exportar» toda la lista con la búsqueda y los filtros. El agente solo ve los contactos de sus
+  canales.
 - **Áreas:** Contactos, Cumplimiento (exportar y borrar).
 - **Estados:** vacío: «Aún no hay contactos · Se crean solos cuando alguien escribe por un canal».
 
@@ -204,7 +211,9 @@ lateral: logo, stepper y una columna.
   (Cita/Reserva, Profesional/Mesa/Sala/Box, Cliente/Paciente/Comensal).
 - **Acciones:** nueva cita (servicio, recurso o cualquiera, inicio, personas, contacto, notas) con huecos
   libres calculados; mover y cambiar duración arrastrando (o desde la ficha); bloquear huecos; filtrar por
-  recurso y servicio; mostrar canceladas.
+  recurso, servicio, estado, origen y citas de prueba; mostrar canceladas; «Citas de prueba (N)» con su lista y
+  «Borrar todas»; menú «⋯» a la configuración (el supervisor, a las ausencias). `/agenda?nueva=1&contacto=<id>` o
+  `&conversacion=<id>` abre «Nueva cita» ya rellena.
 - **Áreas:** Agenda (pantalla, motor de disponibilidad, sin dobles reservas, modos por recurso y por aforo).
 - **Estados:** sin servicios o recursos: «Configura la agenda · Añade al menos un servicio y un recurso» con
   enlace (quien pueda); hueco ocupado al guardar: «Ese hueco ya no está libre» y huecos alternativos.
@@ -213,18 +222,19 @@ lateral: logo, stepper y una columna.
 
 - **Se ve:** estado, servicio, recurso, inicio y fin, personas, contacto, conversación, origen (IA con canal,
   persona o web), notas, autor e historial.
-- **Acciones:** confirmar, cambiar, cancelar, marcar completada o no presentado; ir al contacto o a la
-  conversación; borrar si es una cita de prueba.
+- **Acciones:** confirmar, cambiar, cancelar (con motivo), marcar completada o no presentado, volver a confirmar una
+  cancelada, con «Avisar al cliente por su conversación» al confirmar, cambiar o cancelar; ir al contacto o a la
+  conversación. Una cita de prueba lo dice y se borra con las demás de prueba («Citas de prueba» o Probar), no sola.
 - **Áreas:** Agenda (citas), Bandeja.
 
-### Servicios · `/agenda/servicios` · fase 5
+### Servicios · `/agenda/configuracion/servicios` · fase 5
 
 - **Se ve:** tabla de servicios con categoría, duración, márgenes, precio orientativo, recursos, personas y
   «requiere confirmación manual».
 - **Acciones:** crear, editar (panel lateral), desactivar.
 - **Áreas:** Agenda (servicios), Datos por sector.
 
-### Recursos · `/agenda/recursos` y `/agenda/recursos/[id]` · fase 5
+### Recursos · `/agenda/configuracion/recursos`, `/agenda/configuracion/recursos/nuevo` y `/agenda/configuracion/recursos/[id]` · fase 5
 
 - **Se ve:** lista de recursos con tipo (persona, sala o box, mesa o zona, equipo), color, capacidad y
   servicios; en su ficha, horario semanal con varios tramos por día y ausencias.
@@ -234,18 +244,29 @@ lateral: logo, stepper y una columna.
 
 ### Configuración de la agenda · `/agenda/configuracion` · fase 5
 
-- **Se ve:** modo (por recurso individual o por aforo, con duración de mesa y tamaño de grupo), intervalo de
-  huecos, antelación, terminología y recordatorios (desactivados por defecto; por WhatsApp con plantilla de
-  utilidad y sus variables, o por email).
-- **Acciones:** guardar; elegir plantilla y asignar variables.
-- **Áreas:** Agenda (modos, avisos), WhatsApp (plantillas).
+Pestañas General, Servicios y Recursos (el supervisor solo ve Recursos, para las ausencias).
+
+- **Se ve:** modo (por recurso individual o por aforo; la duración de mesa y el tamaño de grupo van en cada
+  servicio), intervalo de huecos y terminología; enlaces a Ajustes › Horario (horario y festivos) y a Ajustes ›
+  Recordatorios con el resumen de cómo están. La antelación es de cada servicio.
+- **Acciones:** guardar.
+- **Áreas:** Agenda (modos, palabras).
+
+### Recordatorios · `/ajustes/recordatorios` · fase 5
+
+- **Se ve:** interruptor (desactivado por defecto), cuándo (de 30 minutos a 1 semana antes) y por dónde: WhatsApp
+  (número, plantilla de utilidad aprobada y la variable de cada dato de la cita, con el aviso de que se cobra) o
+  email (asunto y texto con `{nombre}`, `{servicio}`, `{fecha}`, `{hora}`, `{recurso}`, `{personas}` y `{negocio}`).
+- **Acciones:** guardar (programa o quita el trabajo de los recordatorios).
+- **Áreas:** Agenda (avisos), WhatsApp (plantillas).
 
 ## Agentes
 
 ### Agentes · `/agentes` · fase 1
 
 - **Se ve:** tarjetas de agentes con avatar, descripción, modelo y «Activo en:» sus canales.
-- **Acciones:** «Nuevo agente», abrir, borrar (la confirmación avisa si está activo en algún canal).
+- **Acciones:** «Nuevo agente», «Herramientas HTTP» (propietario y administrador, fase 7), abrir, borrar (la
+  confirmación avisa si está activo en algún canal).
 - **Áreas:** Agentes, Asignación a canales.
 - **Estados:** vacío: «Crea tu primer agente · Empieza desde la plantilla de tu sector».
 
@@ -285,9 +306,13 @@ Pestañas con ruta propia y barra «Cambios sin guardar»:
 
 ### Herramientas HTTP · `/agentes/herramientas`, `/agentes/herramientas/nueva`, `/agentes/herramientas/[id]` · fase 7
 
+- **Quién:** propietario y administrador. Se llega desde «Herramientas HTTP» en Agentes y desde la pestaña
+  Herramientas de cada agente.
 - **Se ve:** lista de herramientas personalizadas y en qué agentes están; formulario con nombre, descripción,
-  parámetros, método, URL, cabeceras secretas (enmascaradas) y tiempo máximo.
-- **Acciones:** crear, probar con valores de ejemplo, editar, borrar.
+  parámetros, método, URL (solo `https://` a direcciones públicas, con `{variables}`), cabeceras secretas
+  (enmascaradas) y tiempo máximo.
+- **Acciones:** crear, probar con valores de ejemplo, editar, borrar; cada agente las enciende o apaga en su pestaña
+  Herramientas.
 - **Áreas:** Herramientas HTTP personalizadas, Seguridad (secretos).
 
 ## Conocimiento
@@ -318,7 +343,8 @@ Pestañas con ruta propia y barra «Cambios sin guardar»:
 ### Documento · `/conocimiento/[id]/documentos/[docId]` · fase 4
 
 - **Se ve:** estado, origen (archivo o URL con fecha), resumen, fragmentos con su sección y página.
-- **Acciones:** refrescar (URL), borrar (borra fragmentos y archivo).
+- **Acciones:** cambiar título (archivo, URL o texto; sus fragmentos se vuelven a procesar con él), refrescar
+  (URL), borrar (borra fragmentos y archivo).
 - **Áreas:** Conocimiento (troceado, trazabilidad).
 
 ## Canales
@@ -411,9 +437,15 @@ apartado en Ayuda ([AJU-17]).
 
 ### Informes · `/informes` · fase 7
 
-- **Se ve:** filtros de periodo y canal; indicadores: conversaciones, % resuelto por la IA, traspasos, tiempo
-  hasta la primera respuesta humana tras un traspaso y % en menos de 3 min ([INF-05]), citas creadas por la
-  IA, coste de IA y coste estimado de WhatsApp (US$); gráficos por canal y por mes, cada uno con «Ver datos».
+- **Quién:** propietario, administrador, supervisor y solo lectura (el rol Agente no entra).
+- **Se ve:** periodo (el mes actual por defecto, otro mes o unas fechas, como mucho un año) y canal; indicadores:
+  conversaciones, % resuelto por la IA, traspasos, tiempo hasta la primera respuesta humana tras un traspaso
+  (mediana y percentil 90) y % en menos de 3 min ([INF-05]), citas creadas por la IA, coste de IA y coste estimado
+  de WhatsApp (US$, con los mensajes sin tarifa aparte); gráficos por canal, de los motivos de traspaso, de los
+  tiempos de respuesta por día o por mes y de los costes de los últimos meses, cada uno con su tabla. Cómo se cuenta
+  cada cifra: `docs/decisions/0023-como-se-cuentan-los-informes.md`.
+- **Acciones:** cambiar el periodo y el canal (van en la dirección); «Descargar CSV» de cada tabla (queda en el
+  registro de actividad).
 - **Áreas:** Informes, Cumplimiento (medición de la primera respuesta).
 - **Estados:** sin datos del periodo: «Todavía no hay datos de este periodo».
 
@@ -423,17 +455,18 @@ apartado en Ayuda ([AJU-17]).
 
 | Página | Ruta | Fase | Qué se ve y se hace | Áreas |
 |---|---|---|---|---|
-| Mi cuenta | `/perfil` | 0 (push en 7) | Nombre, email, contraseña, activar o quitar 2FA (QR, código y códigos de recuperación), tema, qué avisos recibo y por dónde (en la app, push en este dispositivo, email) y cerrar sesión ([USU-18]) | Seguridad, PWA |
+| Mi cuenta | `/perfil` | 0 (push en 7) | Nombre, email, contraseña, activar o quitar 2FA (QR, código y códigos de recuperación), tema, qué avisos recibo y por dónde (en la app, push en este dispositivo, email), «Instalar la app» y cerrar sesión, que apaga antes el push de este dispositivo ([USU-18], [PWA-03]) | Seguridad, PWA |
 | Negocio | `/ajustes/negocio` | 0 | Nombre, sector, logo, color principal con vista previa y resultado de contraste, zona horaria, datos de contacto | Ajustes, Marca |
-| Usuarios | `/ajustes/usuarios` | 0 | Tabla (nombre, email, rol, canales del agente, 2FA, último acceso, insignia «Prueba»); invitar; reenviar o revocar invitaciones; cambiar rol; desactivar y reactivar; borrar; «Borrar usuarios de prueba»; exigir 2FA a propietario y administradores (desactivado por defecto, [USU-12]); «Traspasar la propiedad», solo para el propietario y con su contraseña ([USU-16]) | Roles, Demo, Seguridad |
+| Usuarios | `/ajustes/usuarios` | 0 | Tabla (nombre, email, rol, canales del agente, 2FA, último acceso, insignia «Prueba»); invitar; reenviar o revocar invitaciones; cambiar rol; desactivar y reactivar; borrar; «Borrar usuarios de prueba»; exigir 2FA a propietario y administradores (desactivado por defecto, [USU-12]); «Traspasar la propiedad», solo para el propietario y con su contraseña ([USU-16]). Al quitarle a un Agente su último canal, avisa de que desde ese momento ve todos ([PER-02]) | Roles, Demo, Seguridad |
 | Horario | `/ajustes/horario` | 0 | Tramos por día, festivos y cierres | Agenda, Traspaso |
 | IA | `/ajustes/ia` | 1 (reordenación, 4) | Clave de OpenRouter (enmascarada) con «Probar clave»; modelos por defecto de chat y su respaldo (de otro proveedor), transcripción (con aviso si algún proveedor no es sin retención de datos), embeddings (comprobado de verdad al cambiarlo, con aviso de volver a procesar el conocimiento) y descripción de imágenes, con selectores desactivados hasta que hay clave y aviso si un modelo en uso se retira; recomendados; ZDR; «Reordenar resultados» con su modelo (desactivado por defecto; con ZDR, solo modelos sin retención); clave de Mistral OCR (opcional) ([AJU-04]) | IA, Modelos, Seguridad |
 | Correo del sistema | `/ajustes/correo` | 0 | SMTP y «Enviar correo de prueba» (invitaciones, recuperación, avisos) | Ajustes |
 | WhatsApp | `/ajustes/whatsapp` | 3 | Tarifas por mercado y categoría (editables; las de la demo marcadas «ejemplo»), con la nota de que los mensajes gratis los marca Meta en cada estado y no se configuran ([AJU-09]); dirección de avisos y token de verificación de la instalación para copiar, si Meta ya la verificó y el aviso cuando no hay dirección pública con HTTPS | WhatsApp (coste estimado) |
 | Privacidad y legal | `/ajustes/privacidad` | 7 | Datos del responsable, textos de las páginas legales con enlace a cada una, aviso de IA por defecto, conservación (conversaciones, audios, adjuntos, webhooks) | Cumplimiento |
-| Notificaciones | `/ajustes/notificaciones` | 2 | Qué sucesos avisan (traspaso, conversación asignada, canal con error, calidad de WhatsApp, modelo que se retira) y a quién por defecto ([AJU-08]); «Bandeja y traspasos»: horas de pausa de la IA cuando responde una persona ([BAN-11]) y traspasos por turnos o sin asignar ([TRA-04]); cada persona elige después en Mi cuenta por dónde le llegan | Traspaso, PWA |
+| Recordatorios | `/ajustes/recordatorios` | 5 | Recordatorios de citas: activar (desactivados por defecto), antelación y canal (plantilla de utilidad de WhatsApp con sus variables, o email con su texto) ([AGD-24]); también enlazado desde Agenda › Configuración | Agenda |
+| Notificaciones | `/ajustes/notificaciones` | 2 | Qué sucesos avisan (traspaso, conversación nueva —desactivado por defecto—, conversación asignada, canal con error, calidad de WhatsApp, modelo que se retira y, desde la fase 5, cita pendiente de confirmar) y a quién por defecto ([AJU-08]); desde la fase 7, «Instalar la app» y «Activar avisos» en este dispositivo; «Bandeja y traspasos»: horas de pausa de la IA cuando responde una persona ([BAN-11]) y traspasos por turnos o sin asignar ([TRA-04]); cada persona elige después en Mi cuenta por dónde le llegan | Traspaso, PWA |
 | Registro de actividad | `/ajustes/actividad` | 7 | Tabla de acciones de personas e IA con filtros | Seguridad (trazabilidad) |
-| Diagnóstico | `/ajustes/diagnostico` | 2 | Base de datos, cola (pendientes y fallidos con «Reintentar»), errores recientes de la IA (hora, tipo, canal, modelo, error y «Ver la conversación»), último webhook por canal (y, de los avisos para números que no son de ningún canal, cuántos, cuándo y el número del último, [WA-34]), correos del sistema, pruebas | Ajustes (diagnóstico) |
+| Diagnóstico | `/ajustes/diagnostico` | 2 | Base de datos, cola (pendientes y fallidos con «Reintentar»), errores recientes de la IA (hora, tipo, canal, modelo, error y «Ver la conversación»), último webhook por canal (y, de los avisos para números que no son de ningún canal, cuántos, cuándo y el número del último, [WA-34]), correos ignorados de cada buzón por motivo ([COR-16]), correos del sistema, pruebas | Ajustes (diagnóstico) |
 | Simulador de canales | `/ajustes/diagnostico/simulador` | 2 | Elegir canal, contacto y tipo (texto, audio, imagen o documento), escribir y «Enviar»; «Ver conversación» | Demo, Simulador |
 | Acerca de | `/ajustes/acerca` | 0 | Versión y enlaces a Ayuda | Ajustes |
 
@@ -447,8 +480,9 @@ Mi cuenta y Acerca de («Sin permiso» en las demás).
 
 - **Quién:** cualquier persona con sesión.
 - **Se ve:** la lista de guías (`docs/guia-*.md` y la lista de puesta en marcha: publicación, WhatsApp,
-  correo, agentes y conocimiento, agenda y puesta en marcha) y cada guía con el índice de sus apartados. Van
-  incluidas en la app al compilar ([AJU-17]).
+  correo, agentes y conocimiento, agenda y puesta en marcha, en `/ayuda/puesta-en-marcha`) y cada guía con el
+  índice de sus apartados. Van incluidas en la app al compilar ([AJU-17]). La plantilla de contrato de encargo del
+  tratamiento es un documento para el abogado del negocio y se queda en `docs/`.
 - **Acciones:** abrir un apartado; los «¿Dónde lo encuentro?» de los asistentes llegan aquí con su ancla.
 - **Áreas:** Ajustes (Acerca de), asistentes de WhatsApp y correo.
 
@@ -501,7 +535,9 @@ Resueltas por `docs/spec.md` (2026-09-26):
   credenciales) e Informes, sin acciones; de Ajustes, solo Mi cuenta y Acerca de ([PER-03]).
 - **5 · 2FA «exigible»:** interruptor en Ajustes › Usuarios, desactivado por defecto ([USU-12]).
 - **6 · Tarifas de WhatsApp:** en `/ajustes/whatsapp` ([AJU-09]).
-- **7 · Recordatorios:** en `/agenda/configuracion`, junto al resto de la agenda ([AGD-20], [AGD-24]).
+- **7 · Recordatorios:** en `/ajustes/recordatorios` (Ajustes › Recordatorios), con una tarjeta y su enlace en
+  Agenda › Configuración › General ([AGD-20], [AGD-24]). Así se construyó en la fase 5; falta que el propietario lo
+  confirme (antes decía `/agenda/configuracion`).
 - **8 · Páginas legales:** versión básica en la fase 3 y completa en la fase 7 ([CUM-08], [WA-21]).
 - **10 · «¿Dónde lo encuentro?»:** texto corto en el propio campo y «Ver la guía», que abre la guía dentro de la
   app, en Ayuda, con sesión ([AJU-17]).

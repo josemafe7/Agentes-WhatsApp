@@ -8,19 +8,26 @@ import {
   FRESH_URL,
   MOCK_PORT,
   MOCK_URL,
+  RESTAURANT_DATABASE_URL,
+  RESTAURANT_PORT,
+  RESTAURANT_URL,
 } from "./e2e/support/env";
 
-// docs/testing.md: one build of the app started twice — the demo (data/e2e.db) and an empty installation for
-// the setup wizard (data/e2e-fresh.db) — with every external service answered by e2e/mocks/server.mjs.
+// docs/testing.md: one build of the app started three times — the demo (data/e2e.db), an empty installation for
+// the setup wizard (data/e2e-fresh.db) and the restaurant demo for the agenda by capacity (data/e2e-restaurante.db) —
+// with every external service answered by e2e/mocks/server.mjs.
 // Playwright starts webServers before globalSetup, so the databases are prepared at the head of the demo
 // server's command (e2e/support/prepare-databases.mjs), before the build.
 const BUILD_AND_START_TIMEOUT_MS = 600_000;
 const START_TIMEOUT_MS = 120_000;
 const desktop = devices["Desktop Chrome"];
+// `next start` runs with NODE_ENV=production, which refuses changed service addresses and ALLOW_LOCAL_HTTP_TOOLS
+// (src/server/app-url.ts): the test servers use the mock server and call it from the HTTP tools, so they say so.
+const E2E_START_FLAGS = { E2E_ALLOW_BASE_URL_OVERRIDES: "true" } as const;
 
 export default defineConfig({
   testDir: "e2e",
-  // Both servers share their database files with every test: one test at a time.
+  // The servers share their database files with every test: one test at a time.
   workers: 1,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
@@ -54,6 +61,12 @@ export default defineConfig({
       retries: 0,
       use: { ...desktop, baseURL: FRESH_URL },
     },
+    {
+      // The restaurant demo: the agenda by capacity ([AGD-06], [AGD-11]). Its tests sign in on their own.
+      name: "restaurant",
+      testDir: "e2e/restaurant",
+      use: { ...desktop, baseURL: RESTAURANT_URL },
+    },
   ],
   webServer: [
     {
@@ -70,7 +83,12 @@ export default defineConfig({
       url: `${DEMO_URL}/api/health`,
       timeout: BUILD_AND_START_TIMEOUT_MS,
       reuseExistingServer: false,
-      env: { ...appServerEnv("demo"), E2E_FRESH_DATABASE_URL: FRESH_DATABASE_URL },
+      env: {
+        ...appServerEnv("demo"),
+        ...E2E_START_FLAGS,
+        E2E_FRESH_DATABASE_URL: FRESH_DATABASE_URL,
+        E2E_RESTAURANT_DATABASE_URL: RESTAURANT_DATABASE_URL,
+      },
     },
     {
       name: "fresh",
@@ -79,7 +97,15 @@ export default defineConfig({
       url: `${FRESH_URL}/api/health`,
       timeout: START_TIMEOUT_MS,
       reuseExistingServer: false,
-      env: appServerEnv("fresh"),
+      env: { ...appServerEnv("fresh"), ...E2E_START_FLAGS },
+    },
+    {
+      name: "restaurant",
+      command: `pnpm start -p ${RESTAURANT_PORT}`,
+      url: `${RESTAURANT_URL}/api/health`,
+      timeout: START_TIMEOUT_MS,
+      reuseExistingServer: false,
+      env: { ...appServerEnv("restaurant"), ...E2E_START_FLAGS },
     },
   ],
 });

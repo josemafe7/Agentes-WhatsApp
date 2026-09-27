@@ -20,6 +20,7 @@ export const NOTIFICATION_EVENTS = [
   "channel_error",
   "whatsapp_quality",
   "model_deprecated",
+  "booking_pending",
 ] as const;
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number];
 
@@ -58,6 +59,8 @@ export const NOTIFICATION_EVENT_DEFINITIONS: Record<NotificationEvent, EventDefi
     defaults: { enabled: true, roles: MANAGERS },
     channels: { inApp: true, push: false, email: true },
   },
+  // A booking waits for manual confirmation ([AGD-22]): everyone who manages bookings (agents, of their channels).
+  booking_pending: { audience: "roles", defaults: { enabled: true, roles: TEAM }, channels: { inApp: true, push: true, email: true } },
 };
 
 function isEvent(key: string): key is NotificationEvent {

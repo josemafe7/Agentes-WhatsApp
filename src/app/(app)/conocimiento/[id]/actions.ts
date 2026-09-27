@@ -10,12 +10,14 @@ import {
   addKnowledgeUrl,
   deleteKnowledgeDocument,
   knowledgeRefreshInputSchema,
+  knowledgeTitleInputSchema,
+  renameKnowledgeDocument,
   reprocessKnowledgeDocument,
   setKnowledgeDocumentRefresh,
   updateKnowledgeFaq,
 } from "@/data/knowledge-documents";
 import { testKnowledgeSearch } from "@/data/knowledge-search";
-import { ok, type ActionResult } from "@/lib/action-result";
+import { fromZodError, ok, type ActionResult } from "@/lib/action-result";
 import { PERMISSIONS } from "@/lib/permissions";
 import { parseInput, toActionFailure } from "@/server/errors";
 import { requirePermission } from "@/server/session";
@@ -69,6 +71,26 @@ export async function updateKnowledgeFaqAction(documentId: unknown, input: unkno
     startKnowledgeWork();
     revalidateKnowledge();
     return ok(undefined, "Pregunta guardada.");
+  } catch (error) {
+    return toActionFailure(error);
+  }
+}
+
+/**
+ * «Cambiar título» of a file, web page or text ([CON-10]): its fragments carry the title («Documento: título >
+ * sección»), so they are processed again with it, which costs AI like editing a FAQ (same limit per person).
+ */
+export async function renameKnowledgeDocumentAction(documentId: unknown, input: unknown): Promise<ActionResult> {
+  try {
+    const actor = await requirePermission(PERMISSIONS.knowledge.manage);
+    const parsed = knowledgeTitleInputSchema.safeParse(input);
+    if (!parsed.success) return fromZodError(parsed.error);
+    await enforceKnowledgeReprocessLimit(actor.userId);
+    const { changed } = await renameKnowledgeDocument(actor, documentId, parsed.data);
+    if (!changed) return ok(undefined, "El título no ha cambiado.");
+    startKnowledgeWork();
+    revalidateKnowledge();
+    return ok(undefined, "Título guardado. Los fragmentos se actualizan en segundo plano.");
   } catch (error) {
     return toActionFailure(error);
   }

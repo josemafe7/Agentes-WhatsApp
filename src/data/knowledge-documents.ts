@@ -13,7 +13,16 @@ import { generateFileKey, getFileStorage, type FileStorage } from "@/server/adap
 import { NotFoundError, parseInput, ValidationError } from "@/server/errors";
 import { DEFAULT_REFRESH_HOURS, MAX_KB_FILE_BYTES, MAX_PASTED_TEXT_CHARS, MAX_REFRESH_HOURS, MIN_REFRESH_HOURS, SITEMAP_MAX_PAGES } from "@/server/knowledge/constants";
 import { DuplicateDocumentError, KNOWLEDGE_MESSAGES, UnsupportedFileError } from "@/server/knowledge/errors";
-import { detectKnowledgeFile, fileExtension, KNOWLEDGE_MIME_TYPES, OLD_OFFICE_EXTENSIONS, sha256Hex, sitemapAddressFor } from "@/server/knowledge/extract";
+import {
+  defaultDocumentTitle,
+  detectKnowledgeFile,
+  fileExtension,
+  KNOWLEDGE_MIME_TYPES,
+  MAX_DOCUMENT_TITLE_CHARS,
+  OLD_OFFICE_EXTENSIONS,
+  sha256Hex,
+  sitemapAddressFor,
+} from "@/server/knowledge/extract";
 import { documentsWithPendingEmbeddings } from "@/server/knowledge/maintenance";
 import { cancelDocumentProcessing, enqueueDocumentProcessing, enqueueSitemap, scheduleUrlRefresh } from "@/server/knowledge/queue";
 import { deleteChunksWhere } from "@/server/knowledge/store";
@@ -211,7 +220,8 @@ export async function addKnowledgeFile(actor: Actor, kbId: unknown, input: unkno
       {
         kbId: base.id,
         sourceType: "file",
-        title: data.title || data.fileName.replace(/\.[a-z0-9]{1,10}$/i, "").trim() || data.fileName,
+        // Its name for now; the file's own title (PDF or Word metadata) replaces it when it is read ([CON-10]).
+        title: data.title || defaultDocumentTitle(data.fileName),
         fileKey,
         fileName: data.fileName,
         mimeType: KNOWLEDGE_MIME_TYPES[kind],
@@ -375,6 +385,40 @@ export async function reprocessKnowledgeDocument(actor: Actor, documentId: unkno
     .where(eq(kbDocuments.id, doc.id));
   await enqueueDocumentProcessing(doc.id);
   await writeAudit({ actor, action: "knowledge.document_reprocessed", targetType: "kb_document", targetId: doc.id, metadata: { kbId: doc.kbId } });
+}
+
+export const knowledgeTitleInputSchema = z
+  .object({
+    title: z
+      .string()
+      .trim()
+      .min(1, "Escribe un título.")
+      .max(MAX_DOCUMENT_TITLE_CHARS, `Como mucho ${MAX_DOCUMENT_TITLE_CHARS} caracteres.`)
+      // One line, as it goes in every fragment («Documento: título > sección»).
+      .transform((title) => title.replace(/\s+/g, " ")),
+  })
+  .strict();
+
+/**
+ * «Cambiar título» of a file, web page or text ([CON-10]). The title is in every chunk («Documento: título > sección»),
+ * in the words index and in the embeddings, so the document is processed again from its chunks, like an edited FAQ:
+ * its text is not read again, and its current chunks stay searchable until the new ones replace them. While its text
+ * is still being read, only the title changes (the processing already queued uses it). A FAQ's title is its question.
+ */
+export async function renameKnowledgeDocument(actor: Actor, documentId: unknown, input: unknown): Promise<{ changed: boolean }> {
+  assertCan(actor, PERMISSIONS.knowledge.manage);
+  const doc = await loadDocumentOrThrow(documentId);
+  const { title } = parseInput(knowledgeTitleInputSchema, input);
+  if (doc.sourceType === "faq") throw new ValidationError(undefined, { title: ["El título de una pregunta frecuente es su pregunta: cámbiala en «Preguntas frecuentes»."] });
+  if (title === doc.title) return { changed: false };
+  const rechunk = doc.contentMd !== null && doc.status !== "queued" && doc.status !== "extracting";
+  await db
+    .update(kbDocuments)
+    .set({ title, ...(rechunk ? { status: "chunking" as const, error: null } : {}), updatedAt: new Date() })
+    .where(eq(kbDocuments.id, doc.id));
+  if (rechunk) await enqueueDocumentProcessing(doc.id);
+  await writeAudit({ actor, action: "knowledge.document_renamed", targetType: "kb_document", targetId: doc.id, metadata: { kbId: doc.kbId, sourceType: doc.sourceType } });
+  return { changed: true };
 }
 
 export const knowledgeRefreshInputSchema = z.object({ enabled: z.boolean(), intervalHours: refreshHoursSchema.optional() }).strict();

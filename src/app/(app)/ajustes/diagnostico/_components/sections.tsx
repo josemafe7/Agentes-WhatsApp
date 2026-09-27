@@ -1,4 +1,4 @@
-import { CircleCheck, FlaskConical, Mail, RadioTower } from "lucide-react";
+import { CircleCheck, FlaskConical, Inbox, Mail, RadioTower } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { EmptyState } from "@/components/empty-state";
@@ -196,6 +196,47 @@ export function WebhooksSection({ webhooks }: { webhooks: DiagnosticsView["webho
             </span>
           </li>
         ) : null}
+      </ul>
+    </Section>
+  );
+}
+
+/** [COR-16]: what each mailbox did not pass to the inbox nor to the AI, by reason. */
+export function IgnoredMailSection({ mailboxes }: { mailboxes: DiagnosticsView["ignoredMail"] }) {
+  if (mailboxes.length === 0) {
+    return (
+      <Section title="Correos ignorados">
+        <EmptyState icon={Inbox} title="Todavía no hay buzones de correo" description="Cuando conectes uno, aquí verás qué correos no pasan a la bandeja y por qué." />
+      </Section>
+    );
+  }
+  return (
+    <Section
+      title="Correos ignorados"
+      description="Correos que no crean conversación ni respuesta: respuestas automáticas, envíos masivos, boletines, rebotes, remitentes «noreply», spam y promociones."
+    >
+      <ul className="divide-y">
+        {mailboxes.map((mailbox) => (
+          <li key={mailbox.id} className="grid gap-2 py-3 text-sm">
+            <p className="flex flex-wrap items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
+                <span className="font-medium">{mailbox.name}</span>
+                {mailbox.isDemo ? <Badge variant="secondary">Demo</Badge> : null}
+              </span>
+              <span className="text-muted-foreground tabular-nums">{mailbox.reasons.length > 0 ? `${mailbox.total} en total` : "Ninguno todavía"}</span>
+            </p>
+            {mailbox.reasons.length > 0 ? (
+              <dl className="grid gap-1 sm:grid-cols-2" aria-label={`Correos ignorados de ${mailbox.name}`}>
+                {mailbox.reasons.map((item) => (
+                  <div key={item.reason} className="flex items-center justify-between gap-3 rounded-md bg-muted/50 px-3 py-1.5">
+                    <dt className="text-muted-foreground">{item.label}</dt>
+                    <dd className="font-medium tabular-nums">{item.count}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+          </li>
+        ))}
       </ul>
     </Section>
   );

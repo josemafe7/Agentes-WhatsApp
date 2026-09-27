@@ -24,6 +24,7 @@ import {
   faqToMarkdown,
   fetchKnowledgePage,
   getMistralClient,
+  isDefaultDocumentTitle,
   isScannedPdf,
   ocrPdfPages,
   pdfTextToMarkdown,
@@ -42,6 +43,7 @@ import {
   insertChunks,
   loadDocumentRow,
   loadKnowledgeBaseRow,
+  replaceDocumentTitle,
   saveChunkEmbeddings,
   updateDocument,
   type DocumentRow,
@@ -103,6 +105,15 @@ async function continueOcr(doc: DocumentRow, bytes: Uint8Array, pageCount: numbe
   return "next";
 }
 
+/**
+ * The file's own title (PDF or Word metadata) replaces the one its name gave it ([CON-10]), never one somebody wrote:
+ * only while the stored title is still that name, checked again in the same statement that changes it.
+ */
+async function adoptOwnTitle(doc: DocumentRow, ownTitle: string | null | undefined): Promise<void> {
+  if (!ownTitle || ownTitle === doc.title || !isDefaultDocumentTitle(doc.title, doc.fileName)) return;
+  await replaceDocumentTitle(doc.id, doc.title, ownTitle);
+}
+
 async function extractFile(doc: DocumentRow, budget: StepBudget, deps: PipelineDeps): Promise<StepResult> {
   const bytes = await readSourceFile(doc, deps.storage ?? getFileStorage());
   const kind = detectKnowledgeFile(doc.fileName ?? "", bytes);
@@ -115,6 +126,7 @@ async function extractFile(doc: DocumentRow, budget: StepBudget, deps: PipelineD
       return continueOcr(doc, bytes, doc.pageCount, client, budget);
     }
     const text = await readPdfPages(bytes);
+    await adoptOwnTitle(doc, text.title);
     if (isScannedPdf(text)) {
       const client = await getMistralClient(deps);
       if (!client) throw new KnowledgeProcessingError(KNOWLEDGE_MESSAGES.scannedWithoutKey);
@@ -126,6 +138,7 @@ async function extractFile(doc: DocumentRow, budget: StepBudget, deps: PipelineD
     return "next";
   }
   const extracted = await extractFileToMarkdown(kind, bytes);
+  await adoptOwnTitle(doc, extracted.title);
   await updateDocument(doc.id, {
     status: "chunking",
     contentMd: extracted.markdown,

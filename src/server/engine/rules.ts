@@ -1,6 +1,7 @@
 // The agent's hand-off rules ([TRA-01], [AGE-09]): phrases of the customer that hand the conversation to a person
 // before answering (keywords and sensitive topics), and «no lo sé» answers counted until the configured number.
 // Pure functions: matching ignores case and accents and only takes whole words («persona» never matches «personas»).
+import "server-only";
 import type { SystemToolName } from "@/lib/agent-tools";
 import type { ToolCallRecord } from "@/server/ai/tools";
 

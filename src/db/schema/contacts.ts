@@ -16,6 +16,12 @@ export const contacts = sqliteTable(
     labels: json<string[]>("labels").notNull().default(EMPTY_JSON_ARRAY),
     customFields: json<Record<string, string>>("custom_fields").notNull().default(EMPTY_JSON_OBJECT),
     notes: text("notes"),
+    /**
+     * Name, phone and email in lower case and without accents, for the searches of Contactos and the Bandeja («jose»
+     * finds «José», [CTO-01], [BAN-02]). Written with every change of those fields (src/data/contacts-search.ts);
+     * null until then. A copy of personal data: whoever clears those fields clears it too.
+     */
+    searchText: text("search_text"),
     ...timestamps(),
   },
   (t) => [

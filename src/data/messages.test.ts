@@ -250,4 +250,20 @@ describe("reading messages [BAN-05] [MED-08]", () => {
     expect(await canViewMessageMedia(users.agentA.actor, key)).toBe(false);
     expect(await canViewMessageMedia(users.owner.actor, "media/2026/09/00000000-aaaa-4bbb-8ccc-123456789abc.png")).toBe(false);
   });
+
+  it("[CUM-05] [MED-04] a voice note whose audio the clean-up removed says so and keeps its transcript", async () => {
+    const voice = await createMessage(inB, {
+      contentType: "audio",
+      text: null,
+      transcript: "Quería cambiar la cita del jueves",
+      media: null,
+      metadata: { mediaDeletedAt: new Date().toISOString() },
+    });
+    const [item] = (await listMessages(users.owner.actor, { conversationId: inB.id })).items.filter((message) => message.id === voice.id);
+    expect(item).toMatchObject({ media: null, mediaRemoved: true, transcript: "Quería cambiar la cita del jueves" });
+    // A file that was never stored is not «removed».
+    const never = await createMessage(inB, { contentType: "image", text: null, media: null });
+    const [other] = (await listMessages(users.owner.actor, { conversationId: inB.id })).items.filter((message) => message.id === never.id);
+    expect(other.mediaRemoved).toBe(false);
+  });
 });

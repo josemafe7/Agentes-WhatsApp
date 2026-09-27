@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ afterTasks: [] as (() => unknown)[], storageDir: "" }));
 vi.mock("next/server", async (importOriginal) => ({
@@ -18,8 +18,10 @@ vi.mock("@/server/adapters/file-storage", async (importOriginal) => {
 });
 
 import { eq } from "drizzle-orm";
-import { db } from "@/db";
+import { db, getDb } from "@/db";
 import { channels, consents, contactIdentities, contacts, conversations, jobs, messages, rateLimits, realtimeEvents } from "@/db/schema";
+import { getRateLimiter } from "@/server/adapters/rate-limiter";
+import { aiDailyCapKeys, DAILY_CAP_MESSAGE, WIDGET_AI_DAILY_CAP, WIDGET_LIMITS } from "@/server/channels/webchat/limits";
 import { issueVisitorToken } from "@/server/channels/webchat/tokens";
 import { createBusiness, createChannel } from "@/test/factories";
 import { APP_ORIGIN, newVisitor, PNG, SITE, widgetApi } from "./test-client";
@@ -69,8 +71,26 @@ describe("allowed domains [WEB-10]", () => {
     expect((await widgetApi.config(onlyApp, { origin: SITE })).status).toBe(403);
     expect((await widgetApi.config(onlyApp, { origin: APP_ORIGIN })).status).toBe(200);
     expect((await widgetApi.config(onlyApp, { origin: null, referer: `${APP_ORIGIN}/widget-demo` })).status).toBe(200);
-    // The app itself is always allowed, also when the list has domains.
-    expect((await widgetApi.config(channelId, { origin: APP_ORIGIN })).status).toBe(200);
+    // Any page of the app, like step 6 of the setup wizard.
+    expect((await widgetApi.config(onlyApp, { origin: APP_ORIGIN, referer: `${APP_ORIGIN}/setup` })).status).toBe(200);
+  });
+
+  it("with domains in the list, the app itself only serves the chat to /widget-demo (signed-in outside the demo)", async () => {
+    for (const refused of [
+      { origin: APP_ORIGIN },
+      { origin: APP_ORIGIN, referer: `${APP_ORIGIN}/setup` },
+      { origin: null, referer: `${APP_ORIGIN}/bandeja` },
+      // Another site cannot pass for /widget-demo.
+      { origin: "https://otra-web.es", referer: `${APP_ORIGIN}/widget-demo` },
+    ]) {
+      const result = await widgetApi.config(channelId, refused);
+      expect(result.status, JSON.stringify(refused)).toBe(403);
+      expect(result.headers.get("access-control-allow-origin")).toBeNull();
+    }
+    const demo = await widgetApi.config(channelId, { origin: APP_ORIGIN, referer: `${APP_ORIGIN}/widget-demo?canal=${channelId}` });
+    expect(demo.status).toBe(200);
+    expect(demo.headers.get("access-control-allow-origin")).toBe(APP_ORIGIN);
+    expect((await widgetApi.config(channelId, { origin: null, referer: `${APP_ORIGIN}/widget-demo` })).status).toBe(200);
   });
 
   it("answers the preflight only for allowed origins", async () => {
@@ -234,6 +254,132 @@ describe("rate limits [WEB-08] [SEG-07]", () => {
     const visitor = await newVisitor(channelId, { ip: "198.51.100.6" });
     for (let i = 0; i < 10; i++) expect((await widgetApi.upload(channelId, PNG, { token: visitor.token, ip: "198.51.100.6" })).status).toBe(201);
     expect((await widgetApi.upload(channelId, PNG, { token: visitor.token, ip: "198.51.100.6" })).status).toBe(429);
+  });
+});
+
+describe("limits come before any read of the database [SEG-07]", () => {
+  /** Counts the database reads (SELECT) made while `run` answers. */
+  async function readsDuring(run: () => Promise<{ status: number }>): Promise<{ status: number; reads: number }> {
+    const select = vi.spyOn(getDb(), "select");
+    try {
+      const { status } = await run();
+      return { status, reads: select.mock.calls.length };
+    } finally {
+      select.mockRestore();
+    }
+  }
+
+  it("a flood of the public config stops at the IP limit without reading the channel", async () => {
+    const ip = "198.51.100.30";
+    for (let i = 0; i < WIDGET_LIMITS.config.ip.limit; i++) expect((await widgetApi.config(channelId, { ip })).status).toBe(200);
+    expect(await readsDuring(() => widgetApi.config(channelId, { ip }))).toEqual({ status: 429, reads: 0 });
+    // Not even for chats that do not exist.
+    expect(await readsDuring(() => widgetApi.config(crypto.randomUUID(), { ip }))).toEqual({ status: 429, reads: 0 });
+  });
+
+  it("preflights too", async () => {
+    const ip = "198.51.100.31";
+    for (let i = 0; i < WIDGET_LIMITS.preflight.ip.limit; i++) expect((await widgetApi.preflight("messages", channelId, { ip })).status).toBe(204);
+    const blocked = await readsDuring(() => widgetApi.preflight("messages", channelId, { ip }));
+    expect(blocked).toEqual({ status: 429, reads: 0 });
+  });
+
+  it("a visitor over the message limit is stopped before anything is read, and the widget can still say why [WEB-08]", async () => {
+    const ip = "198.51.100.32";
+    const visitor = await newVisitor(channelId, { ip });
+    const send = () => widgetApi.send(channelId, { clientMessageId: crypto.randomUUID(), text: "Hola" }, { token: visitor.token, ip });
+    for (let i = 0; i < WIDGET_LIMITS.message.visitor.limit; i++) expect((await send()).status).toBe(201);
+    const select = vi.spyOn(getDb(), "select");
+    const blocked = await send();
+    const reads = select.mock.calls.length;
+    select.mockRestore();
+    expect(blocked.status).toBe(429);
+    expect(reads).toBe(0);
+    expect(blocked.body.error).toBe("Demasiados mensajes, espera un momento.");
+    // Its token was handed out on an allowed page: the answer carries that page's CORS headers.
+    expect(blocked.headers.get("access-control-allow-origin")).toBe(SITE);
+  });
+
+  it("without a valid token, a request stopped by a limit gets nothing the page can read", async () => {
+    const ip = "198.51.100.33";
+    for (let i = 0; i < WIDGET_LIMITS.session.ip.limit; i++) await widgetApi.session(channelId, {}, { ip, origin: "https://otra-web.es" });
+    const blocked = await widgetApi.session(channelId, {}, { ip, origin: "https://otra-web.es" });
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("the logo route too", async () => {
+    const ip = "198.51.100.34";
+    for (let i = 0; i < WIDGET_LIMITS.media.ip.limit; i++) await widgetApi.logo(channelId, { ip });
+    expect(await readsDuring(() => widgetApi.logo(channelId, { ip }))).toEqual({ status: 429, reads: 0 });
+  });
+});
+
+describe("daily caps of messages that make the AI answer [SEG-07] [WEB-08]", () => {
+  let now = new Date("2026-09-27T09:00:00Z").getTime();
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(now);
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  /** Sends `count` messages from `ip`, a new visitor every 15 (the per-visitor limit) and a minute apart when needed. */
+  async function sendMany(chat: string, ip: string, count: number): Promise<number[]> {
+    const statuses: number[] = [];
+    let visitor = await newVisitor(chat, { ip });
+    for (let i = 0; i < count; i++) {
+      if (i > 0 && i % WIDGET_LIMITS.message.visitor.limit === 0) {
+        now += 60_000;
+        vi.setSystemTime(now);
+        visitor = await newVisitor(chat, { ip });
+      }
+      statuses.push((await widgetApi.send(chat, { clientMessageId: crypto.randomUUID(), text: `Mensaje ${i}` }, { token: visitor.token, ip })).status);
+    }
+    return statuses;
+  }
+
+  it("per IP: over its daily cap the visitor reads the reason in Spanish and the message is not stored", async () => {
+    const ip = "198.51.100.40";
+    const statuses = await sendMany(channelId, ip, WIDGET_AI_DAILY_CAP.perIp);
+    expect(statuses.every((status) => status === 201)).toBe(true);
+    const stored = (await db.select().from(messages)).length;
+    const visitor = await newVisitor(channelId, { ip });
+    const blocked = await widgetApi.send(channelId, { clientMessageId: crypto.randomUUID(), text: "Uno más" }, { token: visitor.token, ip });
+    expect(blocked.status).toBe(429);
+    expect(blocked.body).toMatchObject({ error: DAILY_CAP_MESSAGE, code: "daily_limit" });
+    expect(blocked.headers.get("access-control-allow-origin")).toBe(SITE);
+    expect(await db.select().from(messages)).toHaveLength(stored);
+    // Another address still writes; the same one can again the next day.
+    const other = await newVisitor(channelId, { ip: "198.51.100.41" });
+    expect((await widgetApi.send(channelId, { clientMessageId: crypto.randomUUID(), text: "Hola" }, { token: other.token, ip: "198.51.100.41" })).status).toBe(201);
+    now += WIDGET_AI_DAILY_CAP.windowMs;
+    vi.setSystemTime(now);
+    const tomorrow = await newVisitor(channelId, { ip });
+    expect((await widgetApi.send(channelId, { clientMessageId: crypto.randomUUID(), text: "Hola" }, { token: tomorrow.token, ip })).status).toBe(201);
+  });
+
+  it("per chat: once the whole web used the chat's daily cap, nobody's message is stored", async () => {
+    await getRateLimiter().hit(aiDailyCapKeys.channel(channelId), WIDGET_AI_DAILY_CAP.perChannel, WIDGET_AI_DAILY_CAP.windowMs);
+    await db.update(rateLimits).set({ count: WIDGET_AI_DAILY_CAP.perChannel }).where(eq(rateLimits.key, aiDailyCapKeys.channel(channelId)));
+    const visitor = await newVisitor(channelId, { ip: "198.51.100.42" });
+    const blocked = await widgetApi.send(channelId, { clientMessageId: crypto.randomUUID(), text: "Hola" }, { token: visitor.token, ip: "198.51.100.42" });
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.error).toBe(DAILY_CAP_MESSAGE);
+    expect(await db.select().from(messages)).toEqual([]);
+    // Another chat has its own cap.
+    const other = (await createChannel({ type: "webchat", name: "Otra web", config: webchatConfig() })).id;
+    const elsewhere = await newVisitor(other, { ip: "198.51.100.42" });
+    expect((await widgetApi.send(other, { clientMessageId: crypto.randomUUID(), text: "Hola" }, { token: elsewhere.token, ip: "198.51.100.42" })).status).toBe(201);
+  });
+
+  it("a chat with its AI off (only people answer) has no daily cap", async () => {
+    await db.update(channels).set({ aiEnabled: false }).where(eq(channels.id, channelId));
+    await getRateLimiter().hit(aiDailyCapKeys.ip("198.51.100.43"), WIDGET_AI_DAILY_CAP.perIp, WIDGET_AI_DAILY_CAP.windowMs);
+    await db.update(rateLimits).set({ count: WIDGET_AI_DAILY_CAP.perIp }).where(eq(rateLimits.key, aiDailyCapKeys.ip("198.51.100.43")));
+    const visitor = await newVisitor(channelId, { ip: "198.51.100.43" });
+    expect((await widgetApi.send(channelId, { clientMessageId: crypto.randomUUID(), text: "Hola" }, { token: visitor.token, ip: "198.51.100.43" })).status).toBe(201);
   });
 });
 

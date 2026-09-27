@@ -4,6 +4,7 @@
 import {
   Activity,
   Bell,
+  BellRing,
   BookOpen,
   Bot,
   CalendarDays,
@@ -63,6 +64,7 @@ export type SettingsPageKey =
   | "whatsapp"
   | "privacidad"
   | "notificaciones"
+  | "recordatorios"
   | "actividad"
   | "diagnostico"
   | "cuenta"
@@ -143,6 +145,14 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     icon: Bell,
     description: "Qué sucesos avisan y a quién.",
     permission: PERMISSIONS.settings.business,
+  },
+  {
+    key: "recordatorios",
+    label: "Recordatorios",
+    href: "/ajustes/recordatorios",
+    icon: BellRing,
+    description: "Aviso a los clientes antes de su cita, por WhatsApp o por email.",
+    permission: PERMISSIONS.agenda.configure,
   },
   {
     key: "actividad",

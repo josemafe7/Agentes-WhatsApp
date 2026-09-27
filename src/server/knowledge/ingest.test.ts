@@ -22,7 +22,7 @@ import { runProcessJob } from "./jobs";
 import { backfillEmbeddings, documentsWithPendingEmbeddings } from "./maintenance";
 import { KNOWLEDGE_EMBEDDINGS_JOB } from "./queue";
 import { searchKnowledge } from "./search";
-import { bagOfWordsVector, budget, embeddingCalls, knowledgeOpenRouter, makeTextPdf } from "./test-helpers";
+import { bagOfWordsVector, budget, embeddingCalls, knowledgeOpenRouter, makeDocx, makeTextPdf } from "./test-helpers";
 import { createOpenRouterClient } from "@/lib/openrouter/client";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dominia-knowledge-ingest-"));
@@ -255,6 +255,46 @@ describe("files [CON-06] [CON-07] [CON-23]", () => {
     const [missing] = await db.insert(kbDocuments).values({ kbId, sourceType: "file", title: "x", fileName: "x.pdf", fileKey: "knowledge/2026/09/nada.pdf", status: "queued" }).returning();
     await processDocument(missing.id, budget(), { storage });
     expect(await doc(missing.id)).toMatchObject({ status: "error", error: "No se encuentra el archivo del documento. Bórralo y súbelo de nuevo." });
+  });
+});
+
+describe("a file's own title [CON-10]", () => {
+  const COLOUR = ["La coloracion vegetal dura unas seis semanas segun el tipo de cabello y el cuidado posterior en casa."];
+  const chunkTitles = async (id: string) => (await db.select({ title: kbChunks.title }).from(kbChunks).where(eq(kbChunks.documentId, id))).map((row) => row.title);
+
+  async function addNamedFile(fileName: string, bytes: Uint8Array, title: string) {
+    const row = await addFile(fileName, bytes);
+    await db.update(kbDocuments).set({ title }).where(eq(kbDocuments.id, row.id));
+    return row;
+  }
+
+  it("a PDF that only had its file name as title takes its own; every chunk says «Documento: <title>» and it is found by it", async () => {
+    const row = await addNamedFile("guia-v3-final.pdf", makeTextPdf([COLOUR], { title: "Guía de coloración" }), "guia-v3-final");
+    expect(await processDocument(row.id, budget(), { storage })).toBe("done");
+    expect(await doc(row.id)).toMatchObject({ status: "ready", title: "Guía de coloración" });
+    expect(new Set(await chunkTitles(row.id))).toEqual(new Set(["Guía de coloración"]));
+    const [chunk] = await db.select({ contentHash: kbChunks.contentHash, section: kbChunks.section, content: kbChunks.content }).from(kbChunks).where(eq(kbChunks.documentId, row.id));
+    const stored = await doc(row.id);
+    expect(chunk.contentHash).toBe(embeddingKey(MODEL, 1536, embeddingInput({ title: "Guía de coloración", section: chunk.section, summary: stored.summary, content: chunk.content })));
+    // The words of the title find it, without accents too ([CON-17]).
+    const search = await searchKnowledge({ kbIds: [kbId], query: "guia" });
+    expect(search.results[0]).toMatchObject({ title: "Guía de coloración" });
+  });
+
+  it("a Word file that only had its file name takes the title of its properties", async () => {
+    const docx = makeDocx([{ heading: 1, text: "Protocolo" }, { text: "La limpieza dental se hace cada seis meses con revision incluida y sin coste adicional." }], { title: "Protocolo de higiene" });
+    const row = await addNamedFile("protocolo.docx", docx, "protocolo.docx");
+    await processDocument(row.id, budget(), { storage });
+    expect(await doc(row.id)).toMatchObject({ status: "ready", title: "Protocolo de higiene" });
+  });
+
+  it("a title somebody wrote is kept, whatever the file says; and a file without a title keeps its name", async () => {
+    const written = await addNamedFile("guia.pdf", makeTextPdf([COLOUR], { title: "Guía de coloración" }), "Tintes naturales");
+    await processDocument(written.id, budget(), { storage });
+    expect(await doc(written.id)).toMatchObject({ status: "ready", title: "Tintes naturales" });
+    const untitled = await addNamedFile("tarifas.pdf", makeTextPdf([COLOUR]), "tarifas");
+    await processDocument(untitled.id, budget(), { storage });
+    expect(await doc(untitled.id)).toMatchObject({ status: "ready", title: "tarifas" });
   });
 });
 

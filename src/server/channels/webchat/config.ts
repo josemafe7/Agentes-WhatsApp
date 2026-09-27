@@ -2,7 +2,7 @@
 // secrets, allowed domains, agents or test lists. System reads: the web chat is public by design ([PER-09]).
 import "server-only";
 import { createHash } from "node:crypto";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import { getPublicBusinessInfo, LOGO_KEY_PREFIX } from "@/data/business";
 import { WEBCHAT_LOGO_KEY_PREFIX } from "@/data/webchat-logo";
 import { db } from "@/db";
@@ -103,14 +103,16 @@ export async function widgetPublicConfig(channel: ChannelRecord): Promise<Widget
   };
 }
 
-export type WidgetDemoChannel = { id: string; name: string; available: boolean };
+export type WidgetDemoChannel = { id: string; name: string };
 
-/** Web chats to try on /widget-demo ([WEB-12]): names only, like the code pasted on any site. */
+/**
+ * Web chats to try on /widget-demo ([WEB-12]): the enabled ones, by name only, like the code pasted on any site. A
+ * disabled chat is not offered there: it would only say that it is not available ([WEB-13]).
+ */
 export async function listWidgetDemoChannels(): Promise<WidgetDemoChannel[]> {
-  const rows = await db
-    .select({ id: channels.id, name: channels.name, status: channels.status })
+  return db
+    .select({ id: channels.id, name: channels.name })
     .from(channels)
-    .where(eq(channels.type, "webchat"))
+    .where(and(eq(channels.type, "webchat"), ne(channels.status, "disabled")))
     .orderBy(asc(channels.name));
-  return rows.map((row) => ({ id: row.id, name: row.name, available: isChannelAvailable(row) }));
 }

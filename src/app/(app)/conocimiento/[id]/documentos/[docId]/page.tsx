@@ -17,6 +17,7 @@ import { countLabel, formatFileSize, isDocumentInProgress, refreshIntervalLabel 
 import { loadKnowledgePage } from "../../../_lib/load";
 import { PAGE_PARAM, pageSlice } from "../../../_lib/pagination";
 import { knowledgeBasePath, knowledgeDocumentPath } from "../../../_lib/paths";
+import { RenameDocumentDialog } from "./_components/rename-document-dialog";
 
 export const metadata: Metadata = { title: "Documento" };
 // «Reintentar» / «Refrescar» start the processing right after answering (KNOWLEDGE_MAX_DURATION_SEC).
@@ -51,7 +52,8 @@ const isWebAddress = (value: string) => /^https?:\/\//i.test(value);
 
 /**
  * A document of a base (docs/pantallas.md «Documento», [CON-05], [CON-09], [CON-10], [CON-15]): status, origin (file,
- * or web page with its date and refresh), summary and its fragments with section and page, 25 per page.
+ * or web page with its date and refresh), summary and its fragments with section and page, 25 per page; «Cambiar
+ * título» for files, web pages and texts.
  */
 export default async function KnowledgeDocumentPage({ params, searchParams }: DocumentPageProps) {
   const { docId } = await params;
@@ -92,7 +94,13 @@ export default async function KnowledgeDocumentPage({ params, searchParams }: Do
               {doc.pageCount !== null ? ` · ${countLabel(doc.pageCount, "página", "páginas")}` : ""}
             </p>
           </div>
-          {canManage ? <DocumentActions documentId={doc.id} title={doc.title} sourceType={doc.sourceType} status={doc.status} listHref={listHref} /> : null}
+          {canManage ? (
+            <div className="flex flex-wrap gap-2">
+              {/* A FAQ's title is its question: it is changed in «Preguntas frecuentes». */}
+              {doc.sourceType !== "faq" ? <RenameDocumentDialog documentId={doc.id} title={doc.title} /> : null}
+              <DocumentActions documentId={doc.id} title={doc.title} sourceType={doc.sourceType} status={doc.status} listHref={listHref} />
+            </div>
+          ) : null}
         </div>
         <DocumentStatus row={row} />
       </div>

@@ -3,14 +3,18 @@ import { makePdf } from "@/server/media/test-fixtures";
 import type { WebTransport } from "@/server/web-fetch";
 import { KnowledgeProcessingError } from "../errors";
 import { splitPages } from "../pages";
-import { makeDocx, makeXlsx, makeZip } from "../test-helpers";
+import { makeDocx, makeTextPdf, makeXlsx, makeZip } from "../test-helpers";
 import {
+  cleanDocumentTitle,
   cleanOcrMarkdown,
+  defaultDocumentTitle,
   detectKnowledgeFile,
   discoverSitemapPages,
+  docxTitle,
   extractFileToMarkdown,
   faqToMarkdown,
   fetchKnowledgePage,
+  isDefaultDocumentTitle,
   isScannedPdf,
   readPdfPages,
   sitemapAddressFor,
@@ -18,7 +22,7 @@ import {
 } from "./index";
 import { csvToMarkdown } from "./spreadsheet";
 import { decodeTextFile } from "./text";
-import { zipUnpacksWithinLimits } from "./zip";
+import { readZipEntry, zipUnpacksWithinLimits } from "./zip";
 
 const utf8 = (text: string) => new TextEncoder().encode(text);
 
@@ -116,6 +120,59 @@ describe("DOCX to Markdown keeps headings and tables [CON-06] [CON-10]", () => {
 
   it("a damaged DOCX is a clear error", async () => {
     await expect(extractFileToMarkdown("docx", new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3]))).rejects.toBeInstanceOf(KnowledgeProcessingError);
+  });
+});
+
+describe("the document's own title, from its metadata [CON-10]", () => {
+  const lines = ["Tarifas de peluqueria para 2026 con todos los servicios del salon y sus condiciones de reserva"];
+
+  it("a PDF's title (its information dictionary) comes with its text; without one, none", async () => {
+    const titled = makeTextPdf([lines], { title: "Tarifas y servicios · 2026" });
+    expect((await readPdfPages(titled)).title).toBe("Tarifas y servicios · 2026");
+    expect(await extractFileToMarkdown("pdf", titled)).toMatchObject({ title: "Tarifas y servicios · 2026", pageCount: 1 });
+    expect((await readPdfPages(makeTextPdf([lines]))).title).toBeNull();
+    expect((await extractFileToMarkdown("pdf", makeTextPdf([lines]))).title).toBeNull();
+  });
+
+  it("a Word document's title (docProps/core.xml) comes with its text; without one, none", async () => {
+    const titled = makeDocx([{ heading: 1, text: "Manual" }, { text: "Abrimos de lunes a viernes." }], { title: "Manual de la clínica & protocolo" });
+    expect(docxTitle(titled)).toBe("Manual de la clínica & protocolo");
+    expect(await extractFileToMarkdown("docx", titled)).toMatchObject({ title: "Manual de la clínica & protocolo" });
+    expect((await extractFileToMarkdown("docx", makeDocx([{ text: "Abrimos de lunes a viernes." }]))).title).toBeNull();
+    // Other files have no title of their own.
+    expect((await extractFileToMarkdown("txt", utf8("Abrimos de lunes a viernes."))).title).toBeNull();
+  });
+
+  it("a title that says nothing, or is only a file name, is not a title", () => {
+    expect(cleanDocumentTitle("  Tarifas\u0000 de\n\t2026  ")).toBe("Tarifas de 2026");
+    expect(cleanDocumentTitle("x".repeat(400))).toHaveLength(300);
+    for (const empty of [null, undefined, "", "   ", "Untitled", "sin título", "Documento1", "Microsoft Word - tarifas.docx", "presupuesto.pdf"]) {
+      expect(cleanDocumentTitle(empty)).toBeNull();
+    }
+  });
+
+  it("the title a file gets from its name is the one its metadata may replace; a title someone wrote is not", () => {
+    expect(defaultDocumentTitle("Tarifas 2026.pdf")).toBe("Tarifas 2026");
+    expect(defaultDocumentTitle(".pdf")).toBe(".pdf");
+    expect(isDefaultDocumentTitle("Tarifas 2026", "Tarifas 2026.pdf")).toBe(true);
+    expect(isDefaultDocumentTitle("Tarifas 2026.pdf", "Tarifas 2026.pdf")).toBe(true);
+    expect(isDefaultDocumentTitle("Precios del salón", "Tarifas 2026.pdf")).toBe(false);
+    expect(isDefaultDocumentTitle("Precios", null)).toBe(false);
+  });
+
+  it("the metadata of a Word file is read with a cap, never trusting the sizes it declares [SEG-13]", () => {
+    const docx = makeDocx([{ text: "Hola" }], { title: "Manual" });
+    expect(new TextDecoder().decode(readZipEntry(docx, "docProps/core.xml", 64 * 1024) ?? new Uint8Array())).toContain("<dc:title>Manual</dc:title>");
+    expect(readZipEntry(docx, "docProps/core.xml", 10)).toBeNull();
+    expect(readZipEntry(docx, "no/existe.xml", 64 * 1024)).toBeNull();
+    const bomb = makeZip({ "docProps/core.xml": `<dc:title>${"0".repeat(2 * 1024 * 1024)}</dc:title>` });
+    expect(readZipEntry(bomb, "docProps/core.xml", 64 * 1024)).toBeNull();
+    expect(docxTitle(bomb)).toBeNull();
+    // A hostile title never makes the reader slow.
+    const hostile = makeZip({ "docProps/core.xml": `<dc:title>${"&amp;".repeat(5_000)}${"<".repeat(5_000)}` });
+    const started = performance.now();
+    expect(docxTitle(hostile)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });
 

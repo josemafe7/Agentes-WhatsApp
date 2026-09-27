@@ -36,12 +36,16 @@ Qué se prueba y cómo, para demostrar que el código funciona.
   cada una es de 30 s.
 - Playwright, en `e2e/` y con Chromium (`pnpm exec playwright install chromium` la primera vez). Arranca él
   solo (`webServer`) el servidor que simula los servicios externos (`e2e/mocks/`, puerto 3101) y, como
-  recomienda Next.js, la versión compilada de la app (`pnpm build` y `next start`) dos veces: la demo en el
-  puerto 3100 con `data/e2e.db` (migraciones, demo y dos usuarios propios de las pruebas) y una instalación
-  vacía en el 3102 con `data/e2e-fresh.db`, para el asistente de arranque. Las bases se preparan antes de
-  compilar (`e2e/support/prepare-databases.mjs`, que solo borra archivos `data/e2e*.db`) y los secretos de
-  prueba (también el código de instalación que la versión compilada pide en el asistente) se generan en cada
-  ejecución: nunca toca `data/local.db` ni `.env.local`.
+  recomienda Next.js, la versión compilada de la app (`pnpm build` y `next start`) tres veces: la demo en el
+  puerto 3100 con `data/e2e.db` (migraciones, demo de la peluquería, dos usuarios propios de las pruebas y la cita
+  del recordatorio, `e2e/support/create-agenda-fixtures.ts`), una instalación vacía en el 3102 con
+  `data/e2e-fresh.db`, para el asistente de arranque, y la demo del restaurante en el 3103 con
+  `data/e2e-restaurante.db` (`pnpm seed --sector=restaurante`), solo para la agenda por aforo (proyecto
+  `restaurant`, `e2e/restaurant/`; sus pruebas entran por el formulario y el servidor tiene la clave de prueba de
+  OpenRouter simulado en su entorno). Las bases se preparan antes de compilar
+  (`e2e/support/prepare-databases.mjs`, que solo borra archivos `data/e2e*.db`) y los secretos de prueba (también
+  el código de instalación que la versión compilada pide en el asistente) se generan en cada ejecución: nunca toca
+  `data/local.db` ni `.env.local`.
 - Se entra siempre por el formulario, como una persona: el inicio de sesión de Better Auth no responde por HTTP
   (`src/server/auth.ts`). En Vitest, las pruebas usan `auth.api.*`, como las Server Actions.
 - Las pruebas de Playwright van de una en una, porque comparten los archivos de base de datos.
@@ -52,10 +56,19 @@ Qué se prueba y cómo, para demostrar que el código funciona.
   respuesta llega sola ([MOT-15]). Cada prueba crea sus propios agentes, chats web y textos únicos
   (`e2e/support/names.ts`), y cada visitante del chat es un navegador nuevo con su propia IP. La forma de las
   pantallas que usan (textos, roles y nombres accesibles) está en los ayudantes de `e2e/support/` (`channels.ts`,
-  `widget.ts`, `inbox.ts`, `simulator.ts`, `team.ts`, `whatsapp.ts` y `knowledge.ts`), para cambiarla en un solo sitio.
+  `widget.ts`, `inbox.ts`, `simulator.ts`, `team.ts`, `whatsapp.ts`, `knowledge.ts`, `agenda.ts` y `email.ts`), para
+  cambiarla en un solo sitio.
 - En Vitest, los tiempos de la IA (pausas, esperas, resúmenes) se prueban con la hora fijada: el motor recibe
   `now`, y cuando una función de `src/data/` usa la hora real solo se falsea `Date`
   (`vi.useFakeTimers({ toFake: ["Date"] })`), nunca los temporizadores, que usa la base de datos.
+- La agenda (fase 5): el motor de disponibilidad es una función pura y se prueba sin base de datos, con la hora fijada,
+  en los dos cambios de hora de Madrid (25-10-2026 y 28-03-2027), aforo, márgenes, antelación, ausencias y bloqueos
+  (`src/server/booking/availability.test.ts`). El servicio de citas se prueba contra la base de verdad, también con
+  reservas lanzadas a la vez para el último hueco (`service.test.ts`). `src/server/booking/test-helpers.ts` crea
+  negocios de prueba (una peluquería, un negocio por aforo, recursos y servicios) para las pruebas de otras partes. Las
+  acciones de la Agenda y de su configuración se prueban por rol con `Date` falseado. La demo de la agenda se
+  comprueba para los nueve sectores y varios días de carga (también en los cambios de hora) en
+  `scripts/lib/seed-bookings.test.ts`: el motor acepta cada cita de la demo.
 - En la versión compilada los límites de peticiones están activos y todas las pruebas salen del mismo
   ordenador: cada prueba envía su propia IP en `X-Forwarded-For` (`e2e/support/test.ts`), así no se estorban,
   y dos pruebas demuestran que los límites existen.
@@ -92,6 +105,17 @@ Qué se prueba y cómo, para demostrar que el código funciona.
     frases. Todas las respuestas empiezan igual que las demás («Soy … Me has escrito: «…»»). Como el modelo simulado
     siempre busca cuando tiene la herramienta, un agente con `buscar_conocimiento` hace dos llamadas por respuesta
     (los de la demo la tienen).
+  - Citas en el OpenRouter simulado (fase 5, `e2e/mocks/routes/booking.mjs`): solo si al agente se le ofrecen
+    `listar_servicios`, `consultar_disponibilidad` y `crear_cita` y el cliente escribe una fecha «AAAA-MM-DD» (o
+    responde a una oferta del propio simulado). Entonces reserva como un cliente: lista los servicios, consulta los
+    huecos de ese día y ofrece los sugeridos, cada uno con su «[inicio]» para que la prueba lo lea; «Me va bien la
+    primera» (o la segunda, o una hora) llama a `crear_cita` con ese hueco y responde con la confirmación de la
+    herramienta, o con el error y las alternativas. «Confirmo … el AAAA-MM-DD a las HH:MM …» reserva directamente.
+    Los ayudantes de la agenda (fechas de prueba lejos de las citas de la demo, un agente con las herramientas de citas,
+    «Probar», el calendario, la ficha, arrastrar, los recordatorios y los correos de `data/outbox`) están en
+    `e2e/support/agenda.ts`. La cita del recordatorio se crea «hace diez días» para mañana antes de arrancar
+    (`e2e/support/create-agenda-fixtures.ts`), porque una cita creada durante la prueba no tendría recordatorio sin
+    esperar de verdad.
   - Documentos del conocimiento hechos en código, sin binarios en el repositorio: en Playwright,
     `e2e/support/knowledge-files.ts` (un PDF de texto de 120 páginas con un dato solo en la 112 y un Markdown con
     encabezados; las preguntas evitan las palabras clave de traspaso de la plantilla, como «novia»); en Vitest,
@@ -124,7 +148,21 @@ Qué se prueba y cómo, para demostrar que el código funciona.
   - La demo de Playwright arranca sin clave de OpenRouter. Una prueba que necesita IA pide el fixture
     `openRouterKey` (`e2e/support/test.ts`): guarda la clave como el propietario desde Ajustes › IA y la quita al
     terminar, aunque la prueba falle, para que las demás sigan viendo la instalación sin IA.
-  - Los servidores de correo (IMAP y SMTP) se simulan sustituyendo su conexión.
+  - Los servidores de correo (IMAP y SMTP) se simulan en Vitest sustituyendo su conexión
+    (`src/server/channels/email/test-fakes/`).
+  - Google y Microsoft simulados en Playwright (fase 6, `e2e/mocks/routes/google.mjs` y `microsoft.mjs`, con lo común en
+    `google-microsoft-mail.mjs`): las pantallas de consentimiento (se puede desmarcar un permiso), los tokens con PKCE,
+    la API de Gmail y Microsoft Graph de cada buzón, que las pruebas manejan como un guion: llega un correo, una persona
+    responde desde su programa, se revoca el acceso… y después leen lo que hizo la app (borradores, envíos con sus
+    cabeceras e hilo, etiquetas). Cada prueba usa sus propios clientes y direcciones (`e2e/support/email-mailboxes.ts`),
+    así que nunca comparten buzones ni contactos. Los ayudantes de las pantallas de correo están en `e2e/support/email.ts`.
+  - Herramientas HTTP en Playwright (fase 7, `e2e/mocks/routes/http-tools.mjs`): una pequeña API de tienda en el
+    simulador y el paso del modelo simulado que llama a la herramienta que el cliente nombra. La app de las pruebas corre
+    con `ALLOW_LOCAL_HTTP_TOOLS=true` (y `E2E_ALLOW_BASE_URL_OVERRIDES=true`, sin el cual la versión compilada no arranca
+    con ella) para poder llamar al simulador por `http` en este ordenador ([HER-14]).
+  - Avisos push y app instalable (fase 7): Playwright comprueba el manifiesto, el service worker y los iconos sin
+    sesión, y la suscripción y los dispositivos de Mi cuenta con el permiso de notificaciones concedido al navegador; el
+    envío con `web-push` se prueba en Vitest con su transporte falso, sin llamar a ningún servicio de push.
   - Las respuestas y los avisos simulados copian los reales de `docs/integracion-*.md` (por ejemplo, los
     avisos de WhatsApp de `docs/integracion-whatsapp-mensajes.md`), firmas incluidas.
 - Cuando el proyecto esté en GitHub, se propone ejecutar las pruebas automáticamente en cada subida.

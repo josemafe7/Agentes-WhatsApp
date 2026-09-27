@@ -12,9 +12,11 @@ import {
   knowledgeBases,
   messageRetrievals,
   messages,
+  rateLimits,
   userRoles,
 } from "@/db/schema";
 import type { Actor } from "@/lib/permissions";
+import { KNOWLEDGE_ADD_LIMIT } from "@/app/(app)/conocimiento/_lib/work";
 import { createBusiness, createChannel, createContactWithIdentity, createConversation, createMessage, createUser, type TestUser } from "@/test/factories";
 
 const state = vi.hoisted(() => ({ actor: null as Actor | null }));
@@ -36,7 +38,9 @@ vi.mock("@/server/session", async () => {
   };
 });
 vi.mock("next/cache", () => ({ refresh: () => undefined, revalidatePath: () => undefined }));
+vi.mock("@/server/inbound/ingest", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/server/inbound/ingest")>()), kickTick: vi.fn() }));
 
+import { kickTick } from "@/server/inbound/ingest";
 import { convertToFaqAction, loadFaqDraftAction, loadWhyAnswerAction } from "./actions";
 
 const FORBIDDEN = { ok: false, error: "No tienes permiso para hacer esto." };
@@ -75,7 +79,8 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  for (const table of [aiRuns, messageRetrievals, kbDocuments, knowledgeBases, jobs, auditLog, messages, conversations, contactIdentities, contacts]) await db.delete(table);
+  for (const table of [aiRuns, messageRetrievals, kbDocuments, knowledgeBases, jobs, auditLog, messages, conversations, contactIdentities, contacts, rateLimits]) await db.delete(table);
+  vi.mocked(kickTick).mockClear();
   as(users.owner);
   [{ id: salonKb }, { id: clinicKb }] = await db
     .insert(knowledgeBases)
@@ -161,6 +166,31 @@ describe("«Convertir en FAQ» from a person's reply [CON-22]", () => {
       createdBy: users.admin.userId,
     });
     expect(await db.select({ type: jobs.type }).from(jobs)).toEqual([{ type: "knowledge.process" }]);
+    // Its processing starts right after answering, like any content added to a base ([MOT-15]).
+    expect(kickTick).toHaveBeenCalledTimes(1);
+    expect(kickTick).toHaveBeenCalledWith({ maxDurationSec: 60 });
+  });
+
+  it("is limited per person like any content added to a base, since each FAQ costs AI; past it nothing is saved nor started [SEG-07]", async () => {
+    as(users.supervisor);
+    const convert = (n: number) => convertToFaqAction({ ...ref(inA, humanInA), kbId: salonKb, question: `¿Hay descuento para estudiantes? (${n})`, answer: "Sí." });
+    for (let n = 0; n < KNOWLEDGE_ADD_LIMIT.limit; n += 1) expect((await convert(n)).ok).toBe(true);
+    vi.mocked(kickTick).mockClear();
+    expect(await convert(KNOWLEDGE_ADD_LIMIT.limit)).toEqual({ ok: false, error: "Has añadido mucho contenido seguido. Espera unos minutos y sigue." });
+    expect(await savedFaqs()).toHaveLength(KNOWLEDGE_ADD_LIMIT.limit);
+    expect(kickTick).not.toHaveBeenCalled();
+    // Each person has their own.
+    as(users.admin);
+    expect((await convert(0)).ok).toBe(true);
+  });
+
+  it("a refused or invalid conversion neither counts against the person nor starts any work", async () => {
+    as(users.viewer);
+    await convertToFaqAction({ ...ref(inA, humanInA), kbId: salonKb, question: "¿Hay descuento?", answer: "Sí." });
+    as(users.admin);
+    await convertToFaqAction({ ...ref(inA, humanInA), kbId: salonKb, question: " ", answer: "" });
+    expect(kickTick).not.toHaveBeenCalled();
+    expect(await db.select().from(rateLimits)).toEqual([]);
   });
 
   it("an empty question or answer is not saved and says which field to fix", async () => {

@@ -1,9 +1,10 @@
 // Contactos, basic part ([CTO-01]–[CTO-03], [CTO-08]): list with search and filters, the contact's card (data,
 // identities by channel, labels, custom fields, consents and conversation history), and creating and editing by
 // hand. The phone and the email are data, never keys ([CAN-13]). An Agent only sees the contacts with a conversation
-// in their channels, and only those conversations ([PER-02]). Merge, export and delete come in phase 7.
+// in their channels, and only those conversations ([PER-02]). Merging is in contacts-merge.ts, exporting in
+// contacts-export.ts and erasing in contacts-erase.ts.
 import "server-only";
-import { and, asc, count, desc, eq, exists, inArray, isNotNull, like, or, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, exists, inArray, isNotNull, like, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { channels, consents, contactIdentities, contacts, conversations } from "@/db/schema";
@@ -12,6 +13,7 @@ import { channelFilter, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { emailSchema, idSchema, labelSchema, MAX_LABELS, optionalText } from "@/lib/validation";
 import { AuthError, parseInput, ValidationError } from "@/server/errors";
 import { writeAudit } from "./audit";
+import { contactSearchCondition, contactSearchText } from "./contacts-search";
 import { assertCan } from "./guard";
 
 export const CONTACTS_PAGE_SIZE = 25;
@@ -38,6 +40,16 @@ export type ContactListItem = {
   lastConversationAt: Date | null;
 };
 
+const NO_NAME = "Sin nombre";
+
+/**
+ * How a contact is called on screen: its name, else its email or its phone; never blank (web visitors often have
+ * none). Also what a person types to confirm erasing it (contacts-erase.ts).
+ */
+export function contactDisplayName(contact: { name: string | null; email: string | null; phone: string | null }): string {
+  return contact.name?.trim() || contact.email || contact.phone || NO_NAME;
+}
+
 /** The conversations an actor may see of a contact: all, or those of an Agent's channels. */
 function conversationScope(actor: Actor): SQL[] | null {
   const scoped = channelFilter(actor);
@@ -48,20 +60,22 @@ function conversationScope(actor: Actor): SQL[] | null {
 const visibleThrough = (scope: SQL[]) =>
   exists(db.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.contactId, contacts.id), ...scope)));
 
-/** Contactos: one page with search by name, phone or email and filters by label and channel ([CTO-01]). */
-export async function listContacts(actor: Actor, input: unknown = {}): Promise<{ items: ContactListItem[]; total: number; page: number; pageCount: number }> {
-  assertCan(actor, PERMISSIONS.contacts.view);
-  const filters = parseInput(contactFiltersSchema, input);
+export type ContactListFilters = Omit<z.output<typeof contactFiltersSchema>, "page">;
+
+/**
+ * The contacts `actor` may see that match the filters, as a where clause for any query on `contacts`, or null when
+ * none can match ([CTO-01], [PER-02]). Shared by the list and its CSV export (contacts-export.ts). The caller checks
+ * the permission first.
+ */
+export function contactListWhere(actor: Actor, filters: ContactListFilters): { where: SQL | undefined } | null {
   const scope = conversationScope(actor);
   const scoped = channelFilter(actor);
   // An agent filtering by a channel that is not theirs sees nothing (and learns nothing about it).
-  if (!scope || (filters.channelId && scoped && !scoped.includes(filters.channelId))) return { items: [], total: 0, page: 1, pageCount: 1 };
+  if (!scope || (filters.channelId && scoped && !scoped.includes(filters.channelId))) return null;
   const conditions: SQL[] = [];
   if (scoped) conditions.push(visibleThrough(scope));
-  if (filters.search) {
-    const pattern = `%${filters.search}%`;
-    conditions.push(or(like(contacts.name, pattern), like(contacts.phone, pattern), like(contacts.email, pattern)) as SQL);
-  }
+  // Without accents or case: «jose» finds «José» (contacts-search.ts).
+  if (filters.search) conditions.push(contactSearchCondition(filters.search));
   if (filters.label) conditions.push(like(contacts.labels, `%${JSON.stringify(filters.label)}%`));
   if (filters.channelType) {
     conditions.push(
@@ -78,10 +92,20 @@ export async function listContacts(actor: Actor, input: unknown = {}): Promise<{
       exists(db.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.contactId, contacts.id), eq(conversations.channelId, filters.channelId)))),
     );
   }
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  return { where: conditions.length > 0 ? and(...conditions) : undefined };
+}
+
+/** Contactos: one page with search by name, phone or email and filters by label and channel ([CTO-01]). */
+export async function listContacts(actor: Actor, input: unknown = {}): Promise<{ items: ContactListItem[]; total: number; page: number; pageCount: number }> {
+  assertCan(actor, PERMISSIONS.contacts.view);
+  const { page: requestedPage, ...filters } = parseInput(contactFiltersSchema, input);
+  const visible = contactListWhere(actor, filters);
+  const scope = conversationScope(actor);
+  if (!visible || !scope) return { items: [], total: 0, page: 1, pageCount: 1 };
+  const { where } = visible;
   const [{ total }] = await db.select({ total: count() }).from(contacts).where(where);
   const pageCount = Math.max(1, Math.ceil(total / CONTACTS_PAGE_SIZE));
-  const page = Math.min(filters.page, pageCount);
+  const page = Math.min(requestedPage, pageCount);
   const rows = await db
     .select({ id: contacts.id, name: contacts.name, phone: contacts.phone, email: contacts.email, labels: contacts.labels })
     .from(contacts)
@@ -89,27 +113,61 @@ export async function listContacts(actor: Actor, input: unknown = {}): Promise<{
     .orderBy(asc(contacts.name), asc(contacts.id))
     .limit(CONTACTS_PAGE_SIZE)
     .offset((page - 1) * CONTACTS_PAGE_SIZE);
-  const ids = rows.map((row) => row.id);
-  const [identities, lastConversations] = ids.length
-    ? await Promise.all([
-        db.select({ contactId: contactIdentities.contactId, channelType: contactIdentities.channelType }).from(contactIdentities).where(inArray(contactIdentities.contactId, ids)),
-        db
-          .select({ contactId: conversations.contactId, lastMessageAt: conversations.lastMessageAt })
-          .from(conversations)
-          .where(and(inArray(conversations.contactId, ids), ...scope))
-          .orderBy(desc(conversations.lastMessageAt)),
-      ])
-    : [[], []];
-  return {
-    items: rows.map((row) => ({
-      ...row,
-      channelTypes: [...new Set(identities.filter((identity) => identity.contactId === row.id).map((identity) => identity.channelType))],
-      lastConversationAt: lastConversations.find((conversation) => conversation.contactId === row.id)?.lastMessageAt ?? null,
-    })),
-    total,
-    page,
-    pageCount,
-  };
+  return { items: await withListDetails(rows, scope), total, page, pageCount };
+}
+
+/** Ids per query when looking up the details of many contacts at once (the CSV export). */
+const IDS_PER_QUERY = 500;
+
+/** The channel types and the last visible conversation of each contact, as the list shows them ([CTO-01]). */
+async function withListDetails<T extends { id: string }>(rows: T[], scope: SQL[]): Promise<(T & Pick<ContactListItem, "channelTypes" | "lastConversationAt">)[]> {
+  const identities: { contactId: string; channelType: ChannelType }[] = [];
+  const lastConversations: { contactId: string | null; lastMessageAt: Date | null }[] = [];
+  for (let start = 0; start < rows.length; start += IDS_PER_QUERY) {
+    const ids = rows.slice(start, start + IDS_PER_QUERY).map((row) => row.id);
+    const [identityRows, conversationRows] = await Promise.all([
+      db.select({ contactId: contactIdentities.contactId, channelType: contactIdentities.channelType }).from(contactIdentities).where(inArray(contactIdentities.contactId, ids)),
+      db
+        .select({ contactId: conversations.contactId, lastMessageAt: conversations.lastMessageAt })
+        .from(conversations)
+        .where(and(inArray(conversations.contactId, ids), ...scope))
+        .orderBy(desc(conversations.lastMessageAt)),
+    ]);
+    identities.push(...identityRows);
+    lastConversations.push(...conversationRows);
+  }
+  return rows.map((row) => ({
+    ...row,
+    channelTypes: [...new Set(identities.filter((identity) => identity.contactId === row.id).map((identity) => identity.channelType))],
+    lastConversationAt: lastConversations.find((conversation) => conversation.contactId === row.id)?.lastMessageAt ?? null,
+  }));
+}
+
+export type ContactExportRow = ContactListItem & { customFields: Record<string, string>; notes: string | null; createdAt: Date };
+
+/**
+ * Every contact `actor` may see that matches the filters (or, with `ids`, those of them), without pages, for the CSV
+ * export (contacts-export.ts, which checks the export permission first).
+ */
+export async function listContactsForExport(actor: Actor, filters: ContactListFilters, ids?: readonly string[]): Promise<ContactExportRow[]> {
+  const visible = contactListWhere(actor, filters);
+  const scope = conversationScope(actor);
+  if (!visible || !scope) return [];
+  const rows = await db
+    .select({
+      id: contacts.id,
+      name: contacts.name,
+      phone: contacts.phone,
+      email: contacts.email,
+      labels: contacts.labels,
+      customFields: contacts.customFields,
+      notes: contacts.notes,
+      createdAt: contacts.createdAt,
+    })
+    .from(contacts)
+    .where(and(visible.where, ...(ids ? [inArray(contacts.id, [...ids])] : [])))
+    .orderBy(asc(contacts.name), asc(contacts.id));
+  return withListDetails(rows, scope);
 }
 
 /** Labels in use on the contacts the actor may see, for the label filter and suggestions ([CTO-01], [PER-02]). */
@@ -251,7 +309,11 @@ export async function createContact(actor: Actor, input: unknown): Promise<{ id:
   if (channelFilter(actor) !== null) throw new AuthError("forbidden");
   const data = parseInput(contactInputSchema, input);
   if (!data.name && !data.phone && !data.email) throw new ValidationError(undefined, { name: ["Escribe al menos el nombre, el teléfono o el email."] });
-  const [row] = await db.insert(contacts).values(contactValues(data)).returning({ id: contacts.id });
+  const values = contactValues(data);
+  const [row] = await db
+    .insert(contacts)
+    .values({ ...values, searchText: contactSearchText(values) })
+    .returning({ id: contacts.id });
   await writeAudit({ actor, action: "contact.created", targetType: "contact", targetId: row.id });
   return row;
 }
@@ -262,6 +324,9 @@ export async function updateContact(actor: Actor, contactId: string, input: unkn
   const data = parseInput(contactInputSchema, input);
   const values = contactValues(data);
   if (Object.keys(values).length === 0) return;
-  await db.update(contacts).set({ ...values, updatedAt: new Date() }).where(eq(contacts.id, contact.id));
+  await db
+    .update(contacts)
+    .set({ ...values, searchText: contactSearchText({ ...contact, ...values }), updatedAt: new Date() })
+    .where(eq(contacts.id, contact.id));
   await writeAudit({ actor, action: "contact.updated", targetType: "contact", targetId: contact.id, metadata: { fields: Object.keys(values) } });
 }

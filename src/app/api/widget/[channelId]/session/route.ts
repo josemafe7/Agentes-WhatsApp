@@ -3,7 +3,6 @@
 // never taken from the browser.
 import { z } from "zod";
 import { openVisitorSession } from "@/server/channels/webchat/conversation";
-import { enforceWidgetLimit } from "@/server/channels/webchat/limits";
 import { handleWidget, readJsonBody, widgetJson, widgetPreflight } from "@/server/channels/webchat/request";
 import { parseInput } from "@/server/errors";
 
@@ -19,8 +18,8 @@ export function OPTIONS(request: Request, context: Context): Promise<Response> {
 }
 
 export function POST(request: Request, context: Context): Promise<Response> {
-  return handleWidget(request, context.params, async (ctx) => {
-    await enforceWidgetLimit("session", ctx.limitKeys);
+  // The token comes in the body here: limited per IP only.
+  return handleWidget(request, context.params, { action: "session" }, async (ctx) => {
     const { token } = parseInput(sessionSchema, await readJsonBody(request));
     return widgetJson(ctx, await openVisitorSession(ctx.channel, token ?? null));
   });

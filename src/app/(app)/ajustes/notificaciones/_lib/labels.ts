@@ -26,4 +26,8 @@ export const EVENT_LABELS: Record<NotificationEvent, { label: string; descriptio
     label: "Modelo de IA que se retira",
     description: "Un agente usa un modelo que OpenRouter va a retirar.",
   },
+  booking_pending: {
+    label: "Cita pendiente de confirmar",
+    description: "Se pide una cita de un servicio que requiere confirmación manual. Los agentes solo reciben las de sus canales.",
+  },
 };

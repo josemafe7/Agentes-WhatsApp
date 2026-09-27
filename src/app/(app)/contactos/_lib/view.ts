@@ -1,14 +1,10 @@
 // How Contactos shows a contact ([CTO-02], [CTO-08]): its name, an identity's phone (data, never a key, [CAN-13]),
-// the conversation states of DESIGN.md and the bajas still in force.
+// the conversation states of DESIGN.md and the bajas still in force. Server components only: the display name comes
+// from src/data/contacts.ts, which also checks it when a contact is erased.
 import { CircleCheck, CircleDot, Hand, type LucideIcon } from "lucide-react";
 import type { ConsentType, ConversationStatus } from "@/lib/enums";
 
-const NO_NAME = "Sin nombre";
-
-/** The name, else the email or the phone; never blank (web visitors often have none). */
-export function contactDisplayName(contact: { name: string | null; email: string | null; phone: string | null }): string {
-  return contact.name?.trim() || contact.email || contact.phone || NO_NAME;
-}
+export { contactDisplayName } from "@/data/contacts";
 
 /** Identities keep the phone as digits only ([WA-39]): shown with its «+». */
 export function identityPhone(phone: string | null): string | null {

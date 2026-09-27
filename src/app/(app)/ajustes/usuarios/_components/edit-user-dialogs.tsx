@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { ChannelOption } from "@/data/users";
+import type { AgentChannelsResult, ChannelOption } from "@/data/users";
 import { useFormAction } from "@/hooks/use-form-action";
 import type { ActionResult } from "@/lib/action-result";
 import { INVITABLE_ROLES, type InvitableRole } from "@/lib/enums";
@@ -29,12 +29,17 @@ function SubmitButton({ pending, label, pendingLabel }: { pending: boolean; labe
   );
 }
 
-/** Wraps an action so a success closes the dialog with a toast; failures stay in the form. */
-function closingOnSuccess(action: (prev: ActionResult | null, formData: FormData) => Promise<ActionResult>, close: () => void) {
-  return async (prev: ActionResult | null, formData: FormData) => {
+/** Wraps an action so a success closes the dialog with a toast (and its warning, if any); failures stay in the form. */
+function closingOnSuccess<T extends AgentChannelsResult | void>(
+  action: (prev: ActionResult<T> | null, formData: FormData) => Promise<ActionResult<T>>,
+  close: () => void,
+) {
+  return async (prev: ActionResult<T> | null, formData: FormData) => {
     const result = await action(prev, formData);
     if (result.ok) {
       toast.success(result.message ?? "Cambios guardados.");
+      // An Agent left without any channel now sees them all ([PER-02]).
+      if (result.data?.warning) toast.warning(result.data.warning);
       close();
     }
     return result;
@@ -45,7 +50,7 @@ function closingOnSuccess(action: (prev: ActionResult | null, formData: FormData
 export function ChangeRoleDialog({ user, channels, open, onOpenChange }: DialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-md">
         {open ? <ChangeRoleForm user={user} channels={channels} close={() => onOpenChange(false)} /> : null}
       </DialogContent>
     </Dialog>
@@ -99,7 +104,7 @@ function ChangeRoleForm({ user, channels, close }: { user: UserRow; channels: Ch
 export function AgentChannelsDialog({ user, channels, open, onOpenChange }: DialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-md">
         {open ? <AgentChannelsForm user={user} channels={channels} close={() => onOpenChange(false)} /> : null}
       </DialogContent>
     </Dialog>
@@ -107,7 +112,7 @@ export function AgentChannelsDialog({ user, channels, open, onOpenChange }: Dial
 }
 
 function AgentChannelsForm({ user, channels, close }: { user: UserRow; channels: ChannelOption[]; close: () => void }) {
-  const [state, onSubmit, pending] = useFormAction<ActionResult | null>(closingOnSuccess(setAgentChannelsAction, close), null);
+  const [state, onSubmit, pending] = useFormAction<ActionResult<AgentChannelsResult> | null>(closingOnSuccess(setAgentChannelsAction, close), null);
   return (
     <form onSubmit={onSubmit} className="grid gap-4">
       <DialogHeader>

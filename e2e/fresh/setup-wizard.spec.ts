@@ -189,9 +189,12 @@ test("[ARR-17][ASI-01][ASI-02][ASI-03][ASI-05][ASI-06][ASI-07][ASI-08][ASI-09][A
     await expect(page).toHaveURL(stepUrl(7));
   });
 
-  await test.step("[ASI-10] step 7 names the channels still to come and never links to a page that does not exist", async () => {
-    await expect(page.getByText("Próximamente", { exact: true })).toHaveCount(2);
+  await test.step("[ASI-10] step 7 links to the WhatsApp and email wizards and their guides, and never to a page that does not exist", async () => {
+    await expect(page.getByRole("button", { name: "Conectar WhatsApp" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Conectar el correo" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Ver la guía" })).toHaveCount(2);
     const hrefs = await page.locator("main a[href]").evaluateAll((links) => links.map((link) => link.getAttribute("href") ?? ""));
+    expect(hrefs).toEqual(expect.arrayContaining(["/ayuda/whatsapp", "/ayuda/correo"]));
     for (const href of hrefs.filter((value) => value.startsWith("/"))) {
       const response = await page.request.get(href);
       expect(response.status(), `${href} exists`).toBeLessThan(400);

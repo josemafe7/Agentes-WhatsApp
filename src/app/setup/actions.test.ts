@@ -247,12 +247,22 @@ describe("finishSetupAction [ASI-10]", () => {
     expect((await loadBusinessSettings()).setupCompletedAt).toBeInstanceOf(Date);
   });
 
-  it("never opens an unknown address, nor a channel wizard that does not exist yet (WhatsApp in phase 3, email in phase 6)", async () => {
+  it("never opens an unknown address: an address that is not in the app goes to the inbox", async () => {
     await ownerAtLastStep();
     await expect(finishSetupAction(undefined, form({ destination: "https://evil.example/" }))).rejects.toThrow("REDIRECT:/bandeja");
     await resetInstallation();
     await ownerAtLastStep();
-    await expect(finishSetupAction(undefined, form({ destination: "/canales/nuevo/whatsapp" }))).rejects.toThrow("REDIRECT:/bandeja");
+    await expect(finishSetupAction(undefined, form({ destination: "/canales/nuevo/telegram" }))).rejects.toThrow("REDIRECT:/bandeja");
+  });
+
+  it("links to the WhatsApp and email wizards: finishing saves the date and opens the chosen one", async () => {
+    await ownerAtLastStep();
+    await expect(finishSetupAction(undefined, form({ destination: "/canales/nuevo/whatsapp" }))).rejects.toThrow("REDIRECT:/canales/nuevo/whatsapp");
+    expect((await loadBusinessSettings()).setupCompletedAt).toBeInstanceOf(Date);
+    await resetInstallation();
+    await ownerAtLastStep();
+    await expect(finishSetupAction(undefined, form({ destination: "/canales/nuevo/correo" }))).rejects.toThrow("REDIRECT:/canales/nuevo/correo");
+    expect((await loadBusinessSettings()).setupCompletedAt).toBeInstanceOf(Date);
   });
 
   it("the placeholder steps continue one by one; only steps 4–6 can be skipped", async () => {

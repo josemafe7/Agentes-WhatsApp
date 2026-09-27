@@ -8,6 +8,7 @@ import { writeAudit } from "@/data/audit";
 import { loadBusinessSettings } from "@/data/settings";
 import { db, type Executor } from "@/db";
 import { agents, contacts, conversations, handoffEvents } from "@/db/schema";
+import { toSingleLine } from "@/lib/format";
 import { can, PERMISSIONS } from "@/lib/permissions";
 import { NotFoundError } from "@/server/errors";
 import { getKv, setKv } from "@/server/kv";
@@ -20,6 +21,8 @@ import type { HandoffRequest, HandoffResult, HandoffService } from "./types";
 /** app_kv key of the last person each channel's round robin gave a conversation to. */
 export const ROUND_ROBIN_KEY_PREFIX = "handoff.round_robin:";
 const MAX_REASON = 300;
+/** The contact's name as a notice shows it, also on a locked phone ([PWA-04]): one line and short. */
+const MAX_NOTICE_NAME = 40;
 
 /** People who may answer in the channel: they can reply there, so never Solo lectura ([TRA-04]). */
 export function eligibleAssignees(team: readonly TeamMember[], channelId: string): TeamMember[] {
@@ -109,7 +112,8 @@ async function requestHandoff(request: HandoffRequest): Promise<HandoffResult> {
   });
 
   if (outcome.created) {
-    const who = outcome.contactName?.trim() || "Cliente sin nombre";
+    // «Traspaso: Ana»: what happened and with whom, never what the customer wrote; the reason stays in the app ([PWA-04]).
+    const who = toSingleLine(outcome.contactName ?? "", MAX_NOTICE_NAME) || "Cliente sin nombre";
     const link = `/bandeja/${request.conversationId}`;
     const notifyUserIds = request.agentId ? await agentNotifyList(request.agentId) : [];
     await notify({

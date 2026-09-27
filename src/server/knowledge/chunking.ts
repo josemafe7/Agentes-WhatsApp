@@ -2,6 +2,7 @@
 // never splitting a table row (a long table is cut between rows, with its header repeated), each chunk with its
 // section (the heading path) and page. Pure: the same Markdown always gives the same chunks, so the demo's
 // precomputed embeddings keep matching (§7).
+import "server-only";
 import { CHUNK_MAX_TOKENS, CHUNK_MIN_TOKENS, CHUNK_OVERLAP_TOKENS, CHUNK_TARGET_TOKENS } from "./constants";
 import { splitPages } from "./pages";
 import { charsForTokens, estimateTokens } from "./tokens";

@@ -1,9 +1,10 @@
 // The installation's one WhatsApp webhook ([WA-12], [WA-31]–[WA-35], [CAN-09], [CAN-10], [SEG-07], [SEG-08]).
 // GET: Meta's verification (hub.challenge back as plain text when the verify token matches, 403 otherwise).
-// POST: the raw bytes (never a re-serialized JSON) go to processWhatsAppWebhook, which checks the signature with the
-// channel's App Secret (401 without storing anything), saves and ingests, and answers at once; the AI never runs here.
-// The job queue is kicked after the response. Per-IP rate limit, wide enough for Meta's bursts, and a much lower one
-// for requests that end refused (only Meta signs these bodies), so nobody makes the app parse and check at will.
+// POST: the raw bytes (never a re-serialized JSON) go to processWhatsAppWebhook, which checks the signature before the
+// JSON is even parsed (401 without storing anything: wrong, missing or unverifiable signature, or a body that cannot be
+// parsed), then that the channel's own App Secret signed it, saves and ingests, and answers at once; the AI never runs
+// here. The job queue is kicked after the response. Per-IP rate limit, wide enough for Meta's bursts, and a much lower
+// one for requests that end refused (only Meta signs these bodies), so nobody makes the app check at will.
 import { META_SIGNATURE_HEADER } from "@/lib/meta/signature";
 import { getRateLimiter } from "@/server/adapters/rate-limiter";
 import { processWhatsAppWebhook, verifyWhatsAppWebhook, WEBHOOK_MAX_BYTES } from "@/server/channels/whatsapp/webhook";

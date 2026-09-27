@@ -9,9 +9,13 @@ import type { MessageItem } from "@/data/messages";
 import type { ChannelType } from "@/lib/enums";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { EmailMessageContent } from "../[id]/_email/email-message-content";
 import { MessageCost } from "../[id]/_whatsapp/message-cost";
 import { CONTENT_TYPE_LABELS, contactDisplayName, DELIVERY_META, formatFileSize, mediaNotStoredText } from "../_lib/presentation";
 
+/** What stays of a file the daily clean-up removed ([CUM-05]). */
+const AUDIO_REMOVED_TEXT = "El audio se borró por la política de conservación";
+const MEDIA_REMOVED_TEXT = "El archivo se borró por la política de conservación";
 /** Longer transcripts start folded. */
 const LONG_TRANSCRIPT = 280;
 
@@ -74,7 +78,8 @@ export function MessageBubble({ message, first, last, channel, contactName, time
     <div className={cn("flex flex-col gap-1", outbound ? "items-end" : "items-start")}>
       {first ? <AuthorLine message={message} channel={channel} contactName={contactName} /> : null}
       <div className={bubble}>
-        <MessageContent message={message} onPrimary={human} />
+        {/* In an email thread each email is a card with its headers ([BAN-09]); any other message, as it is. */}
+        <EmailMessageContent message={message} onPrimary={human} timezone={timezone} fallback={<MessageContent message={message} onPrimary={human} />} />
       </div>
       {message.reactions.length > 0 ? (
         <p className="text-sm" aria-label={`Reacciones: ${message.reactions.map((reaction) => reaction.emoji).join(" ")}`}>
@@ -165,7 +170,20 @@ function MessageContent({ message, onPrimary }: { message: MessageItem; onPrimar
   const text = message.text ? <p className="whitespace-pre-wrap">{message.text}</p> : null;
   const media = message.media;
 
-  if (!media || !["image", "sticker", "audio", "video", "document"].includes(message.contentType)) {
+  const withFile = ["image", "sticker", "audio", "video", "document"].includes(message.contentType);
+  // The daily clean-up removed the file ([CUM-05]): a voice note still shows what the customer said ([MED-04]).
+  if (!media && withFile && message.mediaRemoved) {
+    if (message.contentType === "audio") {
+      return <AudioContent url={null} transcript={message.transcript} failed={message.transcriptionFailed} secondary={secondary} />;
+    }
+    return (
+      <div className="flex flex-col gap-1">
+        <p className={secondary}>{MEDIA_REMOVED_TEXT}</p>
+        {text}
+      </div>
+    );
+  }
+  if (!media || !withFile) {
     return text ?? <p className={secondary}>{CONTENT_TYPE_LABELS[message.contentType]}</p>;
   }
   if (!media.url) {
@@ -222,13 +240,20 @@ function MessageContent({ message, onPrimary }: { message: MessageItem; onPrimar
   );
 }
 
-/** Player and, underneath, the transcript the agent received ([BAN-06], [MED-04]); folded when long. */
-function AudioContent({ url, transcript, failed, secondary }: { url: string; transcript: string | null; failed: boolean; secondary: string }) {
+/**
+ * Player and, underneath, the transcript the agent received ([BAN-06], [MED-04]); folded when long. Without `url` the
+ * clean-up removed the audio: the transcript stays.
+ */
+function AudioContent({ url, transcript, failed, secondary }: { url: string | null; transcript: string | null; failed: boolean; secondary: string }) {
   const [expanded, setExpanded] = useState(false);
   const long = (transcript?.length ?? 0) > LONG_TRANSCRIPT;
   return (
     <div className="flex flex-col gap-2">
-      <audio controls preload="metadata" src={url} className="w-64 max-w-full" aria-label="Nota de voz" />
+      {url ? (
+        <audio controls preload="metadata" src={url} className="w-64 max-w-full" aria-label="Nota de voz" />
+      ) : (
+        <p className={cn("text-xs", secondary)}>{AUDIO_REMOVED_TEXT}</p>
+      )}
       {transcript ? (
         <div className="flex flex-col gap-0.5">
           <p className="text-xs font-medium">Transcripción</p>

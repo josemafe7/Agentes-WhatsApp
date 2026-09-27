@@ -1,19 +1,22 @@
 // Files a visitor sends from the web chat ([WEB-07], [WEB-09], [SEG-13], decision 0010): images and voice notes
 // only when the chat allows them, checked by their first bytes (the declared type and name are never trusted), at
 // most 4 MB (under Vercel's 4.5 MB body limit), stored with a generated key. The visitor gets a signed receipt to
-// attach the file to a message, so nobody can attach a file they did not upload.
+// attach the file to a message, so nobody can attach a file they did not upload; a file never attached is deleted
+// once the receipt has expired (cleanup.ts).
 import "server-only";
 import { detectLogoFormat } from "@/data/business";
-import type { FileStorage } from "@/server/adapters/file-storage";
+import { getFileStorage, type FileStorage } from "@/server/adapters/file-storage";
+import type { JobQueue } from "@/server/adapters/job-queue";
 import { AppError, ValidationError } from "@/server/errors";
 import { storeInboundMedia } from "@/server/media/store";
 import { webchatCapabilities } from "../capabilities";
 import type { ChannelRecord } from "../types";
+import { scheduleUploadCleanup, WIDGET_UPLOAD_PREFIX } from "./cleanup";
 import { issueUploadReceipt, type VisitorIdentity, type WidgetMediaKind } from "./tokens";
 
+export { WIDGET_UPLOAD_PREFIX } from "./cleanup";
+
 export const WIDGET_MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
-/** Key prefix of the files visitors send: webchat/<yyyy>/<mm>/<uuid>.<ext>. */
-export const WIDGET_UPLOAD_PREFIX = "webchat";
 export const FILE_TOO_LARGE = "El archivo es demasiado grande. Como máximo, 4 MB.";
 const UNSUPPORTED_FILE = "Solo se pueden enviar imágenes (JPG, PNG o WebP) y notas de voz.";
 
@@ -83,7 +86,7 @@ export async function storeWidgetUpload(
   channel: ChannelRecord,
   visitor: VisitorIdentity,
   bytes: Uint8Array | null,
-  options: { storage?: FileStorage; now?: Date } = {},
+  options: { storage?: FileStorage; now?: Date; queue?: JobQueue } = {},
 ): Promise<StoredUpload> {
   if (bytes === null) throw new AppError(413, "too_large", FILE_TOO_LARGE);
   const media = detectWidgetMedia(bytes);
@@ -92,6 +95,13 @@ export async function storeWidgetUpload(
   const now = options.now ?? new Date();
   // The one place that stores what customers send (generated key, never their file name): src/server/media/store.ts.
   const stored = await storeInboundMedia({ bytes, mimeType: media.mimeType }, { storage: options.storage, now, prefix: WIDGET_UPLOAD_PREFIX });
+  // No receipt without its clean-up: if it cannot be scheduled, the file goes at once.
+  try {
+    await scheduleUploadCleanup(stored.fileKey, { queue: options.queue, now });
+  } catch (error) {
+    await (options.storage ?? getFileStorage()).delete(stored.fileKey).catch(() => undefined);
+    throw error;
+  }
   const upload = issueUploadReceipt({ ...visitor, fileKey: stored.fileKey, mimeType: stored.mimeType, size: stored.size, kind: media.kind }, now);
   return { upload, kind: media.kind, mimeType: stored.mimeType, size: stored.size };
 }

@@ -1,14 +1,17 @@
 // Media customers send by WhatsApp ([WA-41], [MED-01]–[MED-08], docs/integracion-whatsapp-mensajes.md §10): the URL
 // may already come in the webhook (valid 5 minutes); if not, or if it fails, GET /{MEDIA_ID} gives a fresh one (the id
 // lasts 7 days). Both downloads carry the Bearer token and only go to Meta's hosts. Stored privately through
-// FileStorage (src/server/media/store.ts); /api/files serves it after checking permissions.
+// FileStorage (src/server/media/store.ts); /api/files serves it after checking permissions. Each kind of file has
+// Meta's size limit (INBOUND_MEDIA_CAPS: a bigger one is refused before it is read whole), and the process never holds
+// more downloads in memory at once than its gate allows (src/server/media/download-gate.ts).
 import "server-only";
 import { z } from "zod";
 import type { MetaGraphClient } from "@/lib/meta/client";
 import { isMetaGraphError } from "@/lib/meta/errors";
-import { MEDIA_LIMITS } from "@/server/media/limits";
-import { storeInboundMedia, type StoredMedia } from "@/server/media/store";
 import type { FileStorage } from "@/server/adapters/file-storage";
+import { inboundMediaGate, MEDIA_DOWNLOAD_WAIT_MS, type MemoryGate } from "@/server/media/download-gate";
+import { INBOUND_MEDIA_CAPS, inboundMediaKind } from "@/server/media/limits";
+import { storeInboundMedia, type StoredMedia } from "@/server/media/store";
 
 export const MEDIA_DOWNLOAD_JOB = "wa.media_download";
 /** Retries of a failed download (the queue waits 15 s, 30 s, 60 s); then the Bandeja says «No se pudo descargar el archivo». */
@@ -30,12 +33,22 @@ export const mediaDownloadDedupeKey = (channelId: string, wamid: string) => `wa.
 
 export type DownloadedWhatsAppMedia = { bytes: Uint8Array; mimeType: string };
 
+export type WhatsAppMediaRef = {
+  mediaId: string;
+  url?: string | null;
+  mimeType?: string | null;
+  phoneNumberId?: string | null;
+  /** The message's content type (audio, image, video, sticker, document): its size limit. Else the type's family. */
+  contentType?: string | null;
+};
+
+/** The size limit of this file: its kind's, from the message or else its type. */
+export function whatsappMediaCap(ref: Pick<WhatsAppMediaRef, "contentType" | "mimeType">): number {
+  return INBOUND_MEDIA_CAPS[inboundMediaKind(ref.contentType, ref.mimeType)];
+}
+
 /** The file's bytes: the webhook URL first (when it is Meta's), else a fresh URL from GET /{media_id}. */
-export async function downloadWhatsAppMedia(
-  client: MetaGraphClient,
-  ref: { mediaId: string; url?: string | null; mimeType?: string | null; phoneNumberId?: string | null },
-  maxBytes: number = MEDIA_LIMITS.storedBytes,
-): Promise<DownloadedWhatsAppMedia> {
+export async function downloadWhatsAppMedia(client: MetaGraphClient, ref: WhatsAppMediaRef, maxBytes: number = whatsappMediaCap(ref)): Promise<DownloadedWhatsAppMedia> {
   const typeOf = (contentType: string | null, fallback?: string | null) => fallback || contentType || "application/octet-stream";
   // The client refuses any URL that is not Meta's (or the configured base URL): then a fresh one is asked for.
   if (ref.url) {
@@ -52,12 +65,21 @@ export async function downloadWhatsAppMedia(
   return { bytes: file.bytes, mimeType: typeOf(file.contentType, info.mime_type ?? ref.mimeType) };
 }
 
-/** Downloads and stores the file of a message; returns what goes in `messages.media`. */
+/**
+ * Downloads and stores the file of a message; returns what goes in `messages.media`. It first waits for its turn in the
+ * process's gate, reserving its kind's size limit until the file is stored (MediaBusyError if it waits too long).
+ */
 export async function downloadAndStoreWhatsAppMedia(
   client: MetaGraphClient,
-  ref: { mediaId: string; url?: string | null; mimeType?: string | null; fileName?: string | null; phoneNumberId?: string | null },
-  options: { storage?: FileStorage; now?: Date } = {},
+  ref: WhatsAppMediaRef & { fileName?: string | null },
+  options: { storage?: FileStorage; now?: Date; gate?: MemoryGate; waitMs?: number } = {},
 ): Promise<StoredMedia> {
-  const file = await downloadWhatsAppMedia(client, ref);
-  return storeInboundMedia({ bytes: file.bytes, mimeType: file.mimeType, fileName: ref.fileName ?? null }, options);
+  const maxBytes = whatsappMediaCap(ref);
+  const release = await (options.gate ?? inboundMediaGate()).acquire(maxBytes, options.waitMs ?? MEDIA_DOWNLOAD_WAIT_MS);
+  try {
+    const file = await downloadWhatsAppMedia(client, ref, maxBytes);
+    return await storeInboundMedia({ bytes: file.bytes, mimeType: file.mimeType, fileName: ref.fileName ?? null }, { storage: options.storage, now: options.now });
+  } finally {
+    release();
+  }
 }

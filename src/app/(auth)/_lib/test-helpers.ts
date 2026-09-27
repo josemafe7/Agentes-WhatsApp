@@ -1,4 +1,5 @@
 // Test-only helpers for the sign-in flows: real Better Auth against the test file's own database.
+import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { session } from "@/db/schema";
@@ -84,6 +85,14 @@ export async function serverSignInWithTwoFactor(email: string, password: string,
   });
   if (response.status !== 200) throw new Error(`verify-totp respondió ${response.status}`);
   return cookieHeaderFrom(response);
+}
+
+/**
+ * How the verification table stores the token of a reset link: Better Auth keeps only the SHA-256 (base64url) of
+ * «reset-password:<token>» (verification.storeIdentifier "hashed", src/server/auth.ts).
+ */
+export function storedResetIdentifier(token: string): string {
+  return createHash("sha256").update(`reset-password:${token}`).digest("base64url");
 }
 
 export async function sessionCount(userId: string): Promise<number> {

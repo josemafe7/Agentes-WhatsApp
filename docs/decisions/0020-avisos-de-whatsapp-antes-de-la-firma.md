@@ -1,6 +1,6 @@
 # 0020 · Topes de los avisos de WhatsApp antes de comprobar la firma
 
-- **Estado:** aceptada (revisión de seguridad de la fase 3; el propietario puede revisarla)
+- **Estado:** sustituida en parte por 0022 (la firma se comprueba antes de leer el aviso; los topes siguen, después)
 - **Fecha:** 2026-09-27
 
 ## Contexto y problema

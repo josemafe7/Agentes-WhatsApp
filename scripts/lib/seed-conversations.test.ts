@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { inflateSync } from "node:zlib";
 import { and, asc, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { listChannels } from "@/data/channels";
 import { getContact } from "@/data/contacts";
 import { getConversation, getInboxCounts, listConversations } from "@/data/conversations";
@@ -282,7 +282,15 @@ describe("demo channels and conversations (pnpm seed)", () => {
     expect(pending).toMatchObject({ urgent: true, aiMode: "human", contact: { name: "Beatriz Molina" } });
     expect(page.items.find((item) => item.contact?.name === null)?.channel.type).toBe("webchat");
 
-    const detail = await getConversation(owner, pending?.id ?? "");
+    // The demo was seeded at NOW: its WhatsApp 24 h window is read at that moment too, not days later ([WA-43]).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    let detail: Awaited<ReturnType<typeof getConversation>>;
+    try {
+      detail = await getConversation(owner, pending?.id ?? "");
+    } finally {
+      vi.useRealTimers();
+    }
     expect(detail.openHandoff).toMatchObject({ trigger: "ai_tool", urgency: "high" });
     expect(detail.window).toMatchObject({ open: true });
 
@@ -295,18 +303,19 @@ describe("demo channels and conversations (pnpm seed)", () => {
   });
 
   // Last: it adds a message to the demo.
-  it("[AJU-12] the simulator writes as a demo customer into their conversation of the demo WhatsApp", async () => {
+  it("[AJU-12][AJU-13] the simulator writes in the demo WhatsApp as a customer of its own, never into a demo customer's conversation", async () => {
     const owner = await demoActor("owner");
     const conversation = await conversationOf("Antonio Ramos");
-    const result = await simulateInboundMessage(owner, {
-      channelId: conversation.channelId,
-      contact: { mode: "existing", contactId: conversation.contactId },
-      contentType: "text",
-      text: "¿Y el sábado por la mañana tenéis hueco?",
-    });
-    expect(result).toMatchObject({ conversationId: conversation.id, contactId: conversation.contactId, channelName: "WhatsApp", contactName: "Antonio Ramos" });
+    const text = "¿Y el sábado por la mañana tenéis hueco?";
+    await expect(
+      simulateInboundMessage(owner, { channelId: conversation.channelId, contact: { mode: "existing", contactId: conversation.contactId }, contentType: "text", text }),
+    ).rejects.toMatchObject({ status: 400 });
+    const result = await simulateInboundMessage(owner, { channelId: conversation.channelId, contact: { mode: "new", name: "Antonio Ramos" }, contentType: "text", text });
+    expect(result).toMatchObject({ channelName: "WhatsApp", contactName: "Antonio Ramos" });
+    expect(result.conversationId).not.toBe(conversation.id);
+    expect(result.contactId).not.toBe(conversation.contactId);
     const [after] = await db.select().from(conversations).where(eq(conversations.id, conversation.id));
-    expect(after.unreadCount).toBe(conversation.unreadCount + 1);
+    expect(after.unreadCount).toBe(conversation.unreadCount);
     const identities = await db.select().from(contactIdentities).where(eq(contactIdentities.contactId, conversation.contactId ?? ""));
     expect(identities).toHaveLength(2);
   });

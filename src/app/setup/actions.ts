@@ -19,7 +19,7 @@ import { getRateLimiter } from "@/server/adapters/rate-limiter";
 import { auth } from "@/server/auth";
 import { toActionFailure } from "@/server/errors";
 import { requireActor } from "@/server/session";
-import { INBOX_PATH, LOGIN_PATH, SETUP_PATH, setupStepHref } from "./_lib/view";
+import { EMAIL_WIZARD_DESTINATION, INBOX_PATH, LOGIN_PATH, SETUP_PATH, setupStepHref, WHATSAPP_WIZARD_DESTINATION } from "./_lib/view";
 
 const TOO_MANY_ATTEMPTS = "Demasiados intentos. Espera unos minutos.";
 /** Public step: per IP, generous enough for typos but not for scripted attempts ([SEG-07]). */
@@ -28,11 +28,8 @@ const OWNER_ATTEMPTS = { limit: 10, windowMs: 15 * 60 * 1000 };
 const KEY_TESTS = { limit: 10, windowMs: 60 * 1000 };
 /** The hours form sends its week as JSON; anything bigger than this is not a real form. */
 const MAX_HOURS_PAYLOAD_CHARS = 20_000;
-/**
- * Where step 7 may lead after finishing ([ASI-10]): the inbox. The WhatsApp (phase 3) and email (phase 6) wizards
- * are added here when they exist.
- */
-const FINISH_DESTINATIONS = [INBOX_PATH] as const;
+/** Where step 7 may lead after finishing ([ASI-10]): the inbox or the WhatsApp and email wizards. */
+const FINISH_DESTINATIONS = [INBOX_PATH, WHATSAPP_WIZARD_DESTINATION, EMAIL_WIZARD_DESTINATION] as const;
 
 export type SetupFormState = ActionResult | undefined;
 

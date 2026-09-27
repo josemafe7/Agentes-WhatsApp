@@ -164,3 +164,38 @@ describe("the WhatsApp guide [ARR-23] [WA-01] [WA-09] [WA-30]", () => {
     }
   });
 });
+
+describe("the agenda guide [ARR-23] [AGD-20]", () => {
+  const guide = HELP_GUIDES.find((candidate) => candidate.file === "guia-agenda.md");
+
+  it("is in Spanish and explains the words, modes, services, resources, schedules, absences, reminders and the agent, with room for screenshots", async () => {
+    expect(guide).toBeDefined();
+    const text = guide ? await readGuide(guide) : "";
+    for (const topic of [
+      "Cita",
+      "Reserva",
+      "Por recurso individual",
+      "Por aforo",
+      "Intervalo de los huecos",
+      "Nuevo servicio",
+      "Requiere confirmación manual",
+      "Margen antes",
+      "Antelación mínima",
+      "Horario semanal",
+      "Añadir ausencia",
+      "Bloquear hueco",
+      "Ese hueco ya no está libre",
+      "Consultar huecos libres",
+      "2 o 3 huecos concretos",
+      "Cita pendiente de confirmar",
+      "Borrar citas de prueba",
+      "Ajustes › Recordatorios",
+      "desactivados por",
+      "plantilla de utilidad aprobada por Meta",
+      "{nombre}",
+    ]) {
+      expect(text, topic).toContain(topic);
+    }
+    expect(text.match(/\[Captura: /g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+  });
+});

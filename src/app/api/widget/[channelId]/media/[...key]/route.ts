@@ -3,7 +3,6 @@
 import { fileResponseHeaders } from "@/app/api/files/[...key]/serve";
 import { getFileStorage, isValidFileKey } from "@/server/adapters/file-storage";
 import { visitorCanReadFile } from "@/server/channels/webchat/conversation";
-import { enforceWidgetLimit } from "@/server/channels/webchat/limits";
 import { handleWidget, requireVisitor, widgetPreflight } from "@/server/channels/webchat/request";
 import { NotFoundError } from "@/server/errors";
 
@@ -17,9 +16,8 @@ export function OPTIONS(request: Request, context: Context): Promise<Response> {
 }
 
 export function GET(request: Request, context: Context): Promise<Response> {
-  return handleWidget(request, context.params, async (ctx) => {
-    const visitor = requireVisitor(request, ctx);
-    await enforceWidgetLimit("media", ctx.limitKeys);
+  return handleWidget(request, context.params, { action: "media", visitor: true }, async (ctx) => {
+    const visitor = requireVisitor(ctx);
     const { key: segments } = await context.params;
     const key = Array.isArray(segments) ? segments.join("/") : "";
     if (!isValidFileKey(key) || !(await visitorCanReadFile(ctx.channel.id, visitor.visitorId, key))) throw new NotFoundError();

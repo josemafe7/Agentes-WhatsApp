@@ -2,6 +2,7 @@
 // Ajustes › Privacidad y legal leaves a text empty, filled with the business data. Simple format of
 // src/lib/markdown.ts (# headings, - lists, **bold**); never HTML. Orientative: to be reviewed by the
 // business with an adviser (the settings page says so).
+import "server-only";
 import type { RetentionSettings } from "@/db/schema";
 
 /** First-message AI notice by default ([CUM-01]); it also offers a person at any time ([CUM-02]). */

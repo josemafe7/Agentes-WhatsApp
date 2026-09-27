@@ -1,14 +1,31 @@
 // Better Auth with our schema and our user creation (src/server/accounts.ts), through the server API that the
 // Server Actions use and through its real HTTP handler (/api/auth/*).
+import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// The reset email goes out through the system mail: faked here, so nothing is written to data/outbox.
+const mail = vi.hoisted(() => ({
+  sent: [] as { kind: string; to: string; text?: string; html?: string }[],
+  result: { ok: true, via: "outbox", file: "x.eml", logId: "log" } as
+    | { ok: true; via: "outbox"; file: string; logId: string }
+    | { ok: false; reason: "not_configured" | "send_failed"; message: string; logId: string },
+}));
+vi.mock("./mailer", () => ({
+  sendSystemEmail: async (email: { kind: string; to: string; text?: string; html?: string }) => {
+    mail.sent.push(email);
+    return mail.result;
+  },
+}));
+
 import { db } from "@/db";
-import { jobs, session, user } from "@/db/schema";
+import { jobs, session, user, verification } from "@/db/schema";
 import { createBusiness, createUser, TEST_PASSWORD } from "@/test/factories";
 import { ConflictError, ValidationError } from "./errors";
 import { createFirstOwner, createUserWithPassword, EmailInUseError } from "./accounts";
 import { auth } from "./auth";
 import { SYSTEM_EMAIL_JOB } from "./jobs/handlers/system-email";
+import { tick } from "./jobs/tick";
 
 const ORIGIN = "http://localhost:3000";
 let ipCounter = 0;
@@ -176,6 +193,63 @@ describe("password reset request [USU-10]", () => {
     expect(queued).toHaveLength(1);
     expect(queued[0].payload).toMatchObject({ template: "password_reset", to: member.email });
     expect((queued[0].payload as { url: string }).url).toContain("/api/auth/reset-password/");
+  });
+});
+
+describe("a copy of the database gives no working reset link [USU-10] [SEG-02]", () => {
+  /** Asks for a reset link and returns its job and the token inside the queued link. */
+  async function requestReset(email: string) {
+    await auth.api.requestPasswordReset({ body: { email, redirectTo: "/restablecer" }, headers: new Headers({ "x-forwarded-for": nextIp() }) });
+    const [job] = (await db.select().from(jobs).where(eq(jobs.type, SYSTEM_EMAIL_JOB))).filter(
+      (row) => (row.payload as { to: string }).to === email && row.status === "pending",
+    );
+    const token = new URL((job.payload as { url: string }).url).pathname.split("/").at(-1) ?? "";
+    return { job, token };
+  }
+
+  const jobById = async (id: string) => (await db.select().from(jobs).where(eq(jobs.id, id)))[0];
+
+  beforeEach(() => {
+    mail.sent.length = 0;
+    mail.result = { ok: true, via: "outbox", file: "x.eml", logId: "log" };
+  });
+
+  it("the token is stored only as its SHA-256, and the link still works", async () => {
+    const member = await createUser("agent");
+    const { token } = await requestReset(member.email);
+    expect(token.length).toBeGreaterThan(20);
+    const stored = await db.select({ identifier: verification.identifier }).from(verification);
+    expect(stored.some((row) => row.identifier.includes(token))).toBe(false);
+    const hashed = createHash("sha256").update(`reset-password:${token}`).digest("base64url");
+    expect(stored.map((row) => row.identifier)).toContain(hashed);
+
+    await auth.api.resetPassword({ body: { token, newPassword: "otra-clave-segura-9" } });
+    expect((await serverSignIn(member.email, "otra-clave-segura-9")).status).toBe(200);
+  });
+
+  it("once the email is sent, its job keeps no link", async () => {
+    const member = await createUser("supervisor");
+    const { job, token } = await requestReset(member.email);
+    await tick({ budgetMs: 20_000 });
+    const finished = await jobById(job.id);
+    expect(finished.status).toBe("done");
+    expect(mail.sent.filter((email) => email.to === member.email)).toHaveLength(1);
+    expect(finished.payload).toMatchObject({ template: "password_reset", to: member.email, url: null });
+    expect(JSON.stringify(finished.payload)).not.toContain(token);
+    // Running it again sends nothing twice.
+    await db.update(jobs).set({ status: "pending", runAt: new Date(), finishedAt: null }).where(eq(jobs.id, job.id));
+    await tick({ budgetMs: 20_000 });
+    expect(mail.sent.filter((email) => email.to === member.email)).toHaveLength(1);
+  });
+
+  it("nor when the email cannot be sent: a failed job keeps no link either", async () => {
+    mail.result = { ok: false, reason: "not_configured", message: "Configura el correo del sistema.", logId: "log" };
+    const member = await createUser("viewer");
+    const { job, token } = await requestReset(member.email);
+    await tick({ budgetMs: 20_000 });
+    const finished = await jobById(job.id);
+    expect(finished.status).toBe("failed");
+    expect(JSON.stringify(finished.payload)).not.toContain(token);
   });
 });
 

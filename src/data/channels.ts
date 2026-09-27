@@ -2,7 +2,7 @@
 // ([WEB-01], [WEB-02], [WEB-07], [WEB-10]). Seeing channels is owner, admin and Solo lectura (never credentials);
 // changing them, owner and admin. Secrets never leave the server: only `hasSecrets` says whether there are any.
 import "server-only";
-import { asc, count, eq, inArray } from "drizzle-orm";
+import { and, asc, count, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor } from "@/db";
 import {
@@ -13,6 +13,7 @@ import {
   conversations,
   notifications,
   oauthStates,
+  user,
   userRoles,
   webhookEvents,
   whatsappTemplates,
@@ -24,6 +25,8 @@ import { idSchema, optionalText } from "@/lib/validation";
 import { readWebchatConfig, webchatConfigSchema, type WebchatConfig } from "@/lib/webchat-config";
 import { isValidFileKey } from "@/server/adapters/file-storage";
 import { defaultCapabilitiesOf } from "@/server/channels/capabilities";
+import { isEmailChannelType } from "@/server/channels/email/config";
+import { cancelEmailJobs, ensureEmailPolling } from "@/server/channels/email/jobs";
 import type { ChannelCapabilities } from "@/server/channels/types";
 import { requestHealthCheckSoon } from "@/server/channels/whatsapp/schedule";
 import { ConflictError, NotFoundError, parseInput, ValidationError } from "@/server/errors";
@@ -232,6 +235,8 @@ export async function updateChannel(actor: Actor, channelId: string, input: unkn
   await db.update(channels).set({ ...values, updatedAt: new Date() }).where(eq(channels.id, channel.id));
   // Back to «conectado» (or «error») as soon as Meta is checked again ([CAN-15]).
   if (status === "connecting" && channel.status === "disabled" && whatsappNumber) await requestHealthCheckSoon(channel.id);
+  // A mailbox switched on again is read at its next poll, which puts it back in «conectado» ([CAN-16]).
+  if (status === "connecting" && channel.status === "disabled" && isEmailChannelType(channel.type) && !channel.isDemo) await ensureEmailPolling(channel.id);
   await writeAudit({ actor, action: "channel.updated", targetType: "channel", targetId: channel.id, metadata: { fields: Object.keys(values) } });
 }
 
@@ -284,13 +289,52 @@ export async function setActiveAgent(actor: Actor, input: unknown): Promise<SetA
 
 export const setChannelMembersSchema = z.object({ channelId: idSchema, userIds: z.array(idSchema).max(200) }).strict();
 
-/** The people with the Agent role limited to this channel. Other roles see every channel anyway. */
-export async function setChannelMembers(actor: Actor, input: unknown): Promise<void> {
+export type ChannelMembersResult = {
+  /** People with the Agent role this change left without any channel: from now on they see every channel ([PER-02]). */
+  agentsSeeingAll: { id: string; name: string }[];
+  /** What the admin is told about them, or null. */
+  warning: string | null;
+};
+
+/** Of `userIds`, the people with the Agent role who have no channel left, so they see every channel ([PER-02]). */
+async function agentsWithoutChannels(tx: Executor, userIds: readonly string[]): Promise<{ id: string; name: string }[]> {
+  if (userIds.length === 0) return [];
+  const agentsOf = await tx
+    .select({ id: user.id, name: user.name })
+    .from(userRoles)
+    .innerJoin(user, eq(user.id, userRoles.userId))
+    .where(and(inArray(userRoles.userId, [...userIds]), eq(userRoles.role, "agent")));
+  if (agentsOf.length === 0) return [];
+  const limited = await tx
+    .select({ userId: channelMembers.userId })
+    .from(channelMembers)
+    .where(inArray(channelMembers.userId, agentsOf.map((agent) => agent.id)));
+  const stillLimited = new Set(limited.map((row) => row.userId));
+  return agentsOf.filter((agent) => !stillLimited.has(agent.id)).sort((a, b) => a.name.localeCompare(b.name, "es"));
+}
+
+/** The result of a change of channels, with the warning of [PER-02] when somebody now sees every channel. */
+function withAllChannelsWarning(agents: { id: string; name: string }[]): ChannelMembersResult {
+  if (agents.length === 0) return { agentsSeeingAll: [], warning: null };
+  const quoted = agents.map((agent) => `«${agent.name}»`);
+  const names = quoted.length === 1 ? quoted[0] : `${quoted.slice(0, -1).join(", ")} y ${quoted[quoted.length - 1]}`;
+  const warning =
+    agents.length === 1
+      ? `${names} ya no tiene ningún canal asignado, así que desde ahora verá todos los canales. Si no es lo que quieres, asígnale sus canales en Ajustes › Usuarios.`
+      : `${names} ya no tienen ningún canal asignado, así que desde ahora verán todos los canales. Si no es lo que quieres, asígnales sus canales en Ajustes › Usuarios.`;
+  return { agentsSeeingAll: agents, warning };
+}
+
+/**
+ * The people with the Agent role limited to this channel. Other roles see every channel anyway. Whoever this leaves
+ * without any channel sees them all from now on ([PER-02]): the result says so, for the admin.
+ */
+export async function setChannelMembers(actor: Actor, input: unknown): Promise<ChannelMembersResult> {
   const data = parseInput(setChannelMembersSchema, input);
   assertCan(actor, PERMISSIONS.channels.manage);
   assertCan(actor, PERMISSIONS.settings.users);
   const userIds = [...new Set(data.userIds)];
-  await db.transaction(async (tx) => {
+  const leftWithout = await db.transaction(async (tx) => {
     const channel = await loadChannel(tx, data.channelId);
     if (userIds.length > 0) {
       const roles = await tx.select({ userId: userRoles.userId, role: userRoles.role }).from(userRoles).where(inArray(userRoles.userId, userIds));
@@ -298,21 +342,28 @@ export async function setChannelMembers(actor: Actor, input: unknown): Promise<v
         throw new ValidationError(undefined, { userIds: ["Solo se asignan canales a personas con el rol Agente."] });
       }
     }
+    const before = await tx.select({ userId: channelMembers.userId }).from(channelMembers).where(eq(channelMembers.channelId, channel.id));
     await tx.delete(channelMembers).where(eq(channelMembers.channelId, channel.id));
     if (userIds.length > 0) await tx.insert(channelMembers).values(userIds.map((userId) => ({ userId, channelId: channel.id })));
     await writeAudit({ actor, action: "channel.members_changed", targetType: "channel", targetId: channel.id, metadata: { members: userIds.length } }, tx);
+    return agentsWithoutChannels(tx, before.map((row) => row.userId).filter((userId) => !userIds.includes(userId)));
   });
+  return withAllChannelsWarning(leftWithout);
 }
 
 // ─── Delete ([CAN-16]) ──────────────────────────────────────────────────────────────────────────────────
 
-/** Only a channel without conversations can be deleted; the others are disconnected or disabled. */
-export async function deleteChannel(actor: Actor, channelId: string): Promise<void> {
+/**
+ * Only a channel without conversations can be deleted; the others are disconnected or disabled. An agent whose only
+ * channel it was sees every channel from now on ([PER-02]): the result says so, for the admin.
+ */
+export async function deleteChannel(actor: Actor, channelId: string): Promise<ChannelMembersResult> {
   assertCan(actor, PERMISSIONS.channels.manage);
-  await db.transaction(async (tx) => {
+  const deleted = await db.transaction(async (tx) => {
     const channel = await loadChannel(tx, channelId);
     const [{ n }] = await tx.select({ n: count() }).from(conversations).where(eq(conversations.channelId, channel.id));
     if (n > 0) throw new ConflictError("Este canal tiene conversaciones: desactívalo en lugar de borrarlo, así conservas su historial.");
+    const members = await tx.select({ userId: channelMembers.userId }).from(channelMembers).where(eq(channelMembers.channelId, channel.id));
     // Children first: nothing relies on cascades.
     await tx.delete(channelMembers).where(eq(channelMembers.channelId, channel.id));
     await tx.delete(whatsappTemplates).where(eq(whatsappTemplates.channelId, channel.id));
@@ -322,6 +373,10 @@ export async function deleteChannel(actor: Actor, channelId: string): Promise<vo
     await tx.update(oauthStates).set({ channelId: null }).where(eq(oauthStates.channelId, channel.id));
     await tx.delete(channels).where(eq(channels.id, channel.id));
     await writeAudit({ actor, action: "channel.deleted", targetType: "channel", targetId: channel.id, metadata: { type: channel.type } }, tx);
+    return { id: channel.id, type: channel.type, leftWithout: await agentsWithoutChannels(tx, members.map((row) => row.userId)) };
   });
+  // A deleted mailbox is not polled any more.
+  if (isEmailChannelType(deleted.type)) await cancelEmailJobs(deleted.id);
+  return withAllChannelsWarning(deleted.leftWithout);
 }
 

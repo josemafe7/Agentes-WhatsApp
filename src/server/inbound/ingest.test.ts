@@ -1,11 +1,11 @@
 import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@/db";
-import { aiRuns, channels, contactIdentities, contacts, conversations, jobs, messages, realtimeEvents, webhookEvents } from "@/db/schema";
+import { aiRuns, businessSettings, channelMembers, channels, contactIdentities, contacts, conversations, jobs, messages, notifications, realtimeEvents, webhookEvents } from "@/db/schema";
 import { LibsqlJobQueue } from "@/server/adapters/job-queue";
 import type { ChannelRecord, InboundMessageEvent } from "@/server/channels/types";
 import { REPLY_DEBOUNCE_ENV, REPLY_DEBOUNCE_MAX_MS, REPLY_DEBOUNCE_MIN_MS, REPLY_JOB, REPLY_MAX_WAIT_MS, replyDedupeKey } from "@/server/engine/schedule";
-import { createBusiness, createChannel } from "@/test/factories";
+import { createBusiness, createChannel, createUser } from "@/test/factories";
 import { ingestEvents, KICK_MIN_TICK_MS, kickTick, KICK_SAFETY_MARGIN_MS } from "./ingest";
 
 const T0 = new Date("2026-09-26T10:00:00Z");
@@ -331,5 +331,41 @@ describe("kickTick [MOT-15]", () => {
     });
     await task?.();
     expect(waits).toEqual([60_000 - KICK_SAFETY_MARGIN_MS - KICK_MIN_TICK_MS]);
+  });
+});
+
+describe("notice of a new conversation [AJU-08] [PWA-04] [PWA-08]", () => {
+  const noticesOf = (userId: string) => db.select().from(notifications).where(eq(notifications.userId, userId));
+
+  it("off by default; when on, a customer opening a conversation (new or resolved again) is told once, with the name and never the text", async () => {
+    const owner = await createUser("owner");
+    const agentElsewhere = await createUser("agent", { channelIds: [(await createChannel({ type: "webchat" })).id] });
+    await ingestEvents(channel, [inbound({ sender: { externalIds: ["visitante-apagado"], displayName: "Rocío" } })], { now: T0 });
+    expect(await noticesOf(owner.userId)).toHaveLength(0);
+
+    await db.update(businessSettings).set({ notificationSettings: { new_conversation: { enabled: true, roles: ["owner", "agent"] } } });
+    const first = await ingestEvents(channel, [inbound({ sender: { externalIds: ["visitante-ana"], displayName: "Ana" }, text: "Mi secreto" })], { now: T0 });
+    const conversationId = first.messages[0].conversationId ?? "";
+    expect(await noticesOf(owner.userId)).toMatchObject([{ event: "new_conversation", title: "Conversación nueva: Ana", body: null, link: `/bandeja/${conversationId}`, channelId: channel.id }]);
+    // An Agent only hears about their channels.
+    expect(await noticesOf(agentElsewhere.userId)).toHaveLength(0);
+
+    // The same conversation going on is not new.
+    await ingestEvents(channel, [inbound({ sender: { externalIds: ["visitante-ana"] } })], { now: T0 });
+    expect(await noticesOf(owner.userId)).toHaveLength(1);
+    // Resolved and written again: it opens again.
+    await db.update(conversations).set({ status: "resolved" }).where(eq(conversations.id, conversationId));
+    await ingestEvents(channel, [inbound({ sender: { externalIds: ["visitante-ana"] } })], { now: T0 });
+    expect(await noticesOf(owner.userId)).toHaveLength(2);
+    await db.update(businessSettings).set({ notificationSettings: {} });
+    await db.delete(notifications);
+    // The agent limited to another channel: the next test clears the channels.
+    await db.delete(channelMembers);
+  });
+});
+
+describe("kickTick outside a request [MOT-15]", () => {
+  it("does nothing and never throws: the cron or the local ticker picks the work up", () => {
+    expect(() => kickTick({ maxDurationSec: 60, runAt: new Date() })).not.toThrow();
   });
 });

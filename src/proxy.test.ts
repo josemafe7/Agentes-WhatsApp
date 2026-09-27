@@ -1,7 +1,9 @@
 import { NextRequest } from "next/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { REQUEST_PATH_HEADER } from "@/lib/auth-paths";
 import { proxy } from "./proxy";
+
+afterEach(() => vi.unstubAllEnvs());
 
 const APP = "http://localhost:3000";
 
@@ -56,5 +58,84 @@ describe("forwards the requested path for the (app) layout [USU-12]", () => {
   it("overwrites a value sent by the client", () => {
     const response = get("/bandeja", { cookie: "dominia.session_token=x", headers: { [REQUEST_PATH_HEADER]: "/perfil" } });
     expect(forwardedPath(response)).toBe("/bandeja");
+  });
+});
+
+describe("Content-Security-Policy of every page, with a fresh nonce [SEG-11]", () => {
+  /** The policy as directive → sources. */
+  function policyOf(response: Response): Map<string, string[]> {
+    const header = response.headers.get("content-security-policy") ?? "";
+    return new Map(
+      header
+        .split(";")
+        .map((directive) => directive.trim().split(/\s+/))
+        .filter((parts) => parts[0])
+        .map(([name, ...sources]) => [name, sources]),
+    );
+  }
+  const nonceOf = (policy: Map<string, string[]>) => /^'nonce-(.+)'$/.exec(policy.get("script-src")?.find((source) => source.startsWith("'nonce-")) ?? "")?.[1];
+
+  it("scripts only with this request's nonce ('strict-dynamic' lets them load the rest), never inline or eval", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const policy = policyOf(get("/bandeja", { cookie: "dominia.session_token=x" }));
+    const script = policy.get("script-src") ?? [];
+    expect(script).toEqual(expect.arrayContaining(["'self'", "'strict-dynamic'"]));
+    expect(nonceOf(policy)).toMatch(/^[A-Za-z0-9+/]{22}==$/);
+    expect(script).not.toContain("'unsafe-inline'");
+    expect(script).not.toContain("'unsafe-eval'");
+  });
+
+  it("the rest of the policy: same-origin content, no plugins, no framing, forms and <base> only to the app", () => {
+    const policy = policyOf(get("/login"));
+    expect(policy.get("default-src")).toEqual(["'self'"]);
+    expect(policy.get("object-src")).toEqual(["'none'"]);
+    expect(policy.get("frame-ancestors")).toEqual(["'none'"]);
+    expect(policy.get("base-uri")).toEqual(["'self'"]);
+    expect(policy.get("form-action")).toEqual(["'self'"]);
+    expect(policy.get("connect-src")).toEqual(["'self'"]);
+    // The service worker of the PWA: 'strict-dynamic' would not let 'self' register it through script-src.
+    expect(policy.get("worker-src")).toEqual(["'self'"]);
+    // Voice notes recorded in the browser and images previewed before uploading are blob: addresses.
+    expect(policy.get("img-src")).toEqual(["'self'", "blob:", "data:"]);
+    expect(policy.get("media-src")).toEqual(["'self'", "blob:"]);
+    // React style attributes, Radix, sonner, the widget's Shadow DOM and the business colour (docs/security.md).
+    expect(policy.get("style-src")).toEqual(["'self'", "'unsafe-inline'"]);
+  });
+
+  it("passes the same policy and its nonce to the app, which puts it on Next.js' and React's scripts", () => {
+    const response = get("/widget-demo");
+    const header = response.headers.get("content-security-policy");
+    expect(response.headers.get("x-middleware-request-content-security-policy")).toBe(header);
+    expect(response.headers.get("x-middleware-request-x-nonce")).toBe(nonceOf(policyOf(response)));
+  });
+
+  it("a new nonce for every request, whatever the client sends", () => {
+    const nonces = new Set<string | undefined>();
+    for (let i = 0; i < 20; i++) {
+      const response = get("/login", { headers: { "x-nonce": "elegido", "content-security-policy": "script-src 'nonce-elegido'" } });
+      const nonce = response.headers.get("x-middleware-request-x-nonce") ?? undefined;
+      expect(nonce).not.toBe("elegido");
+      expect(response.headers.get("x-middleware-request-content-security-policy")).not.toContain("elegido");
+      nonces.add(nonce);
+    }
+    expect(nonces.size).toBe(20);
+  });
+
+  it("allows eval only in development (React's error overlay)", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(policyOf(get("/login")).get("script-src")).toContain("'unsafe-eval'");
+  });
+
+  it("asks the browser to upgrade http requests only when the app is served over https", () => {
+    vi.stubEnv("APP_URL", "http://localhost:3000");
+    vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
+    expect(policyOf(get("/login")).has("upgrade-insecure-requests")).toBe(false);
+    vi.stubEnv("APP_URL", "https://agentes.mipeluqueria.es");
+    expect(policyOf(get("/login")).has("upgrade-insecure-requests")).toBe(true);
+  });
+
+  it("a signed-out visit to a private page is only redirected (a redirect carries no page)", () => {
+    const response = get("/contactos");
+    expect(response.status).toBe(307);
   });
 });

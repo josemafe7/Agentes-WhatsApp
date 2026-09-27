@@ -1,6 +1,7 @@
-// Prepares both e2e databases before the app is built and started (docs/testing.md):
-//   demo  (DATABASE_URL)            delete → migrate → demo seed → e2e-only users
-//   fresh (E2E_FRESH_DATABASE_URL)  delete → migrate (empty install: the setup wizard)
+// Prepares the e2e databases before the app is built and started (docs/testing.md):
+//   demo        (DATABASE_URL)                 delete → migrate → demo seed → e2e-only users → agenda fixtures
+//   fresh       (E2E_FRESH_DATABASE_URL)       delete → migrate (empty install: the setup wizard)
+//   restaurant  (E2E_RESTAURANT_DATABASE_URL)  delete → migrate → restaurant demo seed (the agenda by capacity)
 // It runs as the first part of the demo server's webServer command because Playwright starts its webServers
 // before globalSetup: preparing the files there would delete databases the servers already hold open.
 // Only files called data/e2e*.db are ever deleted: never data/local.db.
@@ -42,7 +43,7 @@ function deleteDatabase(file) {
           sleep(RETRY_DELAY_MS);
           continue;
         }
-        throw new Error(`No se pudo borrar ${target} (${code}). ¿Sigue abierta otra app de pruebas en los puertos 3100 o 3102?`);
+        throw new Error(`No se pudo borrar ${target} (${code}). ¿Sigue abierta otra app de pruebas en los puertos 3100, 3102 o 3103?`);
       }
     }
   }
@@ -60,20 +61,29 @@ function run(command, env) {
 function main() {
   const demoUrl = process.env.DATABASE_URL;
   const freshUrl = process.env.E2E_FRESH_DATABASE_URL;
+  const restaurantUrl = process.env.E2E_RESTAURANT_DATABASE_URL;
   const demoFile = databaseFile(demoUrl, "DATABASE_URL");
   const freshFile = databaseFile(freshUrl, "E2E_FRESH_DATABASE_URL");
-  if (demoFile === freshFile) throw new Error("La base de la demo y la vacía deben ser archivos distintos.");
+  const restaurantFile = databaseFile(restaurantUrl, "E2E_RESTAURANT_DATABASE_URL");
+  if (new Set([demoFile, freshFile, restaurantFile]).size !== 3) {
+    throw new Error("La base de la demo, la vacía y la del restaurante deben ser archivos distintos.");
+  }
 
   log("Preparando las bases de datos de las pruebas…");
   deleteDatabase(demoFile);
   deleteDatabase(freshFile);
+  deleteDatabase(restaurantFile);
 
   run("pnpm run db:migrate", { DATABASE_URL: demoUrl });
   run("pnpm run seed", { DATABASE_URL: demoUrl, DEMO_MODE: "true" });
   run("pnpm exec tsx --conditions=react-server e2e/support/create-e2e-users.ts", { DATABASE_URL: demoUrl });
+  run("pnpm exec tsx --conditions=react-server e2e/support/create-agenda-fixtures.ts", { DATABASE_URL: demoUrl });
 
   run("pnpm run db:migrate", { DATABASE_URL: freshUrl });
-  log("Bases de datos listas: demo en data/e2e.db y vacía en data/e2e-fresh.db.");
+
+  run("pnpm run db:migrate", { DATABASE_URL: restaurantUrl });
+  run("pnpm run seed --sector=restaurante", { DATABASE_URL: restaurantUrl, DEMO_MODE: "true" });
+  log("Bases de datos listas: demo en data/e2e.db, vacía en data/e2e-fresh.db y restaurante en data/e2e-restaurante.db.");
 }
 
 try {

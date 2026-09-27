@@ -80,7 +80,7 @@ const clean = (value: string | null | undefined) => value?.trim() || null;
 
 /** Meta puts up to 1,000 updates in one POST (docs/integracion-whatsapp-mensajes.md §4): never more. */
 export const WEBHOOK_MAX_UPDATES = 1_000;
-/** Numbers and accounts one POST may name before its signature is checked: an installation has a few ([SEG-07]). */
+/** Numbers and accounts one (signed) POST may name: an installation has a few ([SEG-07]). */
 export const WEBHOOK_MAX_ROUTING_IDS = 100;
 
 /** A cheap count before any parsing: a bigger batch than Meta sends is refused as it is ([SEG-07]). */
@@ -97,8 +97,8 @@ function withinBatchLimits(body: unknown): boolean {
 }
 
 /**
- * Where the POST goes, read before the signature is checked (nothing is stored or processed until then). Null when
- * it is not a WhatsApp webhook, or when it is bigger or names more numbers or accounts than any real one ([SEG-07]).
+ * Where the POST goes, read once its signature is verified (webhook.ts, decision 0022), before anything is stored.
+ * Null when it is not a WhatsApp webhook, or when it is bigger or names more numbers or accounts than any real one.
  */
 export function webhookRouting(body: unknown): { phoneNumberIds: string[]; wabaIds: string[] } | null {
   if (!withinBatchLimits(body)) return null;

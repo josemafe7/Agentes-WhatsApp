@@ -27,6 +27,12 @@
 //          Both answers begin like any other («Soy <agente>… Me has escrito: «…».»);
 //        - a document summary (a system prompt starting «Resume en dos frases») → the first two sentences of the
 //          document it was given ([CON-10]);
+//        - bookings (fase 5, ./booking.mjs): with listar_servicios, consultar_disponibilidad and crear_cita offered, a
+//          customer message with a date «AAAA-MM-DD» → listar_servicios, then consultar_disponibilidad and an offer of the
+//          suggested slots (each with its «[inicio]»), or crear_cita straight away for «Confirmo … a las HH:MM»; «Me va bien
+//          la primera» after an offer → crear_cita with that slot and a reply with its confirmation (or its alternatives);
+//        - custom HTTP tools (fase 7, ./http-tools.mjs): a customer message naming an offered tool that is not a system one
+//          → a call to it with the «nombre=valor» pairs of the message; after its answer, «Resultado de <herramienta>: …»;
 //        - usage grows with the number of customer messages n: prompt 1400+50n, completion 24, cost (30+n)/100000 US$
 //          (n=1 → 1450/24/1474 tokens and 0.00031; n=2 → 1500/24/1524 and 0.00032); a tool-call step costs (20+n)/100000.
 //        Errors (401, 402, 429…) are per test with POST /__stub (see e2e/support/ai.ts).
@@ -36,6 +42,8 @@
 //                                  (relevance_score = cosine of the bags of words, 0–1), cut to `top_n`.
 import { readFileSync } from "node:fs";
 import { bestSentence, embeddingFor, similarity } from "./bag-of-words.mjs";
+import { bookingStep } from "./booking.mjs";
+import { httpToolStep } from "./http-tools.mjs";
 
 const KEYS = JSON.parse(readFileSync(new URL("../test-keys.json", import.meta.url), "utf8")).openrouter;
 
@@ -476,6 +484,23 @@ function summaryAnswer(body, messages) {
   return completion(body, { role: "assistant", content }, usageFor(0, { toolStep: false }), "stop");
 }
 
+/** A step of a booking conversation (./booking.mjs): its tool call, or its reply after the usual intro. */
+function bookingAnswer(body, messages, step) {
+  const customerMessages = messages.filter((message) => message?.role === "user").length;
+  if (step.call) {
+    const message = {
+      role: "assistant",
+      content: null,
+      tool_calls: [{ id: `call_e2e_${generation + 1}`, type: "function", function: { name: step.call.name, arguments: JSON.stringify(step.call.args) } }],
+    };
+    return completion(body, message, usageFor(customerMessages, { toolStep: true }), "tool_calls");
+  }
+  const { agentName, channel } = promptFacts(messages);
+  const where = channel ? ` Te escribo por ${channel}.` : "";
+  const intro = `Soy ${agentName ?? "tu asistente"}, el asistente de IA de este negocio.${where} Me has escrito: «${lastCustomerText(messages)}».`;
+  return completion(body, { role: "assistant", content: `${intro} ${step.text}` }, usageFor(customerMessages, { toolStep: false }), "stop");
+}
+
 /** The deterministic answer of the simulated model (see the header). */
 function chatAnswer(body) {
   const messages = Array.isArray(body?.messages) ? body.messages : [];
@@ -489,6 +514,14 @@ function chatAnswer(body) {
     const content = JSON.stringify(sampleFor(body.response_format.json_schema?.schema, "borrador"));
     return completion(body, { role: "assistant", content }, usageFor(customerMessages, { toolStep: false }), "stop");
   }
+
+  // Agenda (fase 5): only the conversations of the agenda specs (a date «AAAA-MM-DD», or the answer to an offer).
+  const booking = bookingStep(body, messages, { textOf, toolNameFor });
+  if (booking) return bookingAnswer(body, messages, booking);
+
+  // Custom HTTP tools (fase 7): only a message that names one of them (./http-tools.mjs); same shape of steps.
+  const httpTool = httpToolStep(body, messages, { textOf, toolNameFor });
+  if (httpTool) return bookingAnswer(body, messages, httpTool);
 
   if (last?.role === "tool") {
     if (toolNameFor(messages, last.tool_call_id) === KNOWLEDGE_TOOL) return knowledgeAnswer(body, messages, toolResultText(last.content));

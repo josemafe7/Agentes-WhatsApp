@@ -1,11 +1,12 @@
 // Serves stored files (FileStorage: disk or private Vercel Blob) after checking who asks ([SEG-04], [MED-08]).
-// Files never have public URLs: this route is the only way to read them. Rules and headers: ./serve.ts.
+// Files never have public URLs: this route is the only way to read them. Rules and headers: ./serve.ts. Audio and
+// video also answer byte ranges (206), which Safari and iOS ask for before playing them; always after the checks.
 import { z } from "zod";
 import { getFileStorage, isValidFileKey } from "@/server/adapters/file-storage";
 import { messageMediaFileName } from "@/server/media/store";
 import { safeErrorMessage } from "@/server/redact";
 import { getActor } from "@/server/session";
-import { fileResponseHeaders, resolveFileAccess } from "./serve";
+import { acceptsRanges, fileResponseHeaders, parseRange, resolveFileAccess, sliceStream } from "./serve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ const PRIVATE_NO_STORE = { "Cache-Control": "private, no-store", "X-Content-Type
 
 const notFound = () => Response.json({ error: "No se ha encontrado." }, { status: 404, headers: PRIVATE_NO_STORE });
 
-export async function GET(_request: Request, context: { params: Promise<{ key: string[] }> }): Promise<Response> {
+export async function GET(request: Request, context: { params: Promise<{ key: string[] }> }): Promise<Response> {
   try {
     const params = paramsSchema.safeParse(await context.params);
     const key = params.success ? params.data.key.join("/") : "";
@@ -33,7 +34,21 @@ export async function GET(_request: Request, context: { params: Promise<{ key: s
     const downloadName = access === "private" ? await messageMediaFileName(key) : null;
     const file = await getFileStorage().get(key);
     if (!file) return notFound();
-    return new Response(file.stream, { status: 200, headers: fileResponseHeaders(file, access, downloadName) });
+    const headers = fileResponseHeaders(file, access, downloadName);
+    if (!acceptsRanges(file.contentType)) return new Response(file.stream, { status: 200, headers });
+
+    const ranged = { ...headers, "Accept-Ranges": "bytes" };
+    // No validators are sent (ETag, Last-Modified), so a conditional range never matches: the whole file.
+    const range = request.headers.has("if-range") ? null : parseRange(request.headers.get("range"), file.size);
+    if (range === null) return new Response(file.stream, { status: 200, headers: ranged });
+    if (range === "unsatisfiable") {
+      await file.stream.cancel();
+      return new Response(null, { status: 416, headers: { ...ranged, "Content-Range": `bytes */${file.size}`, "Content-Length": "0" } });
+    }
+    return new Response(sliceStream(file.stream, range), {
+      status: 206,
+      headers: { ...ranged, "Content-Range": `bytes ${range.start}-${range.end}/${file.size}`, "Content-Length": String(range.end - range.start + 1) },
+    });
   } catch (error) {
     // Generic answer only: no key, path or storage details ([SEG-14]).
     console.error(`[files] No se ha podido servir un archivo: ${safeErrorMessage(error)}`);

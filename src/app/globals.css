@@ -231,6 +231,15 @@
   --sidebar-border: rgb(255 255 255 / 10%);
 }
 
+/*
+ * The panel's controls wait disabled until the page is interactive (src/components/hydration-gate.tsx): meanwhile they
+ * keep their usual look, so nothing flickers on the first load. Outside any layer, so it wins over the utilities.
+ */
+fieldset[data-hydrating] :disabled {
+  opacity: 1;
+  cursor: progress;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

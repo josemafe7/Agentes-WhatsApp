@@ -4,10 +4,14 @@ import { LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
-import { signOutAction, signOutOtherSessionsAction } from "../actions";
+import { useSignOut } from "@/components/app-shell/use-sign-out";
+import { signOutOtherSessionsAction } from "../actions";
 
 /** Sign out here, or on every other device (e.g. a lost phone). */
 export function SessionsSection() {
+  // Also turns this device's push off before the session ends ([PWA-03]).
+  const { signOut, pending } = useSignOut();
+
   async function signOutOthers() {
     const result = await signOutOtherSessionsAction();
     if (result.ok) toast.success(result.message ?? "Hecho.");
@@ -31,12 +35,10 @@ export function SessionsSection() {
           confirmLabel="Cerrar las demás sesiones"
           onConfirm={signOutOthers}
         />
-        <form action={signOutAction}>
-          <Button type="submit" variant="ghost">
-            <LogOut aria-hidden />
-            Cerrar sesión
-          </Button>
-        </form>
+        <Button type="button" variant="ghost" onClick={signOut} disabled={pending}>
+          <LogOut aria-hidden />
+          Cerrar sesión
+        </Button>
       </div>
     </div>
   );

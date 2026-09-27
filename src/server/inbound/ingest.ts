@@ -6,15 +6,19 @@ import "server-only";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { after } from "next/server";
 import { db, type Executor } from "@/db";
-import { channels, conversations, messages, webhookEvents, type MessageReaction } from "@/db/schema";
+import { channels, contacts, conversations, messages, webhookEvents, type MessageReaction } from "@/db/schema";
+import { toSingleLine } from "@/lib/format";
 import type { JobQueue } from "@/server/adapters/job-queue";
 import type { AccountEvent, ChannelRecord, InboundMessageEvent, NormalizedEvent } from "@/server/channels/types";
+import { enqueueOptOutConfirmation, recordKeywordOptOut, type KeywordOptOut } from "@/server/compliance/opt-out";
 import { pendingInbound } from "@/server/engine/pending";
 import { scheduleReply } from "@/server/engine/schedule";
 import { MIN_JOB_BUDGET_MS, tick } from "@/server/jobs/tick";
+import { notify, resolveRecipients } from "@/server/notifications/notify";
 import { publishConversationEvent } from "@/server/realtime/events";
 import { safeErrorMessage } from "@/server/redact";
 import { upsertContactForSender } from "./contacts";
+import { messageSearchText } from "./message-search";
 import { applyStatusUpdate, type AppliedStatus } from "./status";
 
 export type RawWebhook = { source: string; payload: unknown; receivedAt?: Date };
@@ -43,11 +47,16 @@ export type IngestResult = {
   statuses: AppliedStatus[];
   /** Left to the channel's own code (quality, templates, account changes). */
   accountEvents: AccountEvent[];
-  /** When the earliest scheduled reply runs, for kickTick(); null when nothing was scheduled. */
+  /**
+   * When the earliest scheduled reply (or the confirmation of an opt-out, [CUM-03]) runs, for kickTick(); null when
+   * nothing was scheduled.
+   */
   replyRunAt: Date | null;
 };
 
 const EMAIL_THREADED = (type: ChannelRecord["type"]) => type.startsWith("email_");
+/** Conversations of a channel + contact (or thread) looked at: one real and one simulated at most, in practice. */
+const CONVERSATION_CANDIDATES = 10;
 
 async function findOrCreateConversation(tx: Executor, channel: ChannelRecord, contactId: string, event: InboundMessageEvent, now: Date) {
   const threadId = EMAIL_THREADED(channel.type) ? event.threadId?.trim() || event.externalId : null;
@@ -55,7 +64,9 @@ async function findOrCreateConversation(tx: Executor, channel: ChannelRecord, co
   const where = threadId
     ? and(eq(conversations.channelId, channel.id), eq(conversations.externalThreadId, threadId))
     : and(eq(conversations.channelId, channel.id), eq(conversations.contactId, contactId), eq(conversations.isTest, false));
-  const [existing] = await tx.select().from(conversations).where(where).orderBy(desc(conversations.createdAt)).limit(1);
+  const candidates = await tx.select().from(conversations).where(where).orderBy(desc(conversations.createdAt)).limit(CONVERSATION_CANDIDATES);
+  // A simulated message never lands in a real customer's conversation, nor a real one in a simulated conversation ([AJU-13]).
+  const existing = candidates.find((row) => (row.metadata.simulated === true) === (event.simulated === true));
   if (existing) return { conversation: existing, created: false };
   const [created] = await tx
     .insert(conversations)
@@ -93,18 +104,23 @@ async function applyReaction(tx: Executor, channel: ChannelRecord, event: Inboun
   return { ...none, messageId: target.id, conversationId: target.conversationId };
 }
 
-type InboundOutcome = IngestedMessage & { schedule: { lastInboundMessageId: string; firstPendingAt: Date } | null };
+type InboundOutcome = IngestedMessage & {
+  schedule: { lastInboundMessageId: string; firstPendingAt: Date } | null;
+  optOut: KeywordOptOut | null;
+  /** A customer's message opened a conversation (new, or a resolved one again): the team may want to hear ([AJU-08]). */
+  opened: boolean;
+};
 
 async function ingestInbound(channel: ChannelRecord, event: InboundMessageEvent, now: Date): Promise<InboundOutcome> {
   return db.transaction(async (tx): Promise<InboundOutcome> => {
-    if (event.reaction) return { ...(await applyReaction(tx, channel, event, now)), schedule: null };
+    if (event.reaction) return { ...(await applyReaction(tx, channel, event, now)), schedule: null, optOut: null, opened: false };
 
     const [duplicate] = await tx
       .select({ id: messages.id, conversationId: messages.conversationId })
       .from(messages)
       .where(and(eq(messages.channelId, channel.id), eq(messages.externalId, event.externalId)));
     if (duplicate) {
-      return { messageId: duplicate.id, conversationId: duplicate.conversationId, contactId: null, duplicate: true, reaction: false, schedule: null };
+      return { messageId: duplicate.id, conversationId: duplicate.conversationId, contactId: null, duplicate: true, reaction: false, schedule: null, optOut: null, opened: false };
     }
 
     const { contactId } = await upsertContactForSender(tx, channel.type, event.sender, now);
@@ -122,6 +138,7 @@ async function ingestInbound(channel: ChannelRecord, event: InboundMessageEvent,
         externalId: event.externalId,
         contentType: event.contentType,
         text: event.text ?? null,
+        searchText: messageSearchText(event.text),
         media: event.media ?? null,
         status: "received",
         simulated: event.simulated === true,
@@ -132,7 +149,7 @@ async function ingestInbound(channel: ChannelRecord, event: InboundMessageEvent,
       })
       .onConflictDoNothing({ target: [messages.channelId, messages.externalId] })
       .returning({ id: messages.id });
-    if (!message) return { messageId: null, conversationId: conversation.id, contactId, duplicate: true, reaction: false, schedule: null };
+    if (!message) return { messageId: null, conversationId: conversation.id, contactId, duplicate: true, reaction: false, schedule: null, optOut: null, opened: false };
 
     const reopened = conversation.status === "resolved";
     const lastInboundAt = conversation.lastInboundAt && conversation.lastInboundAt > event.sentAt ? conversation.lastInboundAt : event.sentAt;
@@ -160,13 +177,47 @@ async function ingestInbound(channel: ChannelRecord, event: InboundMessageEvent,
       { channelType: channel.type, executor: tx },
     );
 
+    // «BAJA» or «STOP» opts the customer out of this channel, with this message; its one confirmation goes through the
+    // queue instead of an AI reply ([CUM-03]).
+    const optOut = event.noReply
+      ? null
+      : await recordKeywordOptOut(tx, { channel, contactId, conversationId: conversation.id, contentType: event.contentType, text: event.text, now });
     let schedule: InboundOutcome["schedule"] = null;
-    if (!event.noReply) {
+    if (!event.noReply && !optOut) {
       const [first] = await pendingInbound(conversation.id, tx);
       schedule = { lastInboundMessageId: message.id, firstPendingAt: first?.createdAt ?? now };
     }
-    return { messageId: message.id, conversationId: conversation.id, contactId, duplicate: false, reaction: false, schedule };
+    const opened = !event.noReply && (created || reopened);
+    return { messageId: message.id, conversationId: conversation.id, contactId, duplicate: false, reaction: false, schedule, optOut, opened };
   });
+}
+
+/** The contact's name as a notice shows it, also on a locked phone ([PWA-04]): one line and short. */
+const MAX_NOTICE_NAME = 40;
+
+/**
+ * «Conversación nueva: Ana» for whoever chose to hear about it in Ajustes › Notificaciones (off by default), only people
+ * who see the channel ([AJU-08], [PWA-08]); what happened and with whom, never what the customer wrote ([PWA-04]). A
+ * failure here never stops the message from coming in.
+ */
+async function notifyNewConversation(channel: ChannelRecord, conversationId: string, contactId: string, queue?: JobQueue): Promise<void> {
+  try {
+    // Off by default: then this costs one read of the settings, and a webhook still answers at once ([CAN-09]).
+    const recipients = await resolveRecipients({ event: "new_conversation", channelId: channel.id });
+    if (recipients.length === 0) return;
+    const [contact] = await db.select({ name: contacts.name }).from(contacts).where(eq(contacts.id, contactId));
+    const who = toSingleLine(contact?.name ?? "", MAX_NOTICE_NAME) || "Cliente sin nombre";
+    await notify({
+      event: "new_conversation",
+      title: `Conversación nueva: ${who}`,
+      link: `/bandeja/${conversationId}`,
+      channelId: channel.id,
+      userIds: recipients.map((member) => member.userId),
+      queue,
+    });
+  } catch (error) {
+    console.warn(`[entrada] No se ha podido avisar de una conversación nueva: ${safeErrorMessage(error)}`);
+  }
 }
 
 async function saveRawWebhook(channel: ChannelRecord, raw: RawWebhook, now: Date): Promise<string> {
@@ -190,10 +241,15 @@ export async function ingestEvents(channel: ChannelRecord, events: readonly Norm
   for (const event of events) {
     try {
       if (event.kind === "inbound_message") {
-        const { schedule, ...ingested } = await ingestInbound(channel, event, now);
+        const { schedule, optOut, opened, ...ingested } = await ingestInbound(channel, event, now);
         result.messages.push(ingested);
+        if (opened && ingested.conversationId && ingested.contactId) await notifyNewConversation(channel, ingested.conversationId, ingested.contactId, options.queue);
         if (schedule && ingested.conversationId) {
           const job = await scheduleReply({ conversationId: ingested.conversationId, ...schedule, now, queue: options.queue, random: options.random });
+          if (!result.replyRunAt || job.runAt < result.replyRunAt) result.replyRunAt = job.runAt;
+        }
+        if (optOut) {
+          const job = await enqueueOptOutConfirmation(optOut, { now, queue: options.queue });
           if (!result.replyRunAt || job.runAt < result.replyRunAt) result.replyRunAt = job.runAt;
         }
       } else if (event.kind === "status_update") {
@@ -241,20 +297,25 @@ export type KickOptions = {
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
- * For route handlers, once the response is decided: after() waits until the reply job is due (bounded by the
- * route's maxDuration) and runs tick() with the time left ([MOT-15]). If this wait is cut, the cron picks it up.
+ * For route handlers and Server Actions, once the response is decided: after() waits until the reply job is due
+ * (bounded by the route's maxDuration) and runs tick() with the time left ([MOT-15]). If this wait is cut, or there is
+ * no request to wait after, the cron (or the local ticker) picks it up.
  */
 export function kickTick(options: KickOptions): void {
   const clock = options.clock ?? Date.now;
   const started = clock();
   const totalMs = options.maxDurationSec * 1_000 - KICK_SAFETY_MARGIN_MS;
   const schedule = options.schedule ?? after;
-  schedule(async () => {
-    const due = options.runAt ? options.runAt.getTime() - clock() + KICK_LATE_MS : 0;
-    const wait = Math.max(0, Math.min(due, totalMs - KICK_MIN_TICK_MS));
-    if (wait > 0) await (options.sleep ?? defaultSleep)(wait);
-    const budgetMs = totalMs - (clock() - started);
-    if (budgetMs < MIN_JOB_BUDGET_MS) return;
-    await (options.runTick ?? tick)({ budgetMs, workerId: `kick-${crypto.randomUUID()}` });
-  });
+  try {
+    schedule(async () => {
+      const due = options.runAt ? options.runAt.getTime() - clock() + KICK_LATE_MS : 0;
+      const wait = Math.max(0, Math.min(due, totalMs - KICK_MIN_TICK_MS));
+      if (wait > 0) await (options.sleep ?? defaultSleep)(wait);
+      const budgetMs = totalMs - (clock() - started);
+      if (budgetMs < MIN_JOB_BUDGET_MS) return;
+      await (options.runTick ?? tick)({ budgetMs, workerId: `kick-${crypto.randomUUID()}` });
+    });
+  } catch {
+    // Outside a request (a script, a test) there is no «after the answer»: the cron or the local ticker picks it up.
+  }
 }

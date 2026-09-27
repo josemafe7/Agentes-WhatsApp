@@ -5,8 +5,29 @@ import { getDocumentProxy } from "unpdf";
 import { MAX_PDF_PAGES, SCANNED_PDF_MIN_CHARS_PER_PAGE } from "../constants";
 import { KNOWLEDGE_MESSAGES, KnowledgeProcessingError } from "../errors";
 import { joinPages } from "../pages";
+import { cleanDocumentTitle } from "./title";
 
-export type PdfText = { pageCount: number; /** Text of each page, in order (index 0 = page 1). */ pages: string[] };
+export type PdfText = {
+  pageCount: number;
+  /** Text of each page, in order (index 0 = page 1). */
+  pages: string[];
+  /** The PDF's own title (information dictionary, else XMP dc:title), cleaned; null when it has none. */
+  title?: string | null;
+};
+
+type PdfDocument = Awaited<ReturnType<typeof getDocumentProxy>>;
+
+/** The title the PDF declares: data from outside, so only a cleaned text, and never a reason to fail. */
+async function pdfTitle(pdf: PdfDocument): Promise<string | null> {
+  try {
+    const { info, metadata } = await pdf.getMetadata();
+    const fromInfo = typeof info === "object" && info !== null && "Title" in info && typeof info.Title === "string" ? info.Title : null;
+    const fromXmp: unknown = metadata?.get("dc:title");
+    return cleanDocumentTitle(fromInfo) ?? cleanDocumentTitle(typeof fromXmp === "string" ? fromXmp : null);
+  } catch {
+    return null;
+  }
+}
 
 function tidy(text: string): string {
   return text
@@ -17,10 +38,10 @@ function tidy(text: string): string {
     .trim();
 }
 
-/** Page count of a PDF, or a processing error when it cannot be opened. */
+/** Text of each page and title of a PDF, or a processing error when it cannot be opened. */
 export async function readPdfPages(bytes: Uint8Array, options: { maxPages?: number } = {}): Promise<PdfText> {
   const maxPages = options.maxPages ?? MAX_PDF_PAGES;
-  let pdf: Awaited<ReturnType<typeof getDocumentProxy>>;
+  let pdf: PdfDocument;
   try {
     // A copy: PDF.js may take over the buffer it is given.
     pdf = await getDocumentProxy(new Uint8Array(bytes));
@@ -34,7 +55,7 @@ export async function readPdfPages(bytes: Uint8Array, options: { maxPages?: numb
       const content = await (await pdf.getPage(number)).getTextContent();
       pages.push(tidy(content.items.map((item) => ("str" in item ? item.str + (item.hasEOL ? "\n" : "") : "")).join("")));
     }
-    return { pageCount: pdf.numPages, pages };
+    return { pageCount: pdf.numPages, pages, title: await pdfTitle(pdf) };
   } catch (error) {
     if (error instanceof KnowledgeProcessingError) throw error;
     throw new KnowledgeProcessingError(KNOWLEDGE_MESSAGES.unreadablePdf);

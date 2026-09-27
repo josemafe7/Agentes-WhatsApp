@@ -150,6 +150,20 @@ describe("notices [TRA-05] [PWA-06] [PWA-08]", () => {
     expect(notices.every((notice) => !notice.title.includes("DNI") && !notice.body?.includes("DNI"))).toBe(true);
   });
 
+  it("[PWA-04] the title says what happened and with whom in one short line; the reason only in the app, never by email or push", async () => {
+    await db.update(businessSettings).set({ handoff: { assignment: "unassigned" } });
+    await db.update(userRoles).set({ notificationPreferences: { handoff: { inApp: true, email: true, push: true } } }).where(eq(userRoles.userId, owner.userId));
+    const conversation = await newConversation(channelId, `Ana\nMe duele la muela ${"desde hace días ".repeat(10)}`);
+    await handoffService.requestHandoff(request(conversation.id, { reason: "Tiene dolor de muelas", summary: "Dolor desde el martes" }));
+    const [notice] = await noticesOf(owner.userId);
+    expect(notice.title.startsWith("Traspaso: Ana Me duele")).toBe(true);
+    expect(notice.title.length).toBeLessThanOrEqual("Traspaso: ".length + 40);
+    expect(notice.body).toBe("Tiene dolor de muelas");
+    const deliveries = (await db.select().from(jobs).where(eq(jobs.type, NOTIFICATIONS_DELIVER_JOB))).filter((job) => (job.payload as { userId: string }).userId === owner.userId);
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].payload).toMatchObject({ title: notice.title, body: null });
+  });
+
   it("the agent's «a quién avisar» replaces the default roles, still filtered by channel", async () => {
     await db.update(businessSettings).set({ handoff: { assignment: "unassigned" } });
     const agent = await createAgentRow({ handoff: { notifyUserIds: [supervisor.userId, agentElsewhere.userId] } });

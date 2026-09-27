@@ -3,7 +3,15 @@
 // checked again in src/data ([SEG-04], [SEG-05]). Expected errors come back as a generic Spanish result.
 import { revalidatePath } from "next/cache";
 import { createInvitation, resendInvitation, revokeInvitation, type InvitationDelivery } from "@/data/invitations";
-import { changeRole, removeUser, setAgentChannels, setRequireTwoFactor, setUserDisabled, transferOwnership } from "@/data/users";
+import {
+  changeRole,
+  removeUser,
+  setAgentChannels,
+  setRequireTwoFactor,
+  setUserDisabled,
+  transferOwnership,
+  type AgentChannelsResult,
+} from "@/data/users";
 import { ok, type ActionResult } from "@/lib/action-result";
 import { toActionFailure } from "@/server/errors";
 import { requireActor } from "@/server/session";
@@ -74,12 +82,16 @@ export async function changeRoleAction(_prev: ActionResult | null, formData: For
   });
 }
 
-export async function setAgentChannelsAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+/** `warning`: the Agent was left without channels and now sees them all ([PER-02]); the dialog shows it. */
+export async function setAgentChannelsAction(
+  _prev: ActionResult<AgentChannelsResult> | null,
+  formData: FormData,
+): Promise<ActionResult<AgentChannelsResult>> {
   return run(async () => {
     const actor = await requireActor();
-    await setAgentChannels(actor, { userId: text(formData, "userId"), channelIds: list(formData, "channelIds") });
+    const result = await setAgentChannels(actor, { userId: text(formData, "userId"), channelIds: list(formData, "channelIds") });
     revalidatePath(USERS_PATH);
-    return ok(undefined, "Canales guardados.");
+    return ok(result, "Canales guardados.");
   });
 }
 

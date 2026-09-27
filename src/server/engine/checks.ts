@@ -1,6 +1,7 @@
 // Whether the AI may answer now ([MOT-03], [CAN-03], [CAN-06], [CAN-08], [CAN-16], [WA-43], [CUM-04], [TRA-02],
 // [BAN-11], [AGE-14]), in the spec's order. Pure: the reply engine loads the data. If any check fails the AI stays
 // quiet and the message waits for a person in the inbox.
+import "server-only";
 import type { ChannelType } from "@/lib/enums";
 import { WHATSAPP_WINDOW_MS, whatsappWindowState } from "@/lib/meta/window";
 import type { ChannelRecord } from "@/server/channels/types";

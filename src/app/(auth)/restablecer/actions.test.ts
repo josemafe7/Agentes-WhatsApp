@@ -16,7 +16,7 @@ import { auth } from "@/server/auth";
 import { SYSTEM_EMAIL_JOB } from "@/server/jobs/handlers/system-email";
 import { createBusiness, createUser } from "@/test/factories";
 import { RESET_LINK_INVALID_MESSAGE, TOO_MANY_ATTEMPTS_MESSAGE } from "../_lib/messages";
-import { serverSignIn, nextTestIp, sessionCount } from "../_lib/test-helpers";
+import { serverSignIn, nextTestIp, sessionCount, storedResetIdentifier } from "../_lib/test-helpers";
 import { resetPasswordAction } from "./actions";
 
 const NEW_PASSWORD = "nueva-clave-segura-1";
@@ -65,7 +65,7 @@ describe("setting a new password from the link [USU-10]", () => {
   it("an expired or made-up link changes nothing", async () => {
     const member = await createUser("agent");
     const token = await resetTokenFor(member.email);
-    await db.update(verification).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(verification.identifier, `reset-password:${token}`));
+    await db.update(verification).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(verification.identifier, storedResetIdentifier(token)));
     expect(await resetPasswordAction({ token, password: NEW_PASSWORD, confirmPassword: NEW_PASSWORD })).toEqual({
       ok: false,
       error: RESET_LINK_INVALID_MESSAGE,

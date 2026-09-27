@@ -74,9 +74,11 @@ días.
   (un `0 1 * * *` puede saltar entre la 1:00 y la 1:59). Una expresión más frecuente hace fallar el
   despliegue con el error «Hobby accounts are limited to daily cron jobs». Pro: cada minuto y con precisión de
   minuto.
-- Consecuencia: el `vercel.json` del repositorio no puede llevar `* * * * *` si se va a desplegar en Hobby.
-  Lo seguro es dejar en él un cron diario a `/api/cron/tick` (red de seguridad y tareas diarias, válido en los
-  dos planes), usar un cron externo cada minuto en Hobby y, en Pro, cambiar la expresión a `* * * * *`.
+- Consecuencia: el `vercel.json` del repositorio no lleva `* * * * *`: con él fallaría un despliegue en Hobby, y
+  una prueba (`project-config.test.ts`) lo impide. Lleva un cron diario a `/api/cron/tick` (red de seguridad y
+  tareas diarias, válido en los dos planes) y el trabajo de cada minuto lo lanza un cron externo, también en Pro
+  (`docs/guia-despliegue.md`, «6. El cron cada minuto»). Si una instalación en Pro prefiere Vercel Cron cada minuto,
+  quien mantiene el código cambia a la vez la expresión de `vercel.json` y esa prueba, que protege a las de Hobby.
 - `/api/cron/tick` acepta `GET` (Vercel Cron) y `POST` (cron externo) y compara el `Bearer` en tiempo
   constante. Las opciones de cron externo están en «Cron externo cada minuto».
 
@@ -321,7 +323,7 @@ propia ruta, junto a `get()`.
 | cron-job.org | Sí, hasta 60 veces por hora | Sí, admite cabeceras y métodos a elección | Gratis; corta a los 30 s; lee como mucho 64 KB de respuesta; desactiva el job tras más de 25 fallos seguidos | Recomendado |
 | GitHub Actions (`schedule`) | No: mínimo cada 5 min | Sí, con un secreto del repositorio | Se retrasa en horas de carga; solo la rama por defecto; en repos públicos se desactiva tras 60 días sin actividad | Solo como respaldo |
 | Upstash QStash | Sí (`* * * * *`) | Sí, con el prefijo `Upstash-Forward-` (`Upstash-Forward-Authorization`) | Free: 1.000 mensajes al día y 10 programaciones; cada reintento cuenta | El plan gratuito no llega (cada minuto son 1.440 al día); cada 2 minutos sí |
-| Vercel Cron | Solo en Pro | Automática con `CRON_SECRET` | — | La opción en Pro |
+| Vercel Cron | Solo en Pro | Automática con `CRON_SECRET` | Exige cambiar `vercel.json` y su prueba (hoy, cron diario para que Hobby despliegue) | Posible en Pro; el cron externo sirve en los dos planes |
 
 - Configuración: `POST https://<dominio de producción>/api/cron/tick` con
   `Authorization: Bearer <CRON_SECRET>`.

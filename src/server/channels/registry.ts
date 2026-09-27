@@ -5,6 +5,7 @@ import type { ChannelType } from "@/lib/enums";
 import { AppError } from "@/server/errors";
 import { defaultCapabilitiesOf } from "./capabilities";
 import { demoAdapter } from "./demo-adapter";
+import { gmailAdapter, imapAdapter, outlookAdapter } from "./email/adapter";
 import type { ChannelAdapter, ChannelCapabilities, ChannelRecord } from "./types";
 import { webchatAdapter } from "./webchat-adapter";
 import { whatsappAdapter } from "./whatsapp/adapter";
@@ -33,6 +34,9 @@ export function unregisterChannelAdapter(type: ChannelType): void {
 
 registerChannelAdapter(webchatAdapter);
 registerChannelAdapter(whatsappAdapter);
+registerChannelAdapter(gmailAdapter);
+registerChannelAdapter(outlookAdapter);
+registerChannelAdapter(imapAdapter);
 
 /** The adapter that talks to this channel. Demo WhatsApp and email channels get the DemoAdapter. */
 export function getChannelAdapter(channel: Pick<ChannelRecord, "type" | "isDemo">): ChannelAdapter {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contactPath, contactsHref, contactsQueryFromSearchParams } from "./search-params";
+import { contactPath, contactsHref, contactsQueryFromSearchParams, DUPLICATES_PATH, mergePath, mergeQueryFromSearchParams } from "./search-params";
 
 const CHANNEL_ID = "0b6f2c3e-1111-4c1c-9a55-6a4f0f0b3a2d";
 
@@ -33,5 +33,22 @@ describe("Contactos: search and filters in the URL [CTO-01]", () => {
 
   it("links to a contact's card", () => {
     expect(contactPath(CHANNEL_ID)).toBe(`/contactos/${CHANNEL_ID}`);
+  });
+});
+
+describe("Contactos: duplicates and merging in the URL [CTO-04] [CTO-05]", () => {
+  const OTHER_ID = "7a1d9e44-2222-4b7e-8c11-1f2e3d4c5b6a";
+
+  it("links to the duplicates and to the merge of two contacts", () => {
+    expect(DUPLICATES_PATH).toBe("/contactos/duplicados");
+    expect(mergePath(CHANNEL_ID, OTHER_ID)).toBe(`/contactos/fusionar?uno=${CHANNEL_ID}&otro=${OTHER_ID}`);
+  });
+
+  it("reads the two contacts of the merge, or nothing when one is missing", () => {
+    expect(mergeQueryFromSearchParams({ uno: CHANNEL_ID, otro: ` ${OTHER_ID} ` })).toEqual({ one: CHANNEL_ID, other: OTHER_ID });
+    expect(mergeQueryFromSearchParams({ uno: CHANNEL_ID })).toBeNull();
+    expect(mergeQueryFromSearchParams({ uno: "", otro: OTHER_ID })).toBeNull();
+    // Values pass through as they come: src/data/contacts-merge.ts validates them.
+    expect(mergeQueryFromSearchParams({ uno: "x", otro: ["y", "z"] })).toEqual({ one: "x", other: "y" });
   });
 });

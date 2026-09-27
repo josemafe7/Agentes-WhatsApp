@@ -51,8 +51,10 @@ export function AiControl({ conversationId, aiMode, aiPausedUntil, pauseReason, 
 
   const reactivate = () => run(() => setAiAction({ conversationId, mode: "on" }), { success: "La IA vuelve a responder en esta conversación." });
 
+  // On a phone the header row scrolls sideways; from tablets up it wraps, so a long «IA en pausa hasta mañana a las…»
+  // wraps inside the column instead of running under the contact panel next to it.
   return (
-    <div className="flex shrink-0 items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2 md:max-w-full md:flex-wrap">
       {canChange ? (
         <Switch
           id={`${id}-ia`}
@@ -63,7 +65,7 @@ export function AiControl({ conversationId, aiMode, aiPausedUntil, pauseReason, 
         />
       ) : null}
       <div className="flex min-w-0 flex-col">
-        <label htmlFor={canChange ? `${id}-ia` : undefined} id={`${id}-estado`} className={cn("inline-flex items-center gap-1 text-sm font-medium whitespace-nowrap", meta.className)}>
+        <label htmlFor={canChange ? `${id}-ia` : undefined} id={`${id}-estado`} className={cn("inline-flex items-center gap-1 text-sm font-medium whitespace-nowrap md:whitespace-normal", meta.className)}>
           <Icon aria-hidden className="size-4" />
           {label}
         </label>

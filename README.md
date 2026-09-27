@@ -4,17 +4,17 @@ Plataforma de agentes IA de atención al cliente (WhatsApp, correo y chat web) q
 negocio y se configura sin tocar código. Cada instalación es de un solo negocio, con su propia base de datos y
 sus propias claves.
 
-**Estado: fases 0 (base), 1 (agentes y OpenRouter), 2 (bandeja, chat web y motor), 3 (WhatsApp) y 4 (conocimiento)
-construidas, solo en local.** Ya funcionan el arranque con la demo, el inicio de sesión con roles e invitaciones, el
-asistente de arranque, los ajustes, el cifrado de claves, los agentes de IA (plantillas, versiones, modelos y «Probar
-agente»), el chat web para pegar en la web del negocio, la bandeja con traspaso a una persona, los contactos, los
+**Estado: construidas las fases 0 a 7, solo en local.** Todo lo del encargo funciona ya en tu ordenador: el arranque
+con la demo, el inicio de sesión con roles e invitaciones, el asistente de arranque, los ajustes, el cifrado de claves,
+los agentes de IA (plantillas, versiones, modelos, «Probar agente» y herramientas HTTP propias), el chat web para pegar
+en la web del negocio, la bandeja con traspaso a una persona, los contactos (con exportar, borrar y fusionar), los
 canales con su agente activo, el motor que responde en segundo plano, el simulador de canales, WhatsApp con la API
-oficial de Meta (asistente de conexión, avisos firmados, archivos y notas de voz, estados, ventana de 24 h y
-plantillas, varios números, panel con semáforos, tarifas y las páginas legales que pide Meta) y el conocimiento del
-negocio (archivos de contexto de cada agente, bases con documentos, webs y preguntas frecuentes, búsqueda por
-significado y por palabras, la herramienta de búsqueda del agente y las fuentes de cada respuesta en la bandeja). El
-correo real y la agenda llegan en las fases siguientes (`docs/spec.md`, «Fases»). La app todavía no está publicada en
-internet: por eso WhatsApp real aún no se ha probado con Meta (ver «Conectar WhatsApp real»).
+oficial de Meta, el conocimiento del negocio con búsqueda por significado y por palabras, la agenda con citas que el
+agente reserva sin dobles reservas, el correo (Gmail, Outlook e IMAP/SMTP con borradores para revisar), el cumplimiento
+(aviso de IA, bajas con «BAJA», conservación y limpieza diaria, páginas legales editables), los informes y la app
+instalable con avisos push. La app todavía no está publicada en internet: por eso WhatsApp y el correo reales aún no se
+han probado contra Meta, Google y Microsoft de verdad (ver «Conectar WhatsApp real» y «Conectar el correo real»); todo
+está probado contra esos servicios simulados.
 
 ## Requisitos
 
@@ -214,6 +214,99 @@ sector. Los tres agentes de la demo la usan en modo «Automático», con la herr
    Hoy el archivo del repositorio está vacío: falta ejecutar `pnpm seed:embeddings` una vez con una clave real. Cambiar el modelo de embeddings en Ajustes › IA vuelve a procesar todas
    las bases, y mientras tanto se sigue buscando con el índice anterior.
 
+### Agenda (fase 5)
+
+La demo trae la agenda de la peluquería en marcha: tres profesionales (Lucía, Andrés y Marta) con su horario semanal,
+los servicios del sector con su duración, márgenes y precio orientativo, y unas doscientas citas colocadas respecto al
+día en que se carga la demo (de dos semanas atrás a dos semanas adelante), en todos los estados, hechas por la IA, por
+personas y desde «Probar agente», más unas vacaciones y un hueco bloqueado. La guía completa es
+[`docs/guia-agenda.md`](docs/guia-agenda.md), también en **Ayuda › La agenda**.
+
+1. **Agenda** (entra como `propietario@demo.test`): vistas **Día**, **Semana**, **Mes** y **Recursos** (una columna por
+   profesional), con el horario, los festivos, las ausencias y los bloqueos, y filtros por profesional, servicio,
+   estado, origen (IA, persona o web) y citas de prueba. Todas las horas son las del negocio (`Europe/Madrid`).
+2. **La ficha de una cita** (púlsala): estado, servicio, profesional, cliente, origen, quién la creó, recordatorio,
+   notas e historial de cambios. Las que hizo la IA enlazan a su conversación y a su contacto. Desde ahí se confirma,
+   se cambia, se marca completada o no presentado y se cancela (con motivo y, si quieres, «Avisar al cliente por su
+   conversación»).
+3. **«Nueva cita»:** eliges servicio, profesional o «Cualquier profesional», día y personas, y solo salen los huecos
+   libres de verdad. Si otra persona o el agente coge ese hueco mientras tanto, al guardar sale «Ese hueco ya no está
+   libre» con otros cercanos. Las citas se mueven y se alargan **arrastrando** (o con «Cambiar» en la ficha): si el
+   destino no está libre, vuelven a su sitio.
+4. **«Bloquear hueco»** (propietario, administrador y supervisor): un rato o un día, para un profesional o para todos.
+5. **Configurar la agenda** (menú «⋯» de la Agenda, propietario y administrador): **Agenda › Configuración** con
+   General (modo por recurso o por aforo, intervalo de los huecos y las palabras: Cita o Reserva, Profesional o Mesa…),
+   Servicios y Recursos (horario semanal con varios tramos por día y ausencias). El supervisor solo entra en las
+   ausencias.
+6. **El agente reserva** (con la clave de OpenRouter): en `/widget-demo` escribe, por ejemplo, «Quiero cortarme el pelo
+   el jueves por la tarde». El «Asistente de citas» (con las herramientas de la agenda encendidas en Agentes ›
+   Herramientas) consulta los huecos, ofrece 2 o 3 concretos, espera a que elijas y confirma en una sola respuesta.
+   La cita aparece en la Agenda con origen «IA · Chat de la web», enlazada a la conversación. «Tratamiento de
+   keratina» necesita confirmación del equipo: queda «Pendiente», el agente lo dice y la campana avisa «Cita pendiente de
+   confirmar». La conversación de WhatsApp de Laura Gil tiene la cita que la IA le reservó.
+7. **Probar agente:** una cita pedida en la pestaña Probar se crea marcada «Prueba» y sin cliente. Se borran todas con
+   «Borrar citas de prueba» (en Probar) o «Citas de prueba (N)» › «Borrar todas» (en la Agenda).
+8. **Contactos y bandeja:** la lista de Contactos enseña la próxima cita de cada uno; la ficha de un contacto, sus citas
+   próximas y pasadas con «Nueva cita»; y en la bandeja, el panel del contacto enseña sus próximas citas y «Nueva cita»,
+   que la deja unida a esa conversación.
+9. **Recordatorios** (**Ajustes › Recordatorios**, propietario y administrador): desactivados por defecto. La demo trae
+   preparada la plantilla aprobada «recordatorio_cita» del WhatsApp de demo con sus variables asignadas; también se
+   pueden enviar por email. Cada cita recibe uno solo, nunca si está cancelada o el cliente se ha dado de baja, y se
+   recalcula si la cita se mueve. En la demo, los de email se guardan en `data/outbox/` y los de WhatsApp salen por el
+   canal de demo, que nunca llama a Meta. Por WhatsApp, cada recordatorio se cobra (plantilla de utilidad).
+10. **Restaurante (agenda por aforo):** `pnpm seed --sector=restaurante` carga un restaurante con Comedor (40 plazas) y
+    Terraza (24): cada reserva de mesa dura 90 minutos y la vista de Recursos enseña la ocupación de cada franja
+    («22/24»). Un grupo que ya no cabe no tiene huecos.
+11. **Cada rol:** el supervisor gestiona citas, bloqueos y ausencias; el Agente crea, cambia y cancela citas de los
+    clientes de sus canales; «Solo lectura» ve la agenda sin cambiar nada.
+
+### Correo (fase 6)
+
+El canal «Correo» de la demo está marcado «Demo»: nunca llama a Google, a Microsoft ni a un servidor de correo. Lo que
+recibe llega por el simulador y lo que «envía» solo se guarda. Como todo buzón nuevo, responde con borradores para
+revisar. La guía completa es [`docs/guia-correo.md`](docs/guia-correo.md), también en **Ayuda › Conectar el correo**.
+
+1. **Bandeja:** el hilo de correo de Isabel Prieto («Peinados para cinco personas el sábado») lleva el asunto arriba y
+   cada correo en su tarjeta, con remitente, destinatarios y fecha. El último es un borrador de la IA «pendiente de
+   revisar» con «Aprobar y enviar», «Editar» y «Descartar»: aprobado, sale en el mismo hilo con la firma y el aviso de
+   IA. Si contestas tú desde la bandeja, tu correo lleva la firma del canal y la IA se pausa en esa conversación.
+2. **Simulador** (**Ajustes › Diagnóstico › Simulador**): elige el canal «Correo», pon el email del cliente y escribe
+   como él. Con la clave de OpenRouter, la IA deja su borrador en la bandeja.
+3. **Canales › Correo:** el panel del buzón (en la demo, con el aviso de buzón de demostración y los semáforos
+   apagados), su actividad (recibidos, enviados, borradores por revisar e ignorados), los correos que la IA no contesta
+   (respuestas automáticas, boletines y listas, remitentes «noreply», rebotes, lo que envía el propio buzón, spam y las
+   promociones de Gmail) y las respuestas de la IA: modo de respuesta, tope diario por hilo y por remitente (5 y 10
+   por defecto) y firma.
+4. **Canales › Añadir canal › Correo:** el asistente para conectar un buzón real (ver «Conectar el correo real»).
+
+### Cumplimiento, informes y la app instalable (fase 7)
+
+1. **Bajas:** en el **Simulador**, escribe solo «BAJA» (o «STOP») como un cliente de WhatsApp. Recibe una sola
+   confirmación, la IA deja de contestarle en ese canal y no le salen recordatorios ni plantillas; lo que escriba después
+   espera en la bandeja a una persona. En la ficha del contacto, «Consentimientos y bajas» enseña la baja con su fecha y canal, y
+   «Levantar baja» la quita (solo si el cliente lo pide; queda anotado quién, cuándo y por qué).
+2. **Contactos:** «Posibles duplicados» (mismo email o teléfono) y «Fusionar» dos contactos eligiendo qué datos se
+   quedan; «Exportar» la lista (CSV, con la búsqueda y los filtros) o los seleccionados; y en la ficha, «Exportar datos»
+   (todo lo del contacto en un archivo) y «Borrar contacto» escribiendo su nombre (o, desde la lista, «Borrar» varios
+   escribiendo cuántos son): se borran sus datos, mensajes y archivos, y sus citas se quedan sin nombre para que los
+   informes cuadren. La búsqueda de Contactos y de la Bandeja no distingue tildes: «jose» encuentra «José».
+3. **Ajustes › Privacidad y legal:** los textos de `/legal/privacidad`, `/legal/terminos` y
+   `/legal/eliminacion-datos`, el aviso de IA por defecto y los plazos de conservación (conversaciones 12 meses, audios
+   30 días tras transcribirlos, adjuntos 90 días y avisos en bruto 14 días), con borrado o anonimización. La limpieza
+   corre cada día y deja en el Registro de actividad cuánto borró.
+4. **Informes** (menú): conversaciones por canal, porcentaje resuelto por la IA, traspasos y sus motivos, tiempo hasta
+   la primera respuesta de una persona (y cuántos en menos de 3 minutos), citas creadas por la IA y costes de IA y de
+   WhatsApp, por mes o por fechas y por canal, con «Descargar CSV» en cada tabla. «Probar agente» nunca cuenta.
+5. **App instalable y avisos push:** en **Mi cuenta** (o Ajustes › Notificaciones), «Instalar la app» la pone en el
+   ordenador o el móvil con el nombre y el logo del negocio, y «Activar avisos en este dispositivo» manda un push cuando
+   hay un traspaso («Traspaso: Ana», sin el texto del mensaje). En local funciona en <http://localhost:3000>; en el
+   iPhone hace falta la app publicada con HTTPS y añadida a la pantalla de inicio. Al cerrar sesión, ese dispositivo
+   deja de recibirlos.
+6. **Herramientas HTTP** (**Agentes › Herramientas HTTP**, propietario y administrador): conecta un agente con n8n o tu
+   CRM: nombre, descripción, datos que envía la IA, método, dirección `https://`, cabeceras secretas (cifradas) y
+   tiempo máximo, con «Probar». Después se enciende en la pestaña Herramientas de cada agente.
+7. **Ayuda:** además de las guías, la **Lista de puesta en marcha** de un negocio real (`/ayuda/puesta-en-marcha`).
+
 ### Lo demás
 
 - **Entrar con cada rol** y ver cómo cambia el menú: Bandeja, Contactos, Agenda, Agentes, Conocimiento,
@@ -234,7 +327,8 @@ sector. Los tres agentes de la demo la usan en modo «Automático», con la herr
   sin activar. Crea uno con «Nuevo agente» (plantilla de tu sector, de otro sector, en blanco o «Generar
   borrador con IA» desde tu web o una descripción) y recorre su editor: General, Instrucciones (con «Vista
   previa del prompt»), Modelo, Conocimiento (ver «Conocimiento (fase 4)»), Herramientas («Pasar a una persona»,
-  siempre activa, y «Buscar en el conocimiento»; las de la agenda llegan con su fase), Traspaso, Canales, Probar y
+  siempre activa, «Buscar en el conocimiento» y las de la agenda: consultar huecos, crear, cambiar y cancelar citas y
+  guardar los datos del cliente), Traspaso, Canales, Probar y
   Versiones. Cada guardado crea una versión que se puede restaurar. Desde la tarjeta se duplica o se borra.
 - **Probar agente** (pestaña Probar de un agente): un chat con el agente, sin canales reales, con «Simular
   canal» (WhatsApp, correo o chat web) y, en cada respuesta, los tokens, el coste en US$, el tiempo y «Ver
@@ -242,8 +336,8 @@ sector. Los tres agentes de la demo la usan en modo «Automático», con la herr
   OpenRouter (ver arriba); sin ella verás el aviso y no se puede enviar. El supervisor también puede probar; «Solo
   lectura» ve los agentes sin cambiar nada y el rol Agente no entra.
 - **Ayuda** (menú de tu usuario, o Ajustes › Acerca de): las guías paso a paso dentro de la app: crear y probar
-  agentes y darles el conocimiento del negocio, conectar WhatsApp y publicar en Vercel. Las demás llegan con sus
-  fases.
+  agentes y darles el conocimiento del negocio, la agenda, conectar WhatsApp, conectar el correo, publicar en Vercel y
+  la lista de puesta en marcha.
 - **Ajustes › Horario, IA, Correo del sistema, Privacidad y legal y Notificaciones:** horario con varios tramos
   por día y festivos; la clave de OpenRouter, los modelos por defecto (chat, respaldo de otro proveedor,
   transcripción, embeddings y descripción de imágenes) elegidos de la lista con precios, la lista de
@@ -251,16 +345,15 @@ sector. Los tres agentes de la demo la usan en modo «Automático», con la herr
   proveedores que pueden guardar los audios, «Reordenar resultados» del conocimiento con su modelo (desactivado por
   defecto; con «Sin retención de datos» solo se ofrece el que no guarda nada y, si el elegido sí guarda, lo avisa y
   no reordena), y la clave de Mistral OCR para los PDF escaneados; el servidor SMTP de los correos de la app; textos legales, aviso de IA y plazos de conservación; y quién recibe cada aviso.
-- **Ajustes › Registro de actividad y Diagnóstico:** quién hizo qué, con filtros; y el estado de la base de
-  datos, de la cola de trabajos (con «Reintentar»), los errores recientes de la IA (si una respuesta falla también
-  al reintentarla, la conversación pasa a una persona y el error aparece aquí) y los correos que ha enviado la app,
-  que en local puedes abrir desde ahí.
+- **Ajustes › Registro de actividad y Diagnóstico:** quién hizo qué (personas, IA y sistema), en español y con
+  filtros; y el estado de la base de datos, de la cola de trabajos (con «Reintentar»), los errores recientes de la IA
+  (si una respuesta falla también al reintentarla, la conversación pasa a una persona y el error aparece aquí), el
+  último aviso de cada canal, los correos que cada buzón ignoró y por qué, y los correos que ha enviado la app, que en
+  local puedes abrir desde ahí.
 - **Asistente de arranque:** con `pnpm db:fresh` (ver «Paso a un negocio real») la app queda vacía y te guía:
   cuenta de propietario, negocio y sector, horario, clave de IA, primer agente (desde la plantilla del sector
   o generado desde la web del negocio si hay clave), un chat web con ese agente que se prueba ahí mismo (y en
-  `/widget-demo`) y los canales que faltan.
-
-Próximamente: la agenda con citas (fase 5) y el correo real (fase 6).
+  `/widget-demo`) y, al final, «Conectar WhatsApp», «Conectar el correo» (con sus guías) o «Ir a la bandeja».
 
 ## Órdenes
 
@@ -270,15 +363,15 @@ Próximamente: la agenda con citas (fase 5) y el correo real (fase 6).
 | `pnpm run setup` | Solo la preparación. Siempre con `run`: `pnpm setup` es otra orden de pnpm que cambia el PATH del ordenador. Repetirla no cambia nada. |
 | `pnpm lint` / `pnpm typecheck` | Revisan el código y los tipos. |
 | `pnpm test` | Pruebas de Vitest (cada archivo con su propia base temporal; nunca toca `data/local.db`). |
-| `pnpm test:e2e` | Pruebas de Playwright: compila la app, la arranca en los puertos 3100 (demo) y 3102 (instalación vacía) con sus propias bases (`data/e2e.db` y `data/e2e-fresh.db`) y simula los servicios externos en el 3101. La primera vez: `pnpm exec playwright install chromium`. |
-| `pnpm build` / `pnpm start` | Compila la app como en producción y la arranca. |
+| `pnpm test:e2e` | Pruebas de Playwright: compila la app, la arranca en los puertos 3100 (demo de la peluquería), 3102 (instalación vacía) y 3103 (demo del restaurante, para la agenda por aforo) con sus propias bases (`data/e2e.db`, `data/e2e-fresh.db` y `data/e2e-restaurante.db`) y simula los servicios externos en el 3101. La primera vez: `pnpm exec playwright install chromium`. |
+| `pnpm build` / `pnpm start` | Compila la app como en producción y la arranca. En tu ordenador vale con `APP_URL=http://localhost:3000` (avisa de que solo funciona ahí) y el asistente pide el código de instalación (`SETUP_TOKEN`); publicada, `APP_URL` tiene que llevar `https://`. |
 | `pnpm db:migrate` | Pone la base de datos al día (migraciones). |
 | `pnpm db:generate` | Genera una migración nueva a partir del esquema (solo para desarrollar). |
 | `pnpm seed [--sector=…]` | Carga la demo de un sector en lugar de la que haya: `peluqueria` (por defecto), `clinica-dental`, `fisioterapia`, `restaurante`, `taller`, `academia`, `inmobiliaria`, `tienda` u `otro`. Se niega si la base tiene datos de un negocio real, o si `DEMO_MODE` no es `true` (salvo con `--force-demo`). |
 | `pnpm seed:embeddings` | Recalcula los embeddings de la demo de los nueve sectores con el modelo por defecto (`openai/text-embedding-3-small`, 1536 dimensiones) y los guarda en `seed/fixtures/embeddings.json`. Necesita `OPENROUTER_API_KEY` en `.env.local` y gasta céntimos de IA; sin la clave se niega y no cambia nada. No toca la base de datos. |
 | `pnpm db:reset [--sector=…]` | Borra todo y deja la demo como recién instalada. Pregunta antes (`--yes` para no preguntar). |
 | `pnpm db:fresh` | Borra todo y deja una instalación vacía con el asistente de arranque. Pregunta antes (`--yes`). |
-| `pnpm worker` | Ejecuta el trabajo en segundo plano en bucle, para un servidor propio (VPS). |
+| `pnpm worker` | Ejecuta el trabajo en segundo plano en bucle, para un servidor propio (VPS), con las mismas comprobaciones de arranque que la app. Con `EMAIL_IMAP_IDLE=true`, además lee al momento los buzones IMAP que tengan «Leer al momento». |
 
 `db:reset` y `db:fresh` borran datos: para antes la app, y nunca los uses con datos reales. Con una base que no
 es un archivo local se niegan salvo con `--remote-i-know`.
@@ -308,16 +401,21 @@ Están todas explicadas en `.env.example`. En local no tienes que tocar ninguna:
 |---|---|
 | `DATABASE_URL` | Base de datos: `file:./data/local.db` en local; la URL de Turso al publicar. |
 | `DATABASE_AUTH_TOKEN` | Token de Turso (vacío en local). |
-| `APP_URL`, `BETTER_AUTH_URL` | Dirección de la app, para los enlaces de los correos y el inicio de sesión. Con `APP_URL` se hace también la dirección de avisos de WhatsApp (`https://<dominio>/api/webhooks/whatsapp`): publicada, tiene que ser el dominio de producción con HTTPS. |
+| `APP_URL`, `BETTER_AUTH_URL` | Dirección de la app, para los enlaces de los correos y el inicio de sesión. Con `APP_URL` se hacen también la dirección de avisos de WhatsApp (`https://<dominio>/api/webhooks/whatsapp`) y las de vuelta de Google y Microsoft: publicada, tiene que ser el dominio de producción con HTTPS (la versión compilada no arranca con `http://`, salvo `localhost` en tu ordenador). |
+| `TRUSTED_PROXY_HOPS` | Opcional: cuántos proxies hay delante de la app (1 por defecto: Vercel o Traefik), para leer bien la IP de cada petición en los límites. |
 | `BETTER_AUTH_SECRET` | Firma las sesiones. |
 | `APP_ENCRYPTION_KEY` | Cifra las claves que el negocio pone en la app. **Guárdala aparte:** si se pierde, esas claves no se pueden leer. Sin ella la app no arranca. |
 | `CRON_SECRET` | Protege la ruta del trabajo en segundo plano (`/api/cron/tick`). |
 | `SETUP_TOKEN` | Código de instalación: en una instalación publicada, el primer paso del asistente lo pide para crear el propietario. En local, vacío. |
 | `DEMO_MODE` | `true` en local: aviso «Modo demo» y canales de demo que nunca llaman a servicios reales. |
 | `OPENROUTER_API_KEY` | Clave de OpenRouter (opcional; mejor en Ajustes › IA). |
-| `BLOB_READ_WRITE_TOKEN` | Almacén de archivos de Vercel Blob al publicar; en local los archivos van a `data/uploads/`. |
+| `BLOB_READ_WRITE_TOKEN` (y `BLOB_STORE_ID`) | Almacén privado de Vercel Blob al publicar (Vercel pone las dos al conectar el almacén); en local los archivos van a `data/uploads/`. |
 | `FFMPEG_BIN` | Opcional: otro FFmpeg para convertir notas de voz a MP3. Sin ella se usa el que trae el proyecto. |
-| `OPENROUTER_BASE_URL`, `META_GRAPH_BASE_URL` y demás `*_BASE_URL` | Solo para las pruebas, que apuntan a un simulador. No las cambies. |
+| `ALLOW_PRIVATE_MAIL_HOSTS` | Opcional: `true` permite conectar un buzón «Otro (IMAP/SMTP)» a un servidor de correo de la red local (uno propio junto a la app). Sin ella, la app solo se conecta a servidores con dirección pública. |
+| `EMAIL_IMAP_IDLE` | Opcional, solo en un servidor propio con `pnpm worker`: `true` mantiene abierta la conexión IMAP de los buzones que tengan activado «Leer al momento» y lee el correo nuevo en cuanto llega. Sin ella, cada buzón se lee cada minuto. |
+| `ALLOW_LOCAL_HTTP_TOOLS` | Solo para desarrollo y pruebas: `true` deja a las herramientas HTTP llamar a este ordenador o a la red local (con `pnpm dev` ya se permite). La versión compilada no arranca con ella. |
+| `OPENROUTER_BASE_URL`, `META_GRAPH_BASE_URL`, `GOOGLE_OAUTH_BASE_URL`, `GOOGLE_API_BASE_URL`, `MS_LOGIN_BASE_URL`, `MS_GRAPH_BASE_URL`, `MISTRAL_BASE_URL` y `TELEGRAM_API_BASE_URL` | Solo para las pruebas, que apuntan a un simulador. No las cambies: la versión compilada no arranca con ellas. |
+| `E2E_ALLOW_BASE_URL_OVERRIDES` | Solo la ponen los servidores de Playwright, para arrancar la versión compilada con el simulador. Nunca en una instalación real. |
 | `REPLY_DEBOUNCE_MS` | Solo para las pruebas: espera fija antes de que la IA responda (en una instalación real, de 4 a 8 s). |
 
 Los secretos van solo en `.env.local`, que nunca se sube a Git.
@@ -329,8 +427,7 @@ Los secretos van solo en `.env.local`, que nunca se sube a Git.
   funciona en esos dominios y en la propia app. Hasta publicar la app, tu web no puede llegar a `localhost`:
   pruébalo en `/widget-demo`.
 - **WhatsApp:** ver «Conectar WhatsApp real», justo debajo.
-- **Correo** (Gmail, Outlook e IMAP/SMTP): llega con su fase. Lo comprobado de cada servicio está en
-  `docs/integracion-correo.md`; la guía, `docs/guia-correo.md`, llegará con ella.
+- **Correo** (Gmail, Outlook e IMAP/SMTP): ver «Conectar el correo real», más abajo.
 - El correo de la propia app (invitaciones y recuperación de contraseña) ya se configura en Ajustes › Correo
   del sistema, con los datos SMTP de tu proveedor.
 
@@ -363,6 +460,33 @@ te acompaña paso a paso. En resumen:
 Esa prueba con el número de prueba de Meta está pendiente: se hará cuando la app esté publicada. Todo lo demás está
 probado contra un Meta simulado con avisos reales de su documentación.
 
+## Conectar el correo real
+
+Cada buzón se conecta con las credenciales del propio negocio: su proyecto de Google Cloud o su app de Microsoft Entra,
+nunca una compartida entre negocios. La guía completa, con los problemas frecuentes, es
+[`docs/guia-correo.md`](docs/guia-correo.md), también dentro de la app en **Ayuda › Conectar el correo**
+(`/ayuda/correo`), y la skill `conectar-correo` (`.agents/skills/conectar-correo/`) te acompaña paso a paso. Lo
+comprobado de cada servicio está en `docs/integracion-correo.md`. En **Canales › Añadir canal › Correo**:
+
+1. **Gmail:** un proyecto de Google Cloud del negocio con la API de Gmail activada, su pantalla de consentimiento
+   («Internal» con Google Workspace; con @gmail.com, «External» publicada «En producción», nunca en «Testing», que corta
+   el acceso a los 7 días) y un cliente OAuth de tipo «Aplicación web» con la dirección de redirección que da el
+   asistente. Pega el Client ID y el Client Secret y pulsa «Conectar con Google»: si no se concedieron todos los
+   permisos, la app lo dice y no conecta.
+2. **Outlook / Microsoft 365:** una app de Microsoft Entra del negocio con la dirección de redirección, los permisos
+   Mail.ReadWrite, Mail.Send, offline_access y User.Read y un Client Secret, que dura 24 meses como mucho: la app avisa
+   30 días antes de que caduque. Pega el Client ID, el Client Secret con su caducidad y el Tenant ID («common» o el del
+   negocio) y pulsa «Conectar con Microsoft».
+3. **Otro (IMAP/SMTP):** el email y su contraseña (o una contraseña de aplicación); los servidores se rellenan según
+   el dominio. «Probar conexión» comprueba la entrada y el envío, y el buzón solo queda conectado si funcionan los dos.
+   Los buzones de Outlook y Microsoft 365 van por su opción: Microsoft ya no admite IMAP con contraseña.
+4. **Respuestas y agente:** empieza con «Borrador para revisar» (la IA deja cada respuesta en la bandeja y en los
+   borradores del buzón) y pasa a «Automático» cuando te fíes; elige el agente activo, la firma y los topes diarios.
+
+En local también se puede probar: Google y Microsoft aceptan `http://localhost` en la dirección de redirección, y el
+buzón se lee mientras la app está arrancada. Publicada, la dirección de redirección es la del dominio de producción
+(sale de `APP_URL`). Hasta ahora todo está probado contra Google, Microsoft y servidores de correo simulados.
+
 ## Despliegue
 
 La app todavía no está publicada: de momento funciona solo en local. Cuando toque, la guía paso a paso es
@@ -370,7 +494,8 @@ La app todavía no está publicada: de momento funciona solo en local. Cuando to
 de datos), Vercel Blob privado (archivos), el código de instalación (`SETUP_TOKEN`) y un cron externo cada minuto,
 porque el plan gratuito de Vercel solo admite uno al día. `vercel.json` ya trae ese cron diario a `/api/cron/tick`
 y la región de las funciones en la UE. Los datos técnicos de cada servicio están en
-`docs/plataforma-despliegue.md`.
+`docs/plataforma-despliegue.md`. Con un agente de código, la skill `desplegar` (`.agents/skills/desplegar/`) sigue esa
+guía, y `actualizar` pasa a una versión nueva con una copia de seguridad antes.
 
 ## Paso a un negocio real
 
@@ -379,8 +504,15 @@ y la región de las funciones en la UE. Los datos técnicos de cada servicio est
 3. Abre la app: el asistente de arranque te pide la cuenta de propietario, el negocio y su sector, el horario y
    la clave de OpenRouter.
 4. Guarda `APP_ENCRYPTION_KEY` en un gestor de contraseñas.
+5. Sigue la **lista de puesta en marcha** ([`docs/checklist-puesta-en-marcha.md`](docs/checklist-puesta-en-marcha.md),
+   también en **Ayuda › Lista de puesta en marcha**): la privacidad de la cuenta de OpenRouter, los textos legales, el
+   primer agente y su conocimiento, la agenda, los canales primero en modo pruebas, el equipo y las comprobaciones de
+   cada semana y cada mes. Con datos de clientes, revisa con un abogado la plantilla de contrato de encargo del
+   tratamiento ([`docs/contrato-encargo-tratamiento.md`](docs/contrato-encargo-tratamiento.md)).
 
-A partir de aquí `pnpm seed` se niega a cargar la demo en esa base, para no mezclarla con datos reales.
+A partir de aquí `pnpm seed` se niega a cargar la demo en esa base, para no mezclarla con datos reales. Con un agente
+de código, la skill `nuevo-negocio` (`.agents/skills/nuevo-negocio/`) te acompaña en todo el recorrido, y
+`crear-agente` prepara un agente a partir de la web o los documentos del negocio.
 
 ## Solución de problemas
 
@@ -394,7 +526,9 @@ A partir de aquí `pnpm seed` se niega a cargar la demo en esa base, para no mez
 - **«APP_ENCRYPTION_KEY falta o no es válida» y la app no arranca:** falta la clave en `.env.local`. En local,
   `pnpm run setup` la crea; si la tenías y la has perdido, las claves guardadas en la app hay que volver a
   escribirlas.
-- **«Demasiados intentos. Espera unos minutos.»:** tras 5 contraseñas mal seguidas, espera 15 minutos.
+- **«Demasiados intentos. Espera unos minutos.»:** tras 5 contraseñas mal seguidas para el mismo email, cada intento
+  tiene que esperar al anterior 1 minuto, luego 2, 4, 8 y como mucho 15; lo que intentes mientras tanto no cuenta. La
+  contraseña correcta lo pone a cero. También hay un límite por IP.
 - **No llegan las invitaciones ni los enlaces de recuperación:** sin servidor de correo se guardan en
   `data/outbox/` (y se ven en Ajustes › Diagnóstico). Para enviarlos de verdad, configura Ajustes › Correo del
   sistema.
@@ -425,18 +559,39 @@ A partir de aquí `pnpm seed` se niega a cargar la demo en esa base, para no mez
 - **En una conversación de WhatsApp no puedo escribir:** han pasado más de 24 horas desde el último mensaje del
   cliente (o Meta ha cerrado la ventana): solo se puede enviar una plantilla aprobada con «Elegir plantilla». Si no
   sale ninguna, sincroniza las plantillas desde el panel del número.
+- **El correo no llega o la IA no lo contesta:** el panel del buzón (Canales) dice si «Requiere reconexión» (el acceso
+  caducó, se revocó o cambió la contraseña; al reconectar sigue desde donde se quedó) y qué correos ignora (respuestas
+  automáticas, boletines, «noreply»…). En la conversación, la cabecera dice si la IA está en pausa y por qué: una
+  persona respondió desde su programa de correo o se llegó al tope diario. La guía del correo lo explica en «Problemas».
 - **La lista de modelos no sale o le falta alguno:** sin clave no se carga. Solo aparecen modelos que admiten
   herramientas, con precio y sin fecha de retirada; «Actualizar lista» la vuelve a pedir a OpenRouter (se guarda
   12 horas).
 - **El agente no usa el conocimiento:** en su pestaña Conocimiento, la base tiene que tener «Usar» encendido y, en
   «Automático», el agente necesita «Buscar en el conocimiento» encendida en Herramientas (la pestaña lo avisa).
   Comprueba con «Probar búsqueda» de la base que encuentra la respuesta.
+- **La Agenda dice «Configura la agenda» o un servicio no tiene huecos:** hace falta al menos un servicio y un recurso
+  activos (Agenda › Configuración). Un servicio solo tiene huecos donde coinciden el horario del negocio (Ajustes ›
+  Horario) y el del recurso, fuera de festivos, ausencias y bloqueos, y dentro de su antelación mínima y máxima. La
+  guía de la agenda lo explica paso a paso.
+- **El agente no ofrece citas:** enciende sus herramientas de la agenda en Agentes › Herramientas («Consultar huecos
+  libres», «Crear citas»…); un agente nuevo las trae apagadas.
 - **Los documentos se quedan en «Listo (solo texto)»:** faltan los embeddings porque no había clave. Al guardar la
-  clave en Ajustes › IA se calculan solos; si la pusiste en `.env.local`, pulsa «Reindexar» en los ajustes de la
-  base.
+  clave en Ajustes › IA se calculan solos; si la pusiste en `.env.local`, reinicia la app: al arrancar los calcula en
+  segundo plano («Reindexar», en los ajustes de la base, también sirve).
 - **Un documento acaba en «Error»:** el motivo sale en la lista. Un PDF escaneado necesita la clave de Mistral OCR
   en Ajustes › IA; después, «Reintentar».
 - **«Este archivo ya está en la base»:** ese mismo archivo ya se subió a esa base. Si ha cambiado, borra el antiguo.
+- **`pnpm start` o `pnpm worker` no arrancan y dicen qué variable falla:** la versión compilada exige `APP_URL` y
+  `BETTER_AUTH_URL` con `https://` (en tu ordenador, `http://localhost` también vale) y no admite las variables de
+  pruebas (`*_BASE_URL`, `ALLOW_LOCAL_HTTP_TOOLS`). Corrige la que nombra el mensaje.
+- **No me llegan los avisos push:** el navegador tiene que tener permiso de notificaciones para la app, y en el iPhone
+  la app tiene que estar publicada con HTTPS y añadida a la pantalla de inicio. En Mi cuenta, «Tus dispositivos con avisos»
+  dice cuáles los reciben; qué sucesos avisan se elige en Ajustes › Notificaciones.
+- **Un cliente dice que no le llegan los mensajes:** mira en su ficha si se dio de baja en ese canal («Consentimientos y bajas»);
+  mientras dure, nada sale hacia él por ese canal. Si te pide volver, «Levantar baja».
+- **Una herramienta HTTP falla en «Probar»:** el mensaje dice por qué (sin HTTPS, dirección interna, tiempo agotado,
+  error del servicio…). La dirección tiene que ser pública con `https://`; con n8n, la de producción del Webhook y el
+  flujo activo.
 - **`pnpm seed:embeddings` dice que falta la clave:** pon `OPENROUTER_API_KEY` en `.env.local` (la de Ajustes › IA
   no sirve para esta orden, que no abre la base de datos).
 
@@ -471,6 +626,18 @@ Guías para el negocio (también dentro de la app, en Ayuda):
 - [Crear agentes y darles el conocimiento del negocio](docs/guia-agentes-y-conocimiento.md): crear, ajustar y
   probar un agente, ponerlo a responder en un canal, y darle archivos de contexto y bases de conocimiento con sus
   documentos, webs y preguntas frecuentes.
+- [La agenda](docs/guia-agenda.md): palabras, modo por recurso o por aforo, servicios, recursos, horarios, ausencias
+  y bloqueos, el calendario, qué hace el agente con las citas, las citas de prueba y los recordatorios.
 - [Conectar WhatsApp](docs/guia-whatsapp.md): portfolio, app, token, publicación, método de pago, la prueba con
   el número de prueba de Meta y los problemas frecuentes.
+- [Conectar el correo](docs/guia-correo.md): Gmail con el proyecto de Google Cloud del negocio, Outlook o Microsoft
+  365 con su app de Microsoft Entra u otro buzón por IMAP/SMTP; modos de respuesta, filtros y problemas frecuentes.
 - [Publicar la app en Vercel](docs/guia-despliegue.md).
+- [Lista de puesta en marcha](docs/checklist-puesta-en-marcha.md): de `pnpm db:fresh` a la primera conversación de un
+  negocio real.
+
+Para el negocio, fuera de la app: la [plantilla de contrato de encargo del tratamiento](docs/contrato-encargo-tratamiento.md)
+(revísala con un abogado).
+
+Skills para un agente de código (en `.agents/skills/`, con su puente en `.claude/skills/`): `nuevo-negocio`,
+`conectar-whatsapp`, `conectar-correo`, `crear-agente`, `desplegar`, `actualizar` y `diagnostico`.

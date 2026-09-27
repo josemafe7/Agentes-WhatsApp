@@ -1,6 +1,7 @@
 // Reciprocal Rank Fusion ([CON-16], docs/busqueda-hibrida.md §5): each chunk adds 1 / (k + position) for every list
 // it appears in, positions from 1. Only positions count, never the scores of each list. Ties: the better position by
 // meaning first, then the id, so the order is stable.
+import "server-only";
 import { RRF_K } from "./constants";
 
 export type RankedHit = { chunkId: string; score: number };

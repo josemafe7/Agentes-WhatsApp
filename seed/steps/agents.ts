@@ -39,6 +39,17 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** The tools of a new agent plus the knowledge search: the demo agents have a base to search ([AGE-07], [HER-01]). */
 export const DEMO_AGENT_TOOLS: readonly SystemToolName[] = ["buscar_conocimiento", ...DEFAULT_SYSTEM_TOOLS];
 
+/** The booking tools ([HER-01]): the reception agent books for the customers of its channels; the others do not. */
+export const DEMO_BOOKING_TOOLS: readonly SystemToolName[] = [
+  "listar_servicios",
+  "consultar_disponibilidad",
+  "crear_cita",
+  "ver_citas_del_cliente",
+  "cancelar_cita",
+  "reprogramar_cita",
+  "guardar_datos_contacto",
+];
+
 /** Default models of Settings › IA (or the recommended ones), never two of the same provider ([MOD-05]). */
 export function demoAgentModels(defaults: DefaultModels): { model: string; fallbackModel: string } {
   const model = defaults.chat || DEFAULT_MODELS.chat;
@@ -90,16 +101,19 @@ export function buildDemoAgents({ preset, business, models, notifyUserIds }: Dem
     messageOffHours: template.handoff.messageOffHours,
   };
 
-  const reception = agentConfig(
-    {
-      name: template.name,
-      description: template.description,
-      tone: template.tone,
-      instructions: { ...template.instructions },
-      handoff: templateHandoff,
-    },
-    models,
-  );
+  const reception: AgentConfig = {
+    ...agentConfig(
+      {
+        name: template.name,
+        description: template.description,
+        tone: template.tone,
+        instructions: { ...template.instructions },
+        handoff: templateHandoff,
+      },
+      models,
+    ),
+    systemTools: [...DEMO_AGENT_TOOLS, ...DEMO_BOOKING_TOOLS],
+  };
   const receptionEdited: AgentConfig = {
     ...reception,
     instructions: {

@@ -1,20 +1,25 @@
 // Ports, addresses, databases and secrets of the Playwright run (docs/testing.md). Shared by
 // playwright.config.ts and the tests, so both always agree.
 import { randomBytes } from "node:crypto";
+import testKeys from "../mocks/test-keys.json";
 
 export const MOCK_PORT = 3101;
 export const DEMO_PORT = 3100;
 export const FRESH_PORT = 3102;
+export const RESTAURANT_PORT = 3103;
 
 /** The mock binds to IPv4 loopback only: explicit address, no firewall prompt, no localhost ambiguity. */
 export const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
 export const DEMO_URL = `http://localhost:${DEMO_PORT}`;
 export const FRESH_URL = `http://localhost:${FRESH_PORT}`;
+export const RESTAURANT_URL = `http://localhost:${RESTAURANT_PORT}`;
 
 /** Demo install: migrations + demo seed, prepared before the build (e2e/support/prepare-databases.mjs). */
 export const DEMO_DATABASE_URL = "file:./data/e2e.db";
 /** Empty install (migrations only) for the setup wizard. */
 export const FRESH_DATABASE_URL = "file:./data/e2e-fresh.db";
+/** The restaurant demo (`pnpm seed --sector=restaurante`): the agenda by capacity ([AGD-06], [AGD-11]). */
+export const RESTAURANT_DATABASE_URL = "file:./data/e2e-restaurante.db";
 
 /**
  * Generated once per run and kept in process.env, so the runner, its workers (which inherit the environment)
@@ -62,7 +67,10 @@ const BLANKED_ENV = {
   VERCEL_PROJECT_PRODUCTION_URL: "",
 } as const;
 
-export type AppServerKind = "demo" | "fresh";
+export type AppServerKind = "demo" | "fresh" | "restaurant";
+
+const SERVER_URLS: Record<AppServerKind, string> = { demo: DEMO_URL, fresh: FRESH_URL, restaurant: RESTAURANT_URL };
+const SERVER_DATABASES: Record<AppServerKind, string> = { demo: DEMO_DATABASE_URL, fresh: FRESH_DATABASE_URL, restaurant: RESTAURANT_DATABASE_URL };
 
 /**
  * The wait before the AI answers a customer, fixed for the e2e run instead of the real 4–8 s ([MOT-01],
@@ -71,18 +79,25 @@ export type AppServerKind = "demo" | "fresh";
  */
 export const REPLY_DEBOUNCE_MS = 2_000;
 
-/** Environment of one app server. The demo keeps DEMO_MODE on; the fresh install behaves like a real business. */
+/**
+ * Environment of one app server. The demos keep DEMO_MODE on; the fresh install behaves like a real business. The
+ * restaurant demo, used only by the agenda's capacity specs, has the simulated OpenRouter's test key in its environment
+ * ([ARR-15]), so its agents answer from the start.
+ */
 export function appServerEnv(kind: AppServerKind): Record<string, string> {
-  const url = kind === "demo" ? DEMO_URL : FRESH_URL;
+  const url = SERVER_URLS[kind];
   return {
     ...BLANKED_ENV,
     ...EXTERNAL_SERVICE_ENV,
     ...TEST_SECRETS,
-    DATABASE_URL: kind === "demo" ? DEMO_DATABASE_URL : FRESH_DATABASE_URL,
+    ...(kind === "restaurant" ? { OPENROUTER_API_KEY: testKeys.openrouter.valid } : {}),
+    DATABASE_URL: SERVER_DATABASES[kind],
     APP_URL: url,
     BETTER_AUTH_URL: url,
-    DEMO_MODE: kind === "demo" ? "true" : "false",
+    DEMO_MODE: kind === "fresh" ? "false" : "true",
     REPLY_DEBOUNCE_MS: String(REPLY_DEBOUNCE_MS),
+    // The custom HTTP tools of the specs call the mock on this machine over http ([HER-14] allows it only in local runs).
+    ALLOW_LOCAL_HTTP_TOOLS: "true",
     NEXT_TELEMETRY_DISABLED: "1",
   };
 }

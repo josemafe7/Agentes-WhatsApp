@@ -121,3 +121,20 @@ export function notificationEmail(params: { brand: EmailBrand; name: string | nu
     html: layout(params.brand, paragraphs, params.link ? { label: "Abrir en la app", url: params.link } : null, footer),
   };
 }
+
+/**
+ * A booking reminder for a customer ([AGD-24]): the subject and text written in Agenda › Configuración, already
+ * filled in (src/server/booking/reminder-fields.ts). Each blank-line-separated block is one paragraph.
+ */
+export function bookingReminderEmail(params: { brand: EmailBrand; subject: string; body: string }): EmailContent {
+  const paragraphs = params.body
+    .split(/\n\s*\n/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  const footer = `Te escribe ${businessName(params.brand)}.`;
+  return {
+    subject: params.subject,
+    text: `${paragraphs.join("\n\n")}\n`,
+    html: layout(params.brand, paragraphs, null, footer),
+  };
+}

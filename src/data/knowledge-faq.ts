@@ -11,7 +11,7 @@ import { idSchema } from "@/lib/validation";
 import { parseInput, ValidationError } from "@/server/errors";
 import { loadConversationFor } from "./conversation-scope";
 import { assertCan } from "./guard";
-import { addKnowledgeFaq } from "./knowledge-documents";
+import { addKnowledgeFaq, knowledgeFaqInputSchema } from "./knowledge-documents";
 
 /** Customer messages before the reply that make up the question. */
 const MAX_QUESTION_MESSAGES = 3;
@@ -62,8 +62,9 @@ export async function getFaqDraftFromMessage(actor: Actor, input: unknown): Prom
   };
 }
 
+/** The reply, the base and the (edited) question and answer, with the same rules as a FAQ written in the base. */
 export const faqFromMessageSchema = z
-  .object({ conversationId: idSchema, messageId: idSchema, kbId: idSchema, question: z.string(), answer: z.string() })
+  .object({ conversationId: idSchema, messageId: idSchema, kbId: idSchema, ...knowledgeFaqInputSchema.shape })
   .strict();
 
 /** Saves the (edited) draft as a FAQ of `kbId`. */

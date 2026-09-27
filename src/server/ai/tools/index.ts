@@ -3,8 +3,15 @@
 import "server-only";
 import { ALWAYS_ENABLED_TOOLS, isSystemToolName, type SystemToolName } from "@/lib/agent-tools";
 import { buscarConocimiento } from "./buscar-conocimiento";
+import { cancelarCita } from "./cancelar-cita";
+import { consultarDisponibilidad } from "./consultar-disponibilidad";
+import { crearCita } from "./crear-cita";
+import { guardarDatosContacto } from "./guardar-datos-contacto";
+import { listarServicios } from "./listar-servicios";
 import { toToolDefinition } from "./registry";
+import { reprogramarCita } from "./reprogramar-cita";
 import { transferirAHumano } from "./transferir-a-humano";
+import { verCitasDelCliente } from "./ver-citas-del-cliente";
 import type { RegisteredTool } from "./types";
 
 export {
@@ -18,8 +25,22 @@ export {
   type ToolCallOutcome,
 } from "./registry";
 export type { AgentTool, RegisteredTool, ToolCallRecord, ToolContext, ToolMode, ToolOutput } from "./types";
+// Custom HTTP tools ([HER-11]): defined on screen and attached per agent, loaded for each run next to these.
+export { loadAgentHttpTools } from "./http-tool-agent";
+export type { HttpToolDeps } from "./http-tool";
 
-const IMPLEMENTED: readonly RegisteredTool[] = [transferirAHumano, buscarConocimiento];
+const IMPLEMENTED: readonly RegisteredTool[] = [
+  transferirAHumano,
+  buscarConocimiento,
+  // Phase 5 · Agenda ([HER-01]).
+  listarServicios,
+  consultarDisponibilidad,
+  crearCita,
+  verCitasDelCliente,
+  cancelarCita,
+  reprogramarCita,
+  guardarDatosContacto,
+];
 
 const BY_NAME: ReadonlyMap<string, RegisteredTool> = new Map(IMPLEMENTED.map((tool) => [tool.name, tool]));
 

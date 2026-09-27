@@ -194,8 +194,9 @@ límites y sus fuentes) están en `docs/integracion-whatsapp.md`, `docs/integrac
   de que esos correos no salen.
 - [AJU-07] Privacidad y legal: textos de privacidad, términos y eliminación de datos, aviso de IA por defecto y
   plazos de conservación ([CUM-05]).
-- [AJU-08] Notificaciones: qué sucesos avisan (traspaso, conversación asignada, canal con error, calidad de
-  WhatsApp, modelo que se retira) y a quién por defecto.
+- [AJU-08] Notificaciones: qué sucesos avisan (traspaso, conversación nueva —desactivado por defecto—, conversación
+  asignada, canal con error, calidad de WhatsApp, modelo que se retira y cita pendiente de confirmar, [AGD-22]) y a
+  quién por defecto.
 - [AJU-09] Tarifas de WhatsApp: precio por mensaje de cada mercado y categoría; se editan aquí y nunca están
   escritas en el código. Las de la demo van marcadas «ejemplo». Los mensajes gratis no se configuran: una nota
   explica que Meta marca en cada estado si el mensaje fue gratis ([WA-47]).
@@ -206,7 +207,8 @@ límites y sus fuentes) están en `docs/integracion-whatsapp.md`, `docs/integrac
 - [AJU-12] Cuando se usa el simulador (canal, contacto y tipo de mensaje: texto, audio, imagen o documento), el
   mensaje entra por el mismo camino que uno real, aparece en la bandeja y la IA responde como lo haría.
 - [AJU-13] Los mensajes del simulador quedan marcados como simulados y sus respuestas nunca salen a Meta, Google,
-  Microsoft ni a un servidor de correo, aunque el canal sea real.
+  Microsoft ni a un servidor de correo, aunque el canal sea real. Van siempre a un contacto y una conversación propios
+  del simulador: nunca escriben como un cliente real ni en su conversación.
 - [AJU-14] Acerca de: versión de la app y enlaces a las guías de Ayuda ([AJU-17]).
 - [AJU-15] Cuando un ajuste tiene un valor incorrecto, no se guarda y el error se explica junto al campo.
 - [AJU-16] Un campo secreto ya guardado se muestra como «••••1234»; dejarlo vacío al guardar conserva el valor y
@@ -349,11 +351,13 @@ del sistema. Detalles en `docs/integracion-whatsapp.md` (conexión) y `docs/inte
 - [WA-31] Cuando Meta verifica la dirección de avisos con el token correcto, la app le devuelve el código que
   pide; con un token incorrecto, la rechaza.
 - [WA-32] Cuando llega un aviso de WhatsApp con la firma incorrecta o sin firma, la app lo rechaza (401) y no
-  guarda nada. La firma se comprueba con el App Secret del canal al que va el aviso.
+  guarda nada. La firma se comprueba antes de leer el aviso, con los App Secret guardados en la instalación, y
+  tiene que ser la del App Secret del canal al que va. Un aviso que ningún App Secret guardado puede comprobar, o
+  que no se puede leer, se rechaza igual.
 - [WA-33] El canal de cada aviso se reconoce por el número de destino; los avisos de cuenta y de plantillas, por
   la cuenta de WhatsApp Business.
-- [WA-34] Un aviso para un número que no es de ningún canal se contesta como recibido y no se guarda su contenido;
-  Diagnóstico anota solo la hora y el número.
+- [WA-34] Un aviso firmado por una app de la instalación para un número que no es de ningún canal (o que se
+  desconectó) se contesta como recibido y no se guarda su contenido; Diagnóstico anota solo la hora y el número.
 - [WA-35] Con la firma correcta, la app guarda el aviso, descarta los mensajes repetidos (Meta reintenta durante
   días y a veces duplica) y contesta al momento. Acepta avisos de hasta 3 MB y 1.000 actualizaciones, lo máximo
   que Meta pone en uno.
@@ -377,7 +381,8 @@ del sistema. Detalles en `docs/integracion-whatsapp.md` (conexión) y `docs/inte
   otro al mismo contacto, sin duplicarlo.
 - [WA-41] Los archivos (audio, imagen, documento, vídeo) se descargan de Meta en cuanto llegan, porque su enlace
   dura minutos, y se guardan en privado; los audios pasan a transcripción. Si la descarga falla, se reintenta; si
-  no se consigue, el mensaje dice «No se pudo descargar el archivo».
+  no se consigue, el mensaje dice «No se pudo descargar el archivo». Cada tipo tiene el tamaño máximo de Meta
+  (audio y vídeo 16 MB, imagen 5 MB, sticker 500 KB, documento 100 MB): uno mayor no se descarga y dice lo mismo.
 - [WA-42] Se envían texto, imágenes, documentos, audio y plantillas; los mensajes interactivos (botones y
   listas) son opcionales.
 - [WA-43] La ventana de 24 h se cuenta desde el último mensaje del cliente. Fuera de ella la IA no escribe y la
@@ -692,7 +697,9 @@ Detalles en `docs/busqueda-hibrida.md` y, para los PDF escaneados, en `docs/inte
   y, si cambiaron, se reprocesan.
 - [CON-10] Los fragmentos se cortan por encabezados, de unos 400 tokens (entre 150 y 600) y 60 de solape, sin
   partir filas de tabla, con título, sección y página, el prefijo «Documento: título > sección» y un resumen del
-  documento en 2 frases.
+  documento en 2 frases. El título de un archivo es el que trae el PDF o el Word en sus propiedades, si lo tiene, y
+  si no su nombre; el equipo lo puede cambiar (el de una pregunta frecuente es su pregunta), y entonces los
+  fragmentos se vuelven a procesar con el título nuevo.
 - [CON-11] Los embeddings se calculan por lotes con el modelo de la base (por defecto
   `openai/text-embedding-3-small`, de 1536 dimensiones); si un modelo devuelve otro tamaño, se rechaza con un
   error claro.
@@ -794,6 +801,9 @@ Detalles en `docs/busqueda-hibrida.md` y, para los PDF escaneados, en `docs/inte
 - [BAN-13] Un envío fallido muestra el error y un botón para reintentar.
 - [BAN-14] Se pueden adjuntar archivos si el canal lo admite.
 - [BAN-15] Se ven el resumen de la conversación y el panel del contacto ([CTO-02]).
+- [BAN-16] Cuando una persona reactiva a mano la IA de una conversación (tras un traspaso, una pausa o apagarla) y el
+  último mensaje del cliente sigue sin respuesta, la IA lo responde en unos segundos, como a un mensaje nuevo y con las
+  mismas comprobaciones ([MOT-01], [MOT-03]). Si ya hay un borrador de la IA esperando revisión, no prepara otro.
 
 ### Traspaso
 
@@ -828,6 +838,9 @@ Detalles en `docs/busqueda-hibrida.md` y, para los PDF escaneados, en `docs/inte
 - [CTO-08] Una baja se ve en la ficha; solo se quita si el cliente lo pide, y queda anotado quién y cuándo.
 
 ### Informes
+
+Cómo se cuenta cada cifra (periodo, conversaciones, resueltas por la IA, traspasos, tiempos y costes) está en
+`docs/decisions/0023-como-se-cuentan-los-informes.md`.
 
 - [INF-01] Los informes se ven por periodo (el mes actual por defecto), en la zona horaria del negocio.
 - [INF-02] Conversaciones por canal.
@@ -932,7 +945,8 @@ Lo que no aparece aquí no está permitido.
 - [PER-01] Cada permiso se comprueba en el servidor y tiene su prueba ([SEG-04]).
 - [PER-02] «Sus canales»: un usuario con rol Agente solo ve y atiende las conversaciones de los canales que tiene
   asignados, y los contactos con alguna conversación en ellos (y solo esas conversaciones). Si no tiene ningún
-  canal asignado, ve todos.
+  canal asignado, ve todos. Cuando se queda sin canales (en Canales o en Ajustes > Usuarios se le quita el último, o
+  se borra su único canal), la app avisa a quien lo ha hecho de que desde ese momento ve todos.
 - [PER-03] Solo lectura ve pero nunca cambia nada: cualquier intento se rechaza. No ve ningún secreto, ni siquiera
   enmascarado, ni el registro de actividad, ni Ajustes salvo «Mi cuenta» y «Acerca de».
 - [PER-04] Supervisor no entra en Canales (solo ve el nombre de los canales en la bandeja) ni en los ajustes de

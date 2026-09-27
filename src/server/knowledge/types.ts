@@ -1,4 +1,5 @@
 // Shared shapes of the knowledge module (no runtime code: safe to import from anywhere on the server).
+import "server-only";
 
 /**
  * A knowledge fragment used in an answer ([CON-20], [PRU-02]): what «¿Por qué respondió esto?» and «Probar agente»

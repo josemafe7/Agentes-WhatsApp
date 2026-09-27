@@ -1,6 +1,7 @@
 // Hand-off to a person ([TRA-01]–[TRA-09]): the contract the AI tool, the agent rules and the inbox use. The
 // implementation (status «Pendiente de humano», assignment, notices, handoff_events) arrives with the inbox phase
 // and registers itself with registerHandoffService() (src/server/handoff/index.ts).
+import "server-only";
 import type { HandoffTrigger, Urgency } from "@/lib/enums";
 
 export type HandoffRequest = {

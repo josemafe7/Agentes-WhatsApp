@@ -1,4 +1,5 @@
 // Shared types of the TextSearch and VectorSearch adapters (docs/busqueda-hibrida.md).
+import "server-only";
 
 /** A knowledge base and the index version to search in it (normally its current `index_version`, [CON-13]). */
 export type KbScope = { kbId: string; indexVersion: number };

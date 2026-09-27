@@ -1,14 +1,30 @@
 import type { NextConfig } from "next";
 
-// Security headers for every route (docs/security.md, «Configuración»). CSP comes in phase 7.
-// If a route ever has to be framed (for example a widget iframe), it needs its own frame-ancestors rule.
+// Security headers for every route (docs/security.md, «Configuración», [SEG-11]). The Content-Security-Policy of the
+// pages is not here: src/proxy.ts sets it on each page with a nonce of its own, and a second policy from here would
+// also apply and block those scripts. If a route ever has to be framed (for example a widget iframe), it needs its own
+// frame-ancestors rule. Nothing here may stop /widget.js from loading on the business's own site (no
+// Cross-Origin-Resource-Policy or -Embedder-Policy for every route).
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
+  // The app's own pages send their full address to the app (the widget API knows /widget-demo by it); other sites
+  // get only the origin.
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-Frame-Options", value: "DENY" },
-  // Microphone stays allowed for our own origin: voice notes from the inbox.
+  // Microphone stays allowed for our own origin: voice notes from the inbox and the widget of /widget-demo.
   { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
+  // Browsers only keep it from HTTPS answers. «preload» alone joins no list: asking the browsers to preload the domain
+  // (hstspreload.org, for the main domain) stays the business's decision.
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+  // Pages opened from ours (or ours opened by others) get no handle on each other's window.
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+];
+
+// The service worker of the PWA (Next.js PWA guide): always fresh, and allowed only this origin's scripts.
+const serviceWorkerHeaders = [
+  { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+  { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+  { key: "Content-Security-Policy", value: "default-src 'self'; script-src 'self'" },
 ];
 
 /** docs/ files shown in Ayuda (src/app/(app)/ayuda/_lib/guides.ts). */
@@ -34,7 +50,10 @@ const nextConfig: NextConfig = {
     "/ayuda/*": HELP_GUIDE_FILES,
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      { source: "/sw.js", headers: serviceWorkerHeaders },
+    ];
   },
 };
 

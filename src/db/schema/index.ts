@@ -8,4 +8,6 @@ export * from "./contacts";
 export * from "./conversations";
 export * from "./knowledge";
 export * from "./agenda";
+// Prepared, not offered yet: services that need two resources at once ([AGD-07]).
+export * from "./agenda-prepared";
 export * from "./operations";

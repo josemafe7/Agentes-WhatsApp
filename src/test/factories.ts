@@ -6,6 +6,7 @@ import { agents, businessSettings, channels, contactIdentities, contacts, conver
 import type { ChannelType, Role } from "@/lib/enums";
 import type { Actor } from "@/lib/permissions";
 import { createUserWithPassword } from "@/server/accounts";
+import { messageSearchText } from "@/server/inbound/message-search";
 
 export const TEST_PASSWORD = "contraseña-de-prueba-123";
 
@@ -95,8 +96,9 @@ export async function createConversation(channelId: string, contactId: string | 
   return row;
 }
 
-/** A message in a conversation (inbound from the customer by default). */
+/** A message in a conversation (inbound from the customer by default), with its search text as the app writes it. */
 export async function createMessage(conversation: { id: string; channelId: string | null }, overrides: Partial<typeof messages.$inferInsert> = {}) {
+  const text = overrides.text === undefined ? "Hola" : overrides.text;
   const [row] = await db
     .insert(messages)
     .values({
@@ -105,7 +107,8 @@ export async function createMessage(conversation: { id: string; channelId: strin
       direction: "inbound",
       senderType: "contact",
       externalId: crypto.randomUUID(),
-      text: "Hola",
+      text,
+      searchText: messageSearchText(text),
       status: "received",
       ...overrides,
     })

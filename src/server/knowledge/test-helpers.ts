@@ -1,5 +1,6 @@
 // Test helpers of the knowledge tests (never imported by app code): a fake OpenRouter whose embeddings are a
 // deterministic bag of words (texts sharing words are close), files built in memory, and a tick budget.
+import "server-only";
 import { deflateRawSync } from "node:zlib";
 import { crc32 } from "node:zlib";
 import { EMBEDDING_DIMENSIONS } from "@/db/schema/columns";
@@ -60,8 +61,15 @@ export const budget = (ms = 120_000) => ({ remainingMs: () => ms });
 
 // ─── Files in memory ────────────────────────────────────────────────────────────────────────────────────
 
-/** A text PDF with several short lines per page (11 pt Helvetica, ASCII text). */
-export function makeTextPdf(pages: readonly (readonly string[])[]): Uint8Array {
+/** A PDF text string in UTF-16BE with its byte order mark, as hex: any character, as PDF writers store titles. */
+function pdfUtf16(text: string): string {
+  let hex = "FEFF";
+  for (let index = 0; index < text.length; index += 1) hex += text.charCodeAt(index).toString(16).padStart(4, "0").toUpperCase();
+  return `<${hex}>`;
+}
+
+/** A text PDF with several short lines per page (11 pt Helvetica, ASCII text) and, optionally, its own title. */
+export function makeTextPdf(pages: readonly (readonly string[])[], options: { title?: string } = {}): Uint8Array {
   const objects: string[] = [];
   const pageIds = pages.map((_, index) => 4 + index * 2);
   objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
@@ -74,6 +82,8 @@ export function makeTextPdf(pages: readonly (readonly string[])[]): Uint8Array {
     objects[pageId] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${pageId + 1} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`;
     objects[pageId + 1] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
   });
+  const infoId = options.title === undefined ? null : objects.length;
+  if (infoId !== null) objects[infoId] = `<< /Title ${pdfUtf16(options.title ?? "")} /Producer (DominIA pruebas) >>`;
   let body = "%PDF-1.4\n";
   const offsets: number[] = [];
   for (let id = 1; id < objects.length; id += 1) {
@@ -83,7 +93,7 @@ export function makeTextPdf(pages: readonly (readonly string[])[]): Uint8Array {
   const xrefAt = body.length;
   body += `xref\n0 ${objects.length}\n0000000000 65535 f \n`;
   for (let id = 1; id < objects.length; id += 1) body += `${String(offsets[id]).padStart(10, "0")} 00000 n \n`;
-  body += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF\n`;
+  body += `trailer\n<< /Size ${objects.length} /Root 1 0 R${infoId !== null ? ` /Info ${infoId} 0 R` : ""} >>\nstartxref\n${xrefAt}\n%%EOF\n`;
   return new TextEncoder().encode(body);
 }
 
@@ -144,8 +154,8 @@ export function makeZip(files: Record<string, string>): Uint8Array {
 
 const xmlEscape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
-/** A DOCX with headings (Heading1/Heading2 styles), paragraphs and an optional table. */
-export function makeDocx(blocks: readonly ({ heading: 1 | 2; text: string } | { text: string } | { table: string[][] })[]): Uint8Array {
+/** A DOCX with headings (Heading1/Heading2 styles), paragraphs, an optional table and, optionally, its own title. */
+export function makeDocx(blocks: readonly ({ heading: 1 | 2; text: string } | { text: string } | { table: string[][] })[], options: { title?: string } = {}): Uint8Array {
   const body = blocks
     .map((block) => {
       if ("table" in block) {
@@ -158,12 +168,16 @@ export function makeDocx(blocks: readonly ({ heading: 1 | 2; text: string } | { 
       return `<w:p>${style}<w:r><w:t xml:space="preserve">${xmlEscape(block.text)}</w:t></w:r></w:p>`;
     })
     .join("");
+  const titled = options.title !== undefined;
   return makeZip({
-    "[Content_Types].xml":
-      '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
-    "_rels/.rels":
-      '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>${titled ? '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' : ""}</Types>`,
+    "_rels/.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>${titled ? '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>' : ""}</Relationships>`,
     "word/document.xml": `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`,
+    ...(titled
+      ? {
+          "docProps/core.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${xmlEscape(options.title ?? "")}</dc:title><dc:creator>Pruebas</dc:creator></cp:coreProperties>`,
+        }
+      : {}),
   });
 }
 

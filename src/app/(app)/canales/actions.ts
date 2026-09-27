@@ -215,27 +215,30 @@ export async function setChannelEnabledAction(input: unknown): Promise<ActionRes
 }
 
 /** The people with the Agent role limited to this channel ([USU-17]); the list replaces the previous one. */
-export async function setChannelMembersAction(input: unknown): Promise<ActionResult> {
+/** `warning`: an Agent left without any channel now sees them all ([PER-02]); the screen shows it to the admin. */
+export type ChannelAccessWarning = { warning: string | null };
+
+export async function setChannelMembersAction(input: unknown): Promise<ActionResult<ChannelAccessWarning>> {
   try {
     const actor = await requirePermission(PERMISSIONS.channels.manage);
-    await setChannelMembers(actor, input);
+    const { warning } = await setChannelMembers(actor, input);
     revalidateChannels();
     revalidatePath("/ajustes/usuarios");
-    return ok(undefined, SAVED);
+    return ok({ warning }, SAVED);
   } catch (error) {
     return toActionFailure(error);
   }
 }
 
 /** Only a channel without conversations; the others are disabled instead ([CAN-16]). */
-export async function deleteChannelAction(channelId: unknown): Promise<ActionResult> {
+export async function deleteChannelAction(channelId: unknown): Promise<ActionResult<ChannelAccessWarning>> {
   try {
     const actor = await requirePermission(PERMISSIONS.channels.manage);
     const id = idSchema.safeParse(channelId);
     if (!id.success) return fail(NOT_FOUND);
-    await deleteChannel(actor, id.data);
+    const { warning } = await deleteChannel(actor, id.data);
     revalidateChannels();
-    return ok(undefined, "Canal borrado.");
+    return ok({ warning }, "Canal borrado.");
   } catch (error) {
     return toActionFailure(error);
   }

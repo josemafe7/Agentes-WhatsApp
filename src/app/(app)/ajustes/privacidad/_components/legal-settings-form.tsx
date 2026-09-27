@@ -142,7 +142,10 @@ export function LegalSettingsForm({ values, defaults }: LegalSettingsFormProps) 
           <h2 id="retention-heading" className="text-lg font-semibold">
             Conservación de los datos
           </h2>
-          <p className="text-sm text-muted-foreground">Cada día la app borra o anonimiza lo que ha pasado de plazo.</p>
+          <p className="text-sm text-muted-foreground">
+            Cada día la app borra o anonimiza lo que ha pasado de plazo y lo anota en el registro de actividad. Las notas
+            internas y los avisos del equipo siguen el plazo de las conversaciones.
+          </p>
         </div>
         <FieldGroup>
           {RETENTION.map(({ field, label, unit, help, min, max }) => {

@@ -1,5 +1,6 @@
 // Token and cost totals of one AI run with several calls (tools steps, a draft retry), as ai_runs stores them
 // ([MOT-11]). The cost is always the sum of OpenRouter's usage.cost, never computed from prices.
+import "server-only";
 import type { ChatUsage } from "@/lib/openrouter/types";
 
 /** Tokens of a run, summed over its calls. */

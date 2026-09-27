@@ -3,7 +3,7 @@
 // AI never runs inside this request, the job queue is kicked after the response.
 import { z } from "zod";
 import { pollVisitor } from "@/server/channels/webchat/conversation";
-import { enforceWidgetLimit } from "@/server/channels/webchat/limits";
+import { enforceWidgetAiDailyCap } from "@/server/channels/webchat/limits";
 import { handleWidget, readJsonBody, requireVisitor, widgetJson, widgetPreflight } from "@/server/channels/webchat/request";
 import { sendVisitorMessage } from "@/server/channels/webchat/send";
 import { parseInput } from "@/server/errors";
@@ -23,19 +23,19 @@ export function OPTIONS(request: Request, context: Context): Promise<Response> {
 }
 
 export function GET(request: Request, context: Context): Promise<Response> {
-  return handleWidget(request, context.params, async (ctx) => {
-    const visitor = requireVisitor(request, ctx);
-    await enforceWidgetLimit("poll", { ...ctx.limitKeys, visitorId: visitor.visitorId });
+  return handleWidget(request, context.params, { action: "poll", visitor: true }, async (ctx) => {
+    const visitor = requireVisitor(ctx);
     const { cursor } = parseInput(pollSchema, { cursor: new URL(request.url).searchParams.get("cursor") });
     return widgetJson(ctx, await pollVisitor(ctx.channel, visitor.visitorId, cursor));
   });
 }
 
 export function POST(request: Request, context: Context): Promise<Response> {
-  return handleWidget(request, context.params, async (ctx) => {
-    const visitor = requireVisitor(request, ctx);
-    // Over the limit nothing is stored ([WEB-08]).
-    await enforceWidgetLimit("message", { ...ctx.limitKeys, visitorId: visitor.visitorId });
+  // Over a limit nothing is stored ([WEB-08]).
+  return handleWidget(request, context.params, { action: "message", visitor: true }, async (ctx) => {
+    const visitor = requireVisitor(ctx);
+    // With the chat's AI on, each message makes it answer: daily caps per IP and per chat ([SEG-07]).
+    await enforceWidgetAiDailyCap(ctx.channel, ctx.limitKeys);
     const sent = await sendVisitorMessage(ctx.channel, visitor, await readJsonBody(request));
     if (sent.replyRunAt) kickTick({ maxDurationSec: maxDuration, runAt: sent.replyRunAt });
     return widgetJson(ctx, { message: sent.message, state: sent.state }, sent.duplicate ? 200 : 201);

@@ -41,6 +41,11 @@ type ComposerProps = {
   canNote: boolean;
   /** What the channel takes from a person ([BAN-14], [CAN-14]); neither = no «Adjuntar». */
   attachments: { images: boolean; documents: boolean };
+  /** Email: to whom the reply goes, its subject and the signature it carries (from ../[id]/_email, [BAN-09], [COR-21]). */
+  email?: ReactNode;
+  /** Email sends replies through its own actions (they add the business signature); the other channels, these. */
+  replyAction?: typeof sendMessageAction;
+  attachmentAction?: typeof sendAttachmentAction;
 };
 
 /**
@@ -50,6 +55,7 @@ type ComposerProps = {
  */
 export function Composer(props: ComposerProps) {
   const { conversationId, channelDisabled, window: serviceWindow, whatsapp, ai, aiPauseHours, timezone, initialNow, canReply, canNote, attachments } = props;
+  const { email, replyAction = sendMessageAction, attachmentAction = sendAttachmentAction } = props;
   const id = useId();
   const now = useNow(initialNow);
   const windowClosed = serviceWindow !== null && !serviceWindow.open;
@@ -101,9 +107,9 @@ export function Composer(props: ComposerProps) {
           form.set("conversationId", conversationId);
           form.set("text", value);
           form.set("file", attached);
-          result = await sendAttachmentAction(form);
+          result = await attachmentAction(form);
         } else {
-          result = mode === "reply" ? await sendMessageAction({ conversationId, text: value }) : await addNoteAction({ conversationId, text: value });
+          result = mode === "reply" ? await replyAction({ conversationId, text: value }) : await addNoteAction({ conversationId, text: value });
         }
       } catch {
         result = null;
@@ -143,6 +149,7 @@ export function Composer(props: ComposerProps) {
   return (
     <div className="flex flex-col gap-2 border-t px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3">
       {whatsapp}
+      {mode === "reply" ? email : null}
       {canReply && channelDisabled ? <p className="rounded-lg bg-muted px-3 py-2 text-sm">El canal está desactivado: no se pueden enviar mensajes.</p> : null}
 
       {replyAvailable || canNote ? (

@@ -102,11 +102,12 @@ Cabeceras de cada `POST`: `Content-Type: application/json`, `Content-Length` y
 - Antes de comparar hay que comprobar que la cabecera existe, empieza por `sha256=` y el resto son 64
   caracteres hexadecimales. Con otra longitud, las funciones de comparación en tiempo constante fallan en
   lugar de devolver «no coincide».
-- Para elegir el App Secret hay que saber de qué canal es el cuerpo, así que se parsea antes de verificar,
-  pero **no se guarda ni se procesa nada** hasta verificar. En la práctica:
-  1. Se buscan los canales que aparecen en el cuerpo: `metadata.phone_number_id` o `entry[].id` (WABA).
-  2. Se prueba cada App Secret distinto de esos canales. Suele ser uno, porque todos los números de una
-     app comparten secreto.
+- Una instalación tiene pocos App Secret (uno por app de Meta), así que la firma se comprueba **antes de parsear**
+  el cuerpo (decisión 0022): **no se lee, no se guarda ni se procesa nada** hasta verificar. En la práctica:
+  1. Se prueba cada App Secret distinto guardado en la instalación. Suele ser uno, porque todos los números de
+     una app comparten secreto.
+  2. Solo si alguno la confirma se parsea el JSON y se buscan sus canales: `metadata.phone_number_id` o
+     `entry[].id` (WABA). Cada canal tiene que ser uno cuyo propio App Secret firmó el cuerpo.
   3. Cada `POST` pertenece a una sola app, porque Meta lo firma con el secreto de la app suscrita.
 - **Si la firma no coincide** se responde 401, como pide la especificación. Meta lo reintentará durante 7
   días. Es lo correcto si el App Secret guardado está mal: al corregirlo, los reintentos entran solos.

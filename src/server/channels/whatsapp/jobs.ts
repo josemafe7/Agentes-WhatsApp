@@ -65,7 +65,15 @@ export async function runMediaDownload(payload: MediaDownloadPayload, context: C
     try {
       media = await downloadAndStoreWhatsAppMedia(
         graphClientFor(channel, deps),
-        { mediaId: payload.mediaId, url: payload.url, mimeType: payload.mimeType, fileName: payload.fileName ?? message.media?.fileName, phoneNumberId: channel.phoneNumberId },
+        {
+          mediaId: payload.mediaId,
+          url: payload.url,
+          mimeType: payload.mimeType,
+          fileName: payload.fileName ?? message.media?.fileName,
+          phoneNumberId: channel.phoneNumberId,
+          // Its kind's size limit (an MP3 sent as a document keeps the document's).
+          contentType: message.contentType,
+        },
         { storage: deps.storage },
       );
     } catch (error) {

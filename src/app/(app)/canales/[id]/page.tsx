@@ -7,17 +7,19 @@ import type { ChannelDetail } from "@/data/channels";
 import { getBusinessProfile } from "@/data/settings";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { can, PERMISSIONS } from "@/lib/permissions";
+import { isEmailChannelType } from "@/server/channels/email/config";
 import { ActiveAgentControl } from "../_components/active-agent-control";
 import { CHANNEL_STATUS_LABELS } from "../_lib/labels";
 import { widgetDemoHref } from "../_lib/webchat";
 import { wizardHref } from "../nuevo/whatsapp/_lib/steps";
 import { ChannelDangerZone } from "./_components/channel-danger-zone";
+import { EmailPanel } from "./_email/email-panel";
 import { WhatsAppPanel } from "./_whatsapp/whatsapp-panel";
 import { loadChannelPage } from "./_lib/load";
 
 export const metadata: Metadata = { title: "Canal" };
 
-type PageProps = { params: Promise<{ id: string }> };
+type PageProps = { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
 
 type Light = { key: string; status: StatusLightStatus; label: string; detail?: string };
 
@@ -77,7 +79,7 @@ function summaryLights(channel: ChannelDetail, timezone: string): Light[] {
 }
 
 /** Resumen del canal (docs/pantallas.md «Panel del canal»): traffic lights, agent and AI, try it, disable or delete. */
-export default async function ChannelSummaryPage({ params }: PageProps) {
+export default async function ChannelSummaryPage({ params, searchParams }: PageProps) {
   const page = await loadChannelPage(params);
   if (!page.allowed) return null;
   const { actor, channel, canManage } = page;
@@ -100,6 +102,9 @@ export default async function ChannelSummaryPage({ params }: PageProps) {
       </section>
 
       {channel.type === "whatsapp" ? <WhatsAppPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} /> : null}
+      {isEmailChannelType(channel.type) ? (
+        <EmailPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} businessName={profile.name} searchParams={await searchParams} />
+      ) : null}
 
       <section aria-labelledby="channel-agent" className="grid gap-3 rounded-xl border p-4">
         <div className="grid gap-1">

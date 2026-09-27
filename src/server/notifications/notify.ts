@@ -1,7 +1,8 @@
 // Notices to the team ([TRA-05], [PWA-06]–[PWA-08], [AJU-08]): in-app rows at once, and email (system mail) and push
 // through a job, each as the person chose in Mi cuenta. Recipients are the roles of Ajustes › Notificaciones (or the
 // people given, e.g. the agent's «a quién avisar»), always filtered by permission: an Agent only hears about their
-// channels. Titles say what happened and with whom, never the customer's text ([PWA-04]).
+// channels. Titles say what happened and with whom, never the customer's text ([PWA-04]); the details of a notice
+// about a conversation (a hand-off's reason) stay inside the app: its email and push carry only the title and link.
 import "server-only";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -58,6 +59,12 @@ export const deliverJobPayload = z.object({
 });
 export type DeliverJobPayload = z.infer<typeof deliverJobPayload>;
 
+/**
+ * Notices about a conversation, whose body may retell what the customer wrote (the reason the AI gave for a hand-off):
+ * outside the app — a locked phone, a mail server — they say only what happened and with whom ([PWA-04]).
+ */
+const BODY_ONLY_IN_APP: ReadonlySet<NotificationEvent> = new Set(["handoff", "new_conversation", "conversation_assigned"]);
+
 function isAllowed(member: TeamMember, channelId: string | null | undefined): boolean {
   return channelId ? can(member, PERMISSIONS.inbox.view, { channelId }) : true;
 }
@@ -104,7 +111,8 @@ export async function notify(input: NotifyInput): Promise<NotifyResult> {
       notificationIds.push(id);
     }
     if (preference.email || preference.push) {
-      const payload: DeliverJobPayload = { userId: member.userId, event: input.event, title, body, link, email: preference.email, push: preference.push };
+      const outsideBody = BODY_ONLY_IN_APP.has(input.event) ? null : body;
+      const payload: DeliverJobPayload = { userId: member.userId, event: input.event, title, body: outsideBody, link, email: preference.email, push: preference.push };
       await queue.enqueue({ type: NOTIFICATIONS_DELIVER_JOB, payload, maxAttempts: 3 });
     }
   }

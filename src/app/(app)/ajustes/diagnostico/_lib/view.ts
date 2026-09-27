@@ -56,7 +56,7 @@ export async function loadDiagnosticsView(actor: Actor) {
   const tz = profile.timezone;
   const now = new Date();
   const relative = (date: Date | null) => (date ? formatRelative(date, tz, now) : null);
-  const { database, queue, realtime, webhooks, aiErrors } = diagnostics;
+  const { database, queue, realtime, webhooks, ignoredMail, aiErrors } = diagnostics;
 
   const migrations = database.migrations;
   const migrationsStatus: Light = !migrations ? "off" : migrations.pending.length > 0 ? "warn" : "ok";
@@ -112,6 +112,13 @@ export async function loadDiagnosticsView(actor: Actor) {
           ? { count: formatNumber(webhooks.unknown.count), last: relative(webhooks.unknown.lastReceivedAt), lastNumber: webhooks.unknown.lastNumber }
           : null,
     },
+    ignoredMail: ignoredMail.map((mailbox) => ({
+      id: mailbox.channelId,
+      name: mailbox.name,
+      isDemo: mailbox.isDemo,
+      total: formatNumber(mailbox.total),
+      reasons: mailbox.reasons.map((item) => ({ reason: item.reason, label: item.label, count: formatNumber(item.count) })),
+    })),
     aiErrors: aiErrors.map((run) => ({
       id: run.id,
       kindLabel: AI_RUN_KIND_LABELS[run.kind],

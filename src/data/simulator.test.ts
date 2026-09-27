@@ -9,6 +9,7 @@ import {
   appKv,
   auditLog,
   channels,
+  consents,
   contactIdentities,
   contacts,
   conversations,
@@ -21,12 +22,25 @@ import {
 } from "@/db/schema";
 import type { Role } from "@/lib/enums";
 import type { FileStorage } from "@/server/adapters/file-storage";
+import { buildSimulatedEvent } from "@/server/channels/demo-adapter";
 import { registerChannelAdapter, unregisterChannelAdapter } from "@/server/channels/registry";
 import type { ChannelAdapter } from "@/server/channels/types";
+import { isOptedOut, OPT_OUT_CONFIRMATION_JOB, optOutConfirmationPayload } from "@/server/compliance/opt-out";
+import { sendOptOutConfirmation } from "@/server/compliance/opt-out-confirmation";
 import { processReplyJob } from "@/server/engine/reply";
 import { REPLY_JOB, replyJobPayload, type ReplyJobPayload } from "@/server/engine/schedule";
+import { ingestEvents } from "@/server/inbound/ingest";
 import { chatCompletion, FAKE_OPENROUTER_KEY, fakeFetch, jsonResponse, routes, sampleCatalog } from "@/test/fake-openrouter";
-import { createAgentRow, createBusiness, createChannel, createContactWithIdentity, createUser, type TestUser } from "@/test/factories";
+import {
+  createAgentRow,
+  createBusiness,
+  createChannel,
+  createContactWithIdentity,
+  createConversation,
+  createMessage,
+  createUser,
+  type TestUser,
+} from "@/test/factories";
 import { detectSimulatorFile, loadSimulatorOptions, MAX_SIMULATOR_UPLOAD_BYTES, simulateInboundMessage } from "./simulator";
 
 const NOW = new Date("2026-09-30T09:00:00Z");
@@ -55,7 +69,7 @@ let agent: typeof agents.$inferSelect;
 let memory: ReturnType<typeof memoryStorage>;
 
 async function clear() {
-  for (const table of [notifications, handoffEvents, aiRuns, messages, conversations, contactIdentities, contacts, jobs, realtimeEvents, appKv, auditLog, rateLimits]) {
+  for (const table of [notifications, handoffEvents, aiRuns, messages, conversations, consents, contactIdentities, contacts, jobs, realtimeEvents, appKv, auditLog, rateLimits]) {
     await db.delete(table);
   }
   await db.delete(channels);
@@ -95,7 +109,8 @@ describe("simulador: the same path as a real message [AJU-12]", () => {
     const identities = await db.select().from(contactIdentities).where(eq(contactIdentities.contactId, contact.id));
     expect(identities).toHaveLength(1);
     expect(identities[0].channelType).toBe("whatsapp");
-    expect(identities[0].externalId).toMatch(/^ES\.\d{20}$/);
+    // A BSUID as WhatsApp gives it, in the simulator's own space: it can never be a real customer's ([AJU-13]).
+    expect(identities[0].externalId).toMatch(/^sim:ES\.\d{20}$/);
 
     const [conversation] = await db.select().from(conversations).where(eq(conversations.id, result.conversationId));
     expect(conversation).toMatchObject({ channelId: whatsapp.id, contactId: contact.id, status: "open", aiMode: "ai", unreadCount: 1, metadata: { simulated: true } });
@@ -116,12 +131,11 @@ describe("simulador: the same path as a real message [AJU-12]", () => {
     expect(entry).toMatchObject({ action: "simulator.message_sent", actorUserId: owner.userId, targetId: conversation.id });
   });
 
-  it("an existing contact writes again in the same conversation (one per channel and contact, [CAN-12])", async () => {
+  it("a contact of the simulator writes again in the same conversation (one per channel and contact, [CAN-12])", async () => {
     const whatsapp = await createChannel({ type: "whatsapp", name: "WhatsApp", isDemo: true, activeAgentId: agent.id });
-    const { contact } = await createContactWithIdentity("whatsapp", { name: "Luis", externalId: "ES.10000000000000000001", phone: "34600000001" });
-    const first = await send(admin, { channelId: whatsapp.id, contact: { mode: "existing", contactId: contact.id }, contentType: "text", text: "Hola" });
-    const second = await send(admin, { channelId: whatsapp.id, contact: { mode: "existing", contactId: contact.id }, contentType: "text", text: "¿Seguís ahí?" });
-    expect(first.contactId).toBe(contact.id);
+    const first = await send(admin, { channelId: whatsapp.id, contact: { mode: "new", name: "Luis", phone: "+34 600 000 001" }, contentType: "text", text: "Hola" });
+    const second = await send(admin, { channelId: whatsapp.id, contact: { mode: "existing", contactId: first.contactId }, contentType: "text", text: "¿Seguís ahí?" });
+    expect(second.contactId).toBe(first.contactId);
     expect(second.conversationId).toBe(first.conversationId);
     expect(await db.select().from(contacts)).toHaveLength(1);
     const [conversation] = await db.select().from(conversations);
@@ -174,7 +188,7 @@ describe("simulador: the same path as a real message [AJU-12]", () => {
     const [conversation] = await db.select().from(conversations);
     expect(conversation.externalThreadId).toMatch(/^sim-thread-/);
     const [identity] = await db.select().from(contactIdentities);
-    expect(identity).toMatchObject({ channelType: "email_gmail", externalId: "marta@correo.example" });
+    expect(identity).toMatchObject({ channelType: "email_gmail", externalId: "sim:marta@correo.example" });
     const [firstMessage] = await db.select().from(messages).where(eq(messages.id, first.messageId));
     expect(firstMessage.metadata).toEqual({ subject: "Consulta de horario" });
   });
@@ -303,19 +317,98 @@ describe("simulador: replies never leave the app [AJU-13]", () => {
 });
 
 describe("simulador: the options on screen", () => {
-  it("lists every channel with its agent and what it admits, and the contacts with an identity in each type", async () => {
+  it("lists every channel with its agent and what it admits, and the simulator's own contacts of each type [AJU-13]", async () => {
     const whatsapp = await createChannel({ type: "whatsapp", name: "WhatsApp", isDemo: true, activeAgentId: agent.id });
-    await createChannel({ type: "webchat", name: "Chat", config: { voiceEnabled: true, imagesEnabled: false } });
-    const { contact } = await createContactWithIdentity("whatsapp", { name: "Luis", externalId: "ES.10000000000000000002", phone: "34600000002" });
-    await createContactWithIdentity("webchat", { name: null });
+    const chat = await createChannel({ type: "webchat", name: "Chat", config: { voiceEnabled: true, imagesEnabled: false } });
+    const luis = await send(owner, { channelId: whatsapp.id, contact: { mode: "new", name: "Luis", phone: "+34 600 000 002" }, contentType: "text", text: "Hola" });
+    await send(owner, { channelId: chat.id, contact: { mode: "new" }, contentType: "text", text: "Hola" });
+    // Real customers are never offered: the simulator never writes as them.
+    await createContactWithIdentity("whatsapp", { name: "Cliente real", externalId: "ES.10000000000000000002", phone: "34600000003" });
+    await createContactWithIdentity("webchat", { name: "Visitante real" });
     const options = await loadSimulatorOptions(admin.actor);
     expect(options.channels.map((channel) => [channel.name, channel.type, channel.isDemo, channel.activeAgentName, channel.capabilities])).toEqual([
       ["Chat", "webchat", false, null, { audio: true, images: false, documents: false }],
       ["WhatsApp", "whatsapp", true, "Recepción", { audio: true, images: true, documents: true }],
     ]);
-    expect(options.contactsByType.whatsapp).toEqual([{ id: contact.id, name: "Luis", externalId: "ES.10000000000000000002", phone: "34600000002", email: null }]);
+    expect(options.contactsByType.whatsapp).toEqual([{ id: luis.contactId, name: "Luis", externalId: expect.stringMatching(/^ES\.\d{20}$/), phone: "34600000002", email: null }]);
     expect(options.contactsByType.webchat).toHaveLength(1);
-    expect(whatsapp.id).toBeTruthy();
+    expect(options.contactsByType.webchat?.[0].name).toBeNull();
+  });
+});
+
+describe("simulador: never a real customer's contact or conversation [AJU-13]", () => {
+  async function realCustomer(channelId: string) {
+    const { contact } = await createContactWithIdentity("whatsapp", { name: "Cristina", externalId: "ES.20000000000000000001", phone: "34611222333" });
+    const conversation = await createConversation(channelId, contact.id, { unreadCount: 0 });
+    await createMessage(conversation, { text: "¿Me cambiáis la cita?" });
+    return { contact, conversation };
+  }
+
+  it("choosing a real customer is refused, and nothing of theirs changes", async () => {
+    const whatsapp = await createChannel({ type: "whatsapp", name: "WhatsApp", isDemo: true, activeAgentId: agent.id });
+    const real = await realCustomer(whatsapp.id);
+    await expect(send(owner, { channelId: whatsapp.id, contact: { mode: "existing", contactId: real.contact.id }, contentType: "text", text: "Hola" })).rejects.toMatchObject({
+      status: 400,
+      fieldErrors: { contact: [expect.stringContaining("cliente real")] },
+    });
+    expect(await db.select().from(messages)).toHaveLength(1);
+    expect((await db.select().from(conversations))[0]).toMatchObject({ id: real.conversation.id, unreadCount: 0 });
+  });
+
+  it("a new simulated customer with a real customer's email gets their own contact and conversation", async () => {
+    const email = await createChannel({ type: "email_gmail", name: "Correo", isDemo: true, replyMode: "draft", activeAgentId: agent.id });
+    const { contact } = await createContactWithIdentity("email_gmail", { name: "Marta real", externalId: "marta@correo.example", email: "marta@correo.example" });
+    const realConversation = await createConversation(email.id, contact.id, { externalThreadId: "<real@correo.example>" });
+    const simulated = await send(owner, { channelId: email.id, contact: { mode: "new", name: "Marta", email: "marta@correo.example" }, contentType: "text", text: "Hola" });
+    expect(simulated.contactId).not.toBe(contact.id);
+    expect(simulated.conversationId).not.toBe(realConversation.id);
+    expect(await db.select().from(messages).where(eq(messages.conversationId, realConversation.id))).toHaveLength(0);
+  });
+
+  it("a simulated message never lands in a real conversation, even when it comes as a real customer's identity", async () => {
+    const whatsapp = await createChannel({ type: "whatsapp", name: "WhatsApp", isDemo: true, activeAgentId: agent.id });
+    const real = await realCustomer(whatsapp.id);
+    const [channel] = await db.select().from(channels).where(eq(channels.id, whatsapp.id));
+    const event = buildSimulatedEvent({ from: { id: "ES.20000000000000000001", name: "Cristina" }, contentType: "text", text: "Mensaje simulado" }, NOW);
+    const result = await ingestEvents(channel, [event], { now: NOW });
+    const [landed] = result.messages;
+    expect(landed.conversationId).not.toBe(real.conversation.id);
+    expect((await db.select().from(conversations).where(eq(conversations.id, landed.conversationId ?? "")))[0].metadata).toEqual({ simulated: true });
+    expect((await db.select().from(conversations).where(eq(conversations.id, real.conversation.id)))[0]).toMatchObject({ unreadCount: 0 });
+
+    // And the real customer's next message goes to their real conversation, never to the simulated one.
+    const back = await ingestEvents(
+      channel,
+      [{ kind: "inbound_message", externalId: "wamid.real-1", sender: { externalIds: ["ES.20000000000000000001"] }, contentType: "text", text: "Soy yo de verdad", sentAt: NOW }],
+      { now: NOW },
+    );
+    expect(back.messages[0].conversationId).toBe(real.conversation.id);
+  });
+
+  it("a simulated «BAJA» opts out only the simulated customer, and its confirmation never leaves the app [CUM-03]", async () => {
+    const realSend = vi.fn();
+    registerChannelAdapter({
+      type: "whatsapp",
+      capabilities: () => ({ audio: true, images: true, documents: true, templates: true, window24h: true, typing: false, readReceipts: false, html: false, drafts: false }),
+      validateAndConnect: async () => ({ ok: true }),
+      healthCheck: async () => ({ checkedAt: NOW.toISOString(), checks: [] }),
+      handleWebhook: async () => [],
+      send: realSend,
+      downloadMedia: async () => ({ bytes: new Uint8Array(), mimeType: "text/plain" }),
+      disconnect: async () => undefined,
+    });
+    const whatsapp = await createChannel({ type: "whatsapp", name: "WhatsApp real", isDemo: false, status: "connected", activeAgentId: agent.id });
+    const real = await realCustomer(whatsapp.id);
+    const result = await send(owner, { channelId: whatsapp.id, contact: { mode: "new", name: "Prueba" }, contentType: "text", text: "BAJA" });
+    expect(result.aiReply).toEqual({ expected: false, reason: "el contacto se ha dado de baja en este canal" });
+    expect(await isOptedOut(result.contactId, whatsapp.id)).toBe(true);
+    expect(await isOptedOut(real.contact.id, whatsapp.id)).toBe(false);
+
+    const [job] = await db.select().from(jobs).where(eq(jobs.type, OPT_OUT_CONFIRMATION_JOB));
+    await sendOptOutConfirmation(optOutConfirmationPayload.parse(job.payload), { now: NOW, retryDelayMs: 0 });
+    const [confirmation] = await db.select().from(messages).where(and(eq(messages.conversationId, result.conversationId), eq(messages.direction, "outbound")));
+    expect(confirmation).toMatchObject({ senderType: "system", simulated: true, status: "sent" });
+    expect(realSend).not.toHaveBeenCalled();
   });
 });
 

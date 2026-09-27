@@ -1,5 +1,6 @@
 // What the media processing leaves in `messages.metadata` ([MED-03]–[MED-05]). The transcript itself goes in
 // `messages.transcript`. Pure, so the inbox can read it: `transcriptionFailed` shows «No se pudo transcribir».
+import "server-only";
 
 export type MediaProcessingMetadata = {
   /** The audio could not be transcribed (too big, rejected by every model, or unreadable) ([MED-03]). */

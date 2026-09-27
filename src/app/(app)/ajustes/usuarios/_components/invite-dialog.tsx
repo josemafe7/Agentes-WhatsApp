@@ -37,7 +37,7 @@ export function InviteDialog({ channels }: { channels: ChannelOption[] }) {
           Invitar
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-md">
         <InviteForm key={formKey} channels={channels} onClose={() => setOpen(false)} />
       </DialogContent>
     </Dialog>

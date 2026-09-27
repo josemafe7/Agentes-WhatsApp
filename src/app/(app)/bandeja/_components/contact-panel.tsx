@@ -15,6 +15,8 @@ type ContactPanelProps = {
   now: Date;
   /** Link to the full card in Contactos. */
   canOpenContact: boolean;
+  /** The contact's next bookings and «Nueva cita» (bandeja/[id]/_bookings), right after the data. */
+  bookings?: ReactNode;
 };
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -30,7 +32,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
  * The contact next to the conversation ([BAN-15], [CTO-02]): data, identities by channel (never the phone as a key),
  * labels, custom fields, opt-outs, the conversation summary and the other conversations the person may see.
  */
-export function ContactPanel({ conversation, contact, timezone, now, canOpenContact }: ContactPanelProps) {
+export function ContactPanel({ conversation, contact, timezone, now, canOpenContact, bookings }: ContactPanelProps) {
   const basic = contact ?? conversation.contact;
   if (!basic) {
     return <p className="px-4 py-4 text-sm text-muted-foreground">Esta conversación no tiene contacto.</p>;
@@ -57,6 +59,8 @@ export function ContactPanel({ conversation, contact, timezone, now, canOpenCont
           </Link>
         ) : null}
       </Section>
+
+      {bookings}
 
       {optOuts.length > 0 ? (
         <Section title="Bajas">

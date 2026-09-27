@@ -1,7 +1,7 @@
-// Read parts of the contact's card ([CTO-02], [CTO-08]): identities, conversation history, consents and bajas,
-// appointments, and the read-only view of the data for Solo lectura. Server components: only data the server already
-// checked with getContact (src/data/contacts.ts) reaches them.
-import { BellOff, CalendarDays, ChevronRight } from "lucide-react";
+// Read parts of the contact's card ([CTO-02], [CTO-08]): identities, conversation history, consents and bajas, and the
+// read-only view of the data for Solo lectura (the bookings are in ../[id]/_bookings). Server components: only data the
+// server already checked with getContact (src/data/contacts.ts) reaches them.
+import { BellOff, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { CHANNEL_IDENTITY } from "@/components/channels/channel-identity";
@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { ContactDetail } from "@/data/contacts";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { LiftOptOutButton } from "../[id]/_consents/lift-opt-out-button";
 import { CONSENT_TYPE_LABELS, CONVERSATION_STATUS_VIEW, identityPhone, type ActiveOptOut } from "../_lib/view";
 import { ChannelName } from "./channel-icons";
 import { LabelBadges } from "./label-badges";
@@ -35,19 +36,27 @@ function Muted({ children }: { children: ReactNode }) {
   return <p className="text-sm text-muted-foreground">{children}</p>;
 }
 
-/** A baja is always visible on the card while it lasts ([CTO-08], [CUM-03], [CUM-04]). */
-export function OptOutNotice({ optOuts, timezone }: { optOuts: ActiveOptOut[]; timezone: string }) {
+/**
+ * A baja is always visible on the card while it lasts ([CTO-08], [CUM-03], [CUM-04]). With `liftFor`, whoever may
+ * lift it gets «Levantar baja» on each channel that still exists.
+ */
+export function OptOutNotice({ optOuts, timezone, liftFor }: { optOuts: ActiveOptOut[]; timezone: string; liftFor?: { contactId: string } }) {
   if (optOuts.length === 0) return null;
   return (
     <Alert className="border-warning/40 bg-warning-soft text-warning">
       <BellOff aria-hidden />
       <AlertTitle>Dado de baja</AlertTitle>
       <AlertDescription className="text-foreground">
-        <ul className="grid gap-0.5">
+        <ul className="grid gap-1">
           {optOuts.map((optOut) => (
-            <li key={optOut.channelId ?? "sin-canal"}>
-              En {optOut.channelName ? `«${optOut.channelName}»` : "un canal que ya no existe"} desde el{" "}
-              {formatDateTime(optOut.since, timezone, { preset: "date" })}.
+            <li key={optOut.channelId ?? "sin-canal"} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>
+                En {optOut.channelName ? `«${optOut.channelName}»` : "un canal que ya no existe"} desde el{" "}
+                {formatDateTime(optOut.since, timezone, { preset: "date" })}.
+              </span>
+              {liftFor && optOut.channelId && optOut.channelName ? (
+                <LiftOptOutButton contactId={liftFor.contactId} channelId={optOut.channelId} channelName={optOut.channelName} />
+              ) : null}
             </li>
           ))}
         </ul>
@@ -152,18 +161,6 @@ export function ConsentsSection({ consents, timezone }: { consents: ContactDetai
           ))}
         </ul>
       )}
-    </ContactSection>
-  );
-}
-
-/** Citas: the agenda fills this area; until a booking exists there is nothing to show. */
-export function AppointmentsSection() {
-  return (
-    <ContactSection title="Citas">
-      <p className="flex items-center gap-2 text-sm text-muted-foreground">
-        <CalendarDays aria-hidden className="size-4 shrink-0" />
-        Todavía no tiene citas.
-      </p>
     </ContactSection>
   );
 }

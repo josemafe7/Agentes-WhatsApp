@@ -11,7 +11,10 @@
 //        { headers?: {name: value}, query?: {name: value}, bodyIncludes?: string }. `times` limits its uses.
 // Service paths are relative to the service prefix: OpenRouter's /openrouter/api/v1/key is "/api/v1/key".
 import { createServer } from "node:http";
+import { gmailRoutes, googleOAuthRoutes } from "./routes/google.mjs";
+import { httpToolRoutes } from "./routes/http-tools.mjs";
 import { metaRoutes } from "./routes/meta.mjs";
+import { microsoftGraphRoutes, microsoftLoginRoutes } from "./routes/microsoft.mjs";
 import { openrouterRoutes } from "./routes/openrouter.mjs";
 
 /**
@@ -29,12 +32,14 @@ const MAX_RECORDED_REQUESTS = 2000;
 const DEFAULT_ROUTES = /** @type {Record<string, MockRoute[]>} */ ({
   openrouter: openrouterRoutes,
   meta: metaRoutes,
-  "google-oauth": [],
-  google: [],
-  "ms-login": [],
-  "ms-graph": [],
+  "google-oauth": googleOAuthRoutes,
+  google: gmailRoutes,
+  "ms-login": microsoftLoginRoutes,
+  "ms-graph": microsoftGraphRoutes,
   mistral: [],
   telegram: [],
+  // The shop API the custom HTTP tools of the specs call ([HER-11]).
+  "http-tools": httpToolRoutes,
 });
 const SERVICES = new Set(Object.keys(DEFAULT_ROUTES));
 

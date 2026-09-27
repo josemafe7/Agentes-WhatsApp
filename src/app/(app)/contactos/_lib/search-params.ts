@@ -50,3 +50,19 @@ export function contactsHref(query: ContactsQuery, page = 1): string {
 export function contactPath(contactId: string): string {
   return `${CONTACTS_PATH}/${contactId}`;
 }
+
+/** «Posibles duplicados» ([CTO-04]). */
+export const DUPLICATES_PATH = `${CONTACTS_PATH}/duplicados`;
+const MERGE_PATH = `${CONTACTS_PATH}/fusionar`;
+
+/** «Fusionar» two contacts ([CTO-05]): ?uno=…&otro=… */
+export function mergePath(oneId: string, otherId: string): string {
+  return `${MERGE_PATH}?${new URLSearchParams({ uno: oneId, otro: otherId }).toString()}`;
+}
+
+/** The two contacts of the merge page, as they come (src/data/contacts-merge.ts validates them). */
+export function mergeQueryFromSearchParams(params: SearchParams): { one: string; other: string } | null {
+  const one = single(params.uno);
+  const other = single(params.otro);
+  return one && other ? { one, other } : null;
+}

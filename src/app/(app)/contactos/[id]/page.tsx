@@ -8,14 +8,15 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getContact, listContactLabels, type ContactDetail } from "@/data/contacts";
+import { listDuplicateSuggestions } from "@/data/contacts-merge";
 import { getBusinessProfile } from "@/data/settings";
 import { formatDateTime } from "@/lib/format";
 import { can, PERMISSIONS } from "@/lib/permissions";
 import { AuthError } from "@/server/errors";
 import { requirePageActor } from "@/server/session";
+import { ContactDataActions } from "../_components/contact-data-actions";
 import { ContactDetailsForm } from "../_components/contact-details-form";
 import {
-  AppointmentsSection,
   ConsentsSection,
   ContactSection,
   ConversationsSection,
@@ -26,9 +27,11 @@ import {
   ReadOnlyLabels,
 } from "../_components/contact-sections";
 import { CustomFieldsEditor } from "../_components/custom-fields-editor";
+import { DuplicatesOf } from "../_components/duplicate-suggestions";
 import { LabelsEditor } from "../_components/labels-editor";
 import { CONTACTS_PATH, contactPath } from "../_lib/search-params";
 import { activeOptOuts, contactDisplayName } from "../_lib/view";
+import { ContactBookingsSection } from "./_bookings/contact-bookings-section";
 
 export const metadata: Metadata = { title: "Ficha del contacto" };
 
@@ -36,7 +39,9 @@ type ContactPageProps = { params: Promise<{ id: string }> };
 
 /**
  * Ficha del contacto ([CTO-02]): data, identities, labels, custom fields, appointments, consents and the conversation
- * history. Editable for whoever may edit it; an Agent only reaches contacts of their channels ([PER-02]).
+ * history. Editable for whoever may edit it; an Agent only reaches contacts of their channels ([PER-02]). Its bajas
+ * with «Levantar baja» ([CTO-08]) and its possible duplicates ([CTO-04]) for whoever may merge; «Exportar datos» and
+ * «Borrar contacto» for whoever may export and erase ([CTO-06], [CTO-07]).
  */
 export default async function ContactPage({ params }: ContactPageProps) {
   const { id } = await params;
@@ -64,8 +69,21 @@ export default async function ContactPage({ params }: ContactPageProps) {
   }
 
   const canEdit = can(actor, PERMISSIONS.contacts.edit, { channelIds: contact.conversations.map((conversation) => conversation.channel.id) });
-  const [profile, labelSuggestions] = await Promise.all([getBusinessProfile(actor), canEdit ? listContactLabels(actor) : Promise.resolve([])]);
+  const canMerge = can(actor, PERMISSIONS.contacts.merge);
+  const canExport = can(actor, PERMISSIONS.contacts.export);
+  const canErase = can(actor, PERMISSIONS.contacts.delete);
+  const [profile, labelSuggestions, duplicates] = await Promise.all([
+    getBusinessProfile(actor),
+    canEdit ? listContactLabels(actor) : Promise.resolve([]),
+    canMerge ? listDuplicateSuggestions(actor, { contactId: contact.id }) : Promise.resolve([]),
+  ]);
   const name = contactDisplayName(contact);
+  const readOnlyBadge = canEdit ? null : (
+    <Badge variant="outline" className="h-[22px] gap-1">
+      <Eye aria-hidden />
+      Solo lectura
+    </Badge>
+  );
 
   return (
     <div className="flex flex-col">
@@ -74,16 +92,16 @@ export default async function ContactPage({ params }: ContactPageProps) {
         title={name}
         description={`Contacto desde el ${formatDateTime(contact.createdAt, profile.timezone, { preset: "date" })}`}
         actions={
-          canEdit ? null : (
-            <Badge variant="outline" className="h-[22px] gap-1">
-              <Eye aria-hidden />
-              Solo lectura
-            </Badge>
-          )
+          readOnlyBadge || canExport || canErase ? (
+            <>
+              {readOnlyBadge}
+              <ContactDataActions contactId={contact.id} displayName={name} canExport={canExport} canErase={canErase} />
+            </>
+          ) : null
         }
       />
       <div className="grid gap-6">
-        <OptOutNotice optOuts={activeOptOuts(contact.consents)} timezone={profile.timezone} />
+        <OptOutNotice optOuts={activeOptOuts(contact.consents)} timezone={profile.timezone} liftFor={canMerge ? { contactId: contact.id } : undefined} />
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
           <div className="grid min-w-0 gap-6">
             <ContactSection title="Datos">
@@ -106,7 +124,12 @@ export default async function ContactPage({ params }: ContactPageProps) {
           </div>
           <div className="grid min-w-0 gap-6">
             <IdentitiesSection identities={contact.identities} />
-            <AppointmentsSection />
+            {duplicates.length > 0 ? (
+              <ContactSection title="Posibles duplicados" description="Pueden ser la misma persona. La app nunca los fusiona sola.">
+                <DuplicatesOf contactId={contact.id} suggestions={duplicates} />
+              </ContactSection>
+            ) : null}
+            <ContactBookingsSection actor={actor} contactId={contact.id} contactName={name} />
             <ConsentsSection consents={contact.consents} timezone={profile.timezone} />
           </div>
         </div>

@@ -13,6 +13,7 @@ import { idSchema, labelSchema, MAX_LABELS } from "@/lib/validation";
 import { loadPromptBusinessData } from "@/server/ai/context";
 import { handoffCustomerMessage } from "@/server/ai/tools/transferir-a-humano";
 import { withAiDisclosure } from "@/server/engine/disclosure";
+import { scheduleReplyToUnanswered } from "@/server/engine/schedule";
 import { ConflictError, NotFoundError, parseInput, ValidationError } from "@/server/errors";
 import { closeOpenHandoffs, eligibleAssignees, handoffService } from "@/server/handoff/service";
 import { notify } from "@/server/notifications/notify";
@@ -43,7 +44,8 @@ export const setConversationAiSchema = z
   })
   .strict();
 
-export async function setConversationAi(actor: Actor, input: unknown): Promise<void> {
+/** `replyRunAt`: reactivating the AI scheduled the answer to what the customer left unanswered ([BAN-16]). */
+export async function setConversationAi(actor: Actor, input: unknown): Promise<{ replyRunAt: Date | null }> {
   const data = parseInput(setConversationAiSchema, input);
   const conversation = await loadConversationFor(actor, PERMISSIONS.inbox.pauseAi, data.conversationId);
   const now = new Date();
@@ -66,6 +68,9 @@ export async function setConversationAi(actor: Actor, input: unknown): Promise<v
   });
   await writeAudit({ actor, action: "conversation.ai_changed", targetType: "conversation", targetId: conversation.id, metadata: { mode: data.mode } });
   await changed(conversation, "ai");
+  // What the customer left unanswered meanwhile gets the AI's answer ([BAN-16]).
+  const scheduled = data.mode === "on" ? await scheduleReplyToUnanswered(conversation.id, { now }) : null;
+  return { replyRunAt: scheduled?.runAt ?? null };
 }
 
 // ─── Manual hand-off and status ([TRA-01], [TRA-03], [TRA-08], [BAN-12]) ────────────────────────────────

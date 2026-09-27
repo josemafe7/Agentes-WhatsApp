@@ -5,6 +5,7 @@ import { aiRuns, auditLog, jobs, realtimeEvents, webhookEvents } from "@/db/sche
 import type { Role } from "@/lib/enums";
 import { getJobQueue } from "@/server/adapters/job-queue";
 import { getRealtime } from "@/server/adapters/realtime";
+import { countIgnored } from "@/server/channels/email/status";
 import { AuthError, NotFoundError } from "@/server/errors";
 import { LAST_TICK_KV_KEY } from "@/server/jobs";
 import { setKv } from "@/server/kv";
@@ -123,6 +124,25 @@ describe("getDiagnostics [AJU-11]", () => {
     expect(aiErrors[0]).toMatchObject({ at: newer, channelName: "Web" });
     expect(aiErrors[0].error).toContain("Error interno de OpenRouter");
     expect(JSON.stringify(aiErrors)).not.toContain("sk-or-v1-abcdefghijklmnopqrstu");
+  });
+
+  it("ignored mail: what each mailbox did not pass to the inbox, by reason [COR-16]", async () => {
+    const counted = await createChannel({ type: "email_gmail", name: "Buzón de la tienda" });
+    const quiet = await createChannel({ type: "email_imap", name: "Buzón de reservas" });
+    await countIgnored(counted.id, "mailing_list", 3);
+    await countIgnored(counted.id, "auto_reply");
+    const { ignoredMail } = await getDiagnostics(admin);
+    expect(ignoredMail.find((mailbox) => mailbox.channelId === counted.id)).toEqual({
+      channelId: counted.id,
+      name: "Buzón de la tienda",
+      isDemo: false,
+      total: 4,
+      reasons: [
+        { reason: "auto_reply", label: "Respuestas automáticas", count: 1 },
+        { reason: "mailing_list", label: "Listas y boletines con enlace de baja", count: 3 },
+      ],
+    });
+    expect(ignoredMail.find((mailbox) => mailbox.channelId === quiet.id)).toMatchObject({ total: 0, reasons: [] });
   });
 
   it.each(denied)("%s cannot see it [PER-03] [PER-04]", async (role) => {

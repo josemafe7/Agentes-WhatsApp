@@ -36,7 +36,7 @@ export function StatusControl({ conversationId, status, canChange }: { conversat
     );
   }
   return (
-    <div className="flex shrink-0 items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2 md:max-w-full">
       <Label htmlFor={`${id}-estado`} className="sr-only">
         Estado
       </Label>
@@ -180,7 +180,7 @@ export function AssignControl({ conversationId, assignedUser, assignable, userId
   if (canAssign) {
     const options = assignedUser && !assignable.some((person) => person.id === assignedUser.id) ? [assignedUser, ...assignable] : assignable;
     return (
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2 md:max-w-full">
         <Label htmlFor={`${id}-asignar`} className="text-sm text-muted-foreground">
           Asignada a
         </Label>
@@ -238,7 +238,7 @@ export function AgentControl({ conversationId, agent, agentOverride, channelAgen
     );
   }
   return (
-    <div className="flex shrink-0 items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2 md:max-w-full">
       <Label htmlFor={`${id}-agente`} className="inline-flex items-center gap-1 text-sm text-muted-foreground">
         <Bot aria-hidden className="size-4 text-ai" />
         Agente
@@ -312,7 +312,7 @@ export function LabelsControl({ conversationId, labels, canChange }: { conversat
   if (!canChange) return labels.length > 0 ? <div className="shrink-0">{chips}</div> : null;
 
   return (
-    <div className="flex shrink-0 items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2 md:max-w-full">
       {labels.length > 0 ? chips : null}
       <Popover>
         <PopoverTrigger asChild>

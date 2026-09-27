@@ -101,9 +101,55 @@ describe("signature [WA-32] [SEG-08]", () => {
     // Signed with the other app's secret, but addressed to our number: refused.
     expect((await processWhatsAppWebhook(bytes(text), signWebhook(text, WA_TEST.otherAppSecret), { now: T0 })).status).toBe(401);
   });
+
+  it("the signature comes before the JSON: without a valid one, not even a body that is not JSON gets further than 401", async () => {
+    const broken = "{ esto no es JSON";
+    expect((await processWhatsAppWebhook(bytes(broken), signWebhook(broken, WA_TEST.otherAppSecret), { now: T0 })).status).toBe(401);
+    expect((await processWhatsAppWebhook(bytes(broken), null, { now: T0 })).status).toBe(401);
+    expect(await db.select().from(webhookEvents)).toHaveLength(0);
+  });
+
+  it("a body signed with our App Secret that cannot be parsed is 401 and nothing is stored", async () => {
+    const broken = "{ esto no es JSON";
+    expect((await processWhatsAppWebhook(bytes(broken), signWebhook(broken), { now: T0 })).status).toBe(401);
+    expect(await db.select().from(webhookEvents)).toHaveLength(0);
+    // It was signed by our app: it is not a rejected signature for Diagnóstico.
+    expect(await invalidSignatureStats(channel.id)).toBeNull();
+  });
 });
 
-describe("an unsigned body cannot make the app work hard before its signature is checked [SEG-07] [WA-32]", () => {
+describe("rejected signatures never turn into a database write per request [SEG-07] [WA-24]", () => {
+  const storedRow = async () => (await db.select().from(appKv).where(eq(appKv.key, `wa.invalid_signatures:${channel.id}`)))[0];
+  const at = (seconds: number) => new Date(T0.getTime() + seconds * 1_000);
+
+  it("they are counted in memory and written at most once a minute per channel; Diagnóstico still sees them all", async () => {
+    expect((await post("text", { secret: WA_TEST.otherAppSecret, now: at(0) })).status).toBe(401);
+    // The first one is written at once: Diagnóstico can say «revisa el App Secret» right away.
+    const first = await storedRow();
+    expect(first.value).toEqual({ count: 1, lastAt: at(0).toISOString() });
+    for (let second = 1; second <= 30; second += 1) {
+      expect((await post("text", { signature: `sha256=${"f".repeat(64)}`, now: at(second) })).status).toBe(401);
+    }
+    // Thirty more within the minute: not one more write.
+    const within = await storedRow();
+    expect(within.value).toEqual({ count: 1, lastAt: at(0).toISOString() });
+    expect(within.updatedAt).toEqual(first.updatedAt);
+    expect(await invalidSignatureStats(channel.id)).toEqual({ count: 31, lastAt: at(30).toISOString() });
+    // A minute after the last write, the next one writes everything counted meanwhile.
+    expect((await post("text", { signature: null, now: at(61) })).status).toBe(401);
+    expect((await storedRow()).value).toEqual({ count: 32, lastAt: at(61).toISOString() });
+    expect(await invalidSignatureStats(channel.id)).toEqual({ count: 32, lastAt: at(61).toISOString() });
+  });
+
+  it("a rejected body that names none of our numbers or accounts is counted nowhere", async () => {
+    const stranger = fixtureText("text").replaceAll(WA_TEST.phoneNumberId, "200000000000077").replaceAll(WA_TEST.wabaId, "100000000000077");
+    expect((await processWhatsAppWebhook(bytes(stranger), signWebhook(stranger, WA_TEST.otherAppSecret), { now: T0 })).status).toBe(401);
+    expect(await invalidSignatureStats(channel.id)).toBeNull();
+    expect(await storedRow()).toBeUndefined();
+  });
+});
+
+describe("an unsigned body cannot make the app work hard: its signature is checked before the JSON is read [SEG-07] [WA-32]", () => {
   const FORGED = `sha256=${"0".repeat(64)}`;
   const change = (phoneNumberId: string) => ({
     field: "messages",
@@ -114,20 +160,21 @@ describe("an unsigned body cannot make the app work hard before its signature is
     JSON.stringify({ object: "whatsapp_business_account", entry: entries.map((entry) => ({ id: entry.wabaId, changes: entry.numbers.map(change) })) });
   const otherNumbers = (count: number) => Array.from({ length: count }, (_, index) => String(210_000_000_000_000 + index));
 
-  it("more numbers or accounts than an installation has: 400, and nothing is looked up nor counted", async () => {
-    // Ours is among them: without the limit this would reach our App Secret and count a rejected signature.
-    const numbers = await post(body([{ wabaId: WA_TEST.wabaId, numbers: [WA_TEST.phoneNumberId, ...otherNumbers(WEBHOOK_MAX_ROUTING_IDS)] }]), { signature: FORGED });
-    expect(numbers.status).toBe(400);
-    const accounts = await post(body([WA_TEST.wabaId, ...otherNumbers(WEBHOOK_MAX_ROUTING_IDS).map((id) => `1${id.slice(1)}`)].map((wabaId) => ({ wabaId, numbers: [] }))), { signature: FORGED });
-    expect(accounts.status).toBe(400);
-    expect(await invalidSignatureStats(channel.id)).toBeNull();
+  it("more numbers or accounts than an installation has: 401 unsigned (never read), 400 signed; nothing stored", async () => {
+    const numbers = body([{ wabaId: WA_TEST.wabaId, numbers: [WA_TEST.phoneNumberId, ...otherNumbers(WEBHOOK_MAX_ROUTING_IDS)] }]);
+    expect((await post(numbers, { signature: FORGED })).status).toBe(401);
+    expect((await post(numbers)).status).toBe(400);
+    const accounts = body([WA_TEST.wabaId, ...otherNumbers(WEBHOOK_MAX_ROUTING_IDS).map((id) => `1${id.slice(1)}`)].map((wabaId) => ({ wabaId, numbers: [] })));
+    expect((await post(accounts, { signature: FORGED })).status).toBe(401);
+    expect((await post(accounts)).status).toBe(400);
     expect(await db.select().from(webhookEvents)).toHaveLength(0);
   });
 
-  it("more updates than Meta ever puts in one POST (1,000): 400; Meta's biggest batch still reaches the signature check [WA-35]", async () => {
+  it("more updates than Meta ever puts in one POST (1,000): 401 unsigned, 400 signed; Meta's biggest batch is accepted [WA-35]", async () => {
     const ours = (count: number) => body([{ wabaId: WA_TEST.wabaId, numbers: Array.from({ length: count }, () => WA_TEST.phoneNumberId) }]);
-    expect((await post(ours(WEBHOOK_MAX_UPDATES + 1), { signature: FORGED })).status).toBe(400);
-    expect((await post(ours(WEBHOOK_MAX_UPDATES), { signature: FORGED })).status).toBe(401);
+    expect((await post(ours(WEBHOOK_MAX_UPDATES + 1), { signature: FORGED })).status).toBe(401);
+    expect((await post(ours(WEBHOOK_MAX_UPDATES + 1))).status).toBe(400);
+    expect((await post(ours(WEBHOOK_MAX_UPDATES))).status).toBe(200);
   });
 });
 
@@ -141,16 +188,26 @@ describe("a webhook for no channel [WA-34]", () => {
     expect(await inboundMessages()).toHaveLength(0);
   });
 
-  it("a body no app of ours signed, for no channel: 200 and nothing stored", async () => {
+  it("a signature no App Secret of the installation can check: 401 and nothing stored [WA-32]", async () => {
     await db.delete(channels);
-    expect((await post("text")).status).toBe(200);
+    expect((await post("text")).status).toBe(401);
     expect(await db.select().from(webhookEvents)).toHaveLength(0);
     expect(await inboundMessages()).toHaveLength(0);
   });
 
-  it("a disconnected channel (no credentials) is treated the same way", async () => {
+  it("a disconnected number (no credentials) of an app with another number still connected: 200, only noted [WA-28]", async () => {
+    await whatsappChannel({ phoneNumberId: "200000000000099", wabaId: "100000000000099" });
     await db.update(channels).set({ secretsEnc: null }).where(eq(channels.id, channel.id));
     expect((await post("text")).status).toBe(200);
+    expect(await inboundMessages()).toHaveLength(0);
+    const [row] = await db.select().from(webhookEvents);
+    expect(row).toMatchObject({ channelId: null, payload: null, externalAccountId: WA_TEST.phoneNumberId });
+  });
+
+  it("the app's last number disconnected: nothing can check the signature any more, 401 [WA-32]", async () => {
+    await db.update(channels).set({ secretsEnc: null }).where(eq(channels.id, channel.id));
+    expect((await post("text")).status).toBe(401);
+    expect(await db.select().from(webhookEvents)).toHaveLength(0);
     expect(await inboundMessages()).toHaveLength(0);
   });
 });

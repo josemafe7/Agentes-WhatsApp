@@ -29,6 +29,20 @@
       "when": 1790469234661,
       "tag": "0003_handoff_closed_at",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790494525071,
+      "tag": "0004_agenda_secondary_resources",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790500910888,
+      "tag": "0005_search_text",
+      "breakpoints": true
     }
   ]
 }

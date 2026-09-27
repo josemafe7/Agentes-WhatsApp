@@ -369,6 +369,19 @@ describe("Personas del canal [USU-17] [PER-02]", () => {
     expect(await setChannelMembersAction({ channelId: channel.id, userIds: [supervisor.userId] })).toMatchObject({ ok: false, fieldErrors: { userIds: expect.any(Array) } });
     expect(await db.select().from(channelMembers)).toEqual([]);
   });
+
+  it("taking an agent off their last channel, or deleting it, warns the admin that they will now see every channel", async () => {
+    const channel = await createChannel();
+    const agent = await createUser("agent", { name: "Marta Recepción", channelIds: [channel.id] });
+    expect(await setChannelMembersAction({ channelId: channel.id, userIds: [agent.userId] })).toEqual({ ok: true, data: { warning: null }, message: "Cambios guardados." });
+    expect(await setChannelMembersAction({ channelId: channel.id, userIds: [] })).toMatchObject({
+      ok: true,
+      data: { warning: expect.stringMatching(/^«Marta Recepción» ya no tiene ningún canal asignado, así que desde ahora verá todos los canales\./) },
+    });
+    const only = await createChannel();
+    await setChannelMembersAction({ channelId: only.id, userIds: [agent.userId] });
+    expect(await deleteChannelAction(only.id)).toMatchObject({ ok: true, message: "Canal borrado.", data: { warning: expect.stringContaining("«Marta Recepción»") } });
+  });
 });
 
 describe("Desactivar y borrar [CAN-16]", () => {

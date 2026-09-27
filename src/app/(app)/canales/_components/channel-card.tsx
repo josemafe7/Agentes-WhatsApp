@@ -6,6 +6,7 @@ import type { ChannelListItem } from "@/data/channels";
 import { formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { channelPath } from "../_lib/webchat";
+import { emailWizardHref } from "../nuevo/correo/_lib/steps";
 import { ActiveAgentControl, type AgentOption } from "./active-agent-control";
 import { ChannelStatusBadge } from "./channel-status-badge";
 
@@ -25,6 +26,9 @@ type ChannelCardProps = {
 export function ChannelCard({ channel, address, agents, canManage, timezone }: ChannelCardProps) {
   const identity = CHANNEL_IDENTITY[channel.type];
   const href = channelPath(channel.id);
+  // A mailbox still being set up goes back to its wizard ([COR-01]); every other channel to its panel.
+  const isMailbox = channel.type === "email_gmail" || channel.type === "email_outlook" || channel.type === "email_imap";
+  const nextHref = channel.status === "draft" && isMailbox && !channel.isDemo ? emailWizardHref(channel.id) : href;
   return (
     <li className="flex flex-col gap-4 rounded-xl border bg-card p-4">
       <div className="flex items-start gap-3">
@@ -79,7 +83,7 @@ export function ChannelCard({ channel, address, agents, canManage, timezone }: C
           )}
         </span>
         <Link
-          href={href}
+          href={nextHref}
           className="inline-flex items-center gap-0.5 rounded-sm font-medium text-primary-text hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
           {channel.status === "draft" ? "Continuar configuración" : "Abrir panel"}
