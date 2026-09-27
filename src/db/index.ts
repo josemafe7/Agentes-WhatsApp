@@ -13,6 +13,7 @@ import { sql, type ExtractTablesWithRelations } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT, PgTransaction } from "drizzle-orm/pg-core";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
+import { after } from "next/server";
 import postgres from "postgres";
 import * as schema from "./schema";
 
@@ -117,13 +118,32 @@ function withWriteLock<T extends Database>(database: T): T {
   const transaction = database.transaction.bind(database);
   const locked: Database["transaction"] = (callback, config) => {
     if (config?.accessMode === "read only") return transaction(callback, config);
-    return transaction(async (tx) => {
+    const running = transaction(async (tx) => {
       await tx.execute(sql.raw("SET LOCAL lock_timeout = '15s'"));
       await tx.execute(sql.raw(`SELECT pg_advisory_xact_lock(${WRITE_LOCK_KEY})`));
       return callback(tx);
     }, config);
+    keepAliveUntilSettled(running);
+    return running;
   };
   return Object.assign(database, { transaction: locked });
+}
+
+/**
+ * On Vercel a function may be frozen as soon as its response is sent. A transaction still open then (for example in a
+ * page whose render was cut short by a quick navigation) would keep the write lock, and every other write would wait.
+ * after() keeps the function alive until the transaction ends. Outside a request (scripts, the worker, the tests)
+ * after() throws: there is nothing to keep alive.
+ */
+function keepAliveUntilSettled(promise: Promise<unknown>): void {
+  try {
+    after(() => promise.then(
+      () => undefined,
+      () => undefined,
+    ));
+  } catch {
+    // Outside a request.
+  }
 }
 
 // PGlite does not stop two processes from opening the same folder (that would corrupt it): `<folder>.lock` holds
