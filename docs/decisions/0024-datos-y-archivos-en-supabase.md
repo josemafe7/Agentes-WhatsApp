@@ -160,6 +160,10 @@ pruebas y al publicar.
   una conexión abierta a medias). Por eso cada consulta y cada transacción la mantienen viva hasta terminar
   (`after()` en `src/db/index.ts`), y en Vercel las tareas de arranque, que ninguna petición espera, no las lanza el
   arranque: las hace el primer aviso de cada minuto de cada instancia (`src/server/startup-maintenance.ts`).
+- Acepta: fuera de una transacción, cada conexión lleva una sola consulta cada vez. El pooler de Supabase en modo
+  transacción devuelve la conexión del servidor al acabar cada consulta, y otra encadenada detrás en la misma
+  conexión se cortaba a medias y esperaba para siempre (contra Supabase, 299 de 305 en ráfagas de 60). Las
+  consultas de una transacción sí se encadenan: tienen su conexión hasta el final.
 - Acepta: el plan Free de Supabase no tiene copias automáticas, se pausa tras una semana con poca actividad y
   limita cada archivo a 50 MB, cuando un documento de WhatsApp puede llegar a 100 MB. Sirve para pruebas; un negocio
   real necesita Pro (copias diarias de 7 días), con el límite de tamaño de Storage subido a 100 MB. Las copias de la
