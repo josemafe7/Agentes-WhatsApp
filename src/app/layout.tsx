@@ -60,7 +60,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="flex min-h-full flex-col">
+      {/* Browser extensions add their own attributes to <body> before React loads: not an app error. */}
+      <body className="flex min-h-full flex-col" suppressHydrationWarning>
         <ThemeProvider nonce={nonce}>
           <TooltipProvider>
             {children}
