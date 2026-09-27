@@ -151,13 +151,19 @@ function keepAliveUntilSettled(promise: Promise<unknown>): void {
   }
 }
 
-/** Every query outside a transaction (Drizzle sends them all through `unsafe`) keeps the function alive until it answers. */
-function keepQueriesAlive(client: postgres.Sql): void {
+/**
+ * Queries outside a transaction (Drizzle sends them all through `unsafe`): one at a time on each connection, and each
+ * keeps the function alive until it answers. Supabase's transaction pooler hands the server connection back when a
+ * query ends, so one queued behind it on the same connection (postgres.js sends those with parameters in two steps)
+ * was cut in half and waited forever. `onexecute` returning false tells postgres.js not to queue anything behind the
+ * query; the queries of a transaction keep their own connection until it ends, where queueing is safe.
+ */
+export function oneQueryAtATime(client: postgres.Sql): void {
   const unsafe = client.unsafe.bind(client);
-  client.unsafe = ((...args: Parameters<typeof unsafe>) => {
-    const query = unsafe(...args);
-    keepAliveUntilSettled(query);
-    return query;
+  client.unsafe = ((query: string, parameters?: unknown[], options?: object) => {
+    const running = unsafe(query, (parameters ?? []) as never, { onexecute: () => false, ...options } as never);
+    keepAliveUntilSettled(running);
+    return running;
   }) as typeof client.unsafe;
 }
 
@@ -265,7 +271,7 @@ function databaseKey(url: string, target: DatabaseTarget): string {
 function connect(target: DatabaseTarget, key: string, max?: number): Connection {
   if (target.kind === "server") {
     const client = postgres(target.url, { ...serverConnectionOptions(target.url), ...(max ? { max } : {}) });
-    keepQueriesAlive(client);
+    oneQueryAtATime(client);
     return {
       key,
       database: withWriteLock(drizzlePostgres(client, { schema }) as Database),

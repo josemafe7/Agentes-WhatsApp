@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { eq, sql } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/pg-core";
+import type postgres from "postgres";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPglite,
@@ -16,6 +17,7 @@ import {
   isUniqueViolation,
   resolveDatabaseTarget,
   rowsOf,
+  oneQueryAtATime,
   serverConnectionOptions,
   WRITE_LOCK_KEY,
 } from "@/db";
@@ -243,6 +245,19 @@ describe("DATABASE_URL", () => {
     expect(databaseUrlFromEnv()).toBe("postgresql://u:p@db.example.com/app");
     expect(resolveDatabaseTarget().kind).toBe("server");
     expect(isServerDatabase()).toBe(true);
+  });
+
+  it("postgres.js: queries outside a transaction go one at a time on each connection (Supabase transaction pooler)", () => {
+    const calls: unknown[][] = [];
+    const client = { unsafe: (...args: unknown[]) => (calls.push(args), Promise.resolve([])) } as unknown as postgres.Sql;
+    oneQueryAtATime(client);
+    void client.unsafe("select $1::int", [1]);
+    void client.unsafe("select 1");
+    const [first, second] = calls as [string, unknown[], { onexecute: () => boolean }][];
+    expect(first.slice(0, 2)).toEqual(["select $1::int", [1]]);
+    expect(first[2].onexecute()).toBe(false);
+    expect(second.slice(0, 2)).toEqual(["select 1", []]);
+    expect(second[2].onexecute()).toBe(false);
   });
 
   it("postgres.js: no prepared statements (Supabase transaction pooler) and TLS except to this machine", () => {
