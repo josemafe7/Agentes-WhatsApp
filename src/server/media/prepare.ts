@@ -222,7 +222,13 @@ async function prepareAudio(message: ModelInputMessage, media: MessageMedia, tur
     },
   );
   if (!outcome.ok) return failed();
-  await db.update(messages).set({ transcript: outcome.text }).where(eq(messages.id, message.id));
+  // With the time it was transcribed: the audio's retention days count from it ([CUM-05]).
+  const [current] = await db.select({ metadata: messages.metadata }).from(messages).where(eq(messages.id, message.id));
+  const patch: MediaMetadataPatch = { transcribedAt: new Date().toISOString() };
+  await db
+    .update(messages)
+    .set({ transcript: outcome.text, metadata: { ...(current?.metadata ?? {}), ...patch } })
+    .where(eq(messages.id, message.id));
   return { ...base, transcript: outcome.text };
 }
 

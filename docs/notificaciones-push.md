@@ -58,7 +58,8 @@ Particularidades de Apple:
   JavaScript simple sin compilar y tiene una URL fija, que es a la que se aplican las cabeceras de la misma
   guía. Se mantiene `public/sw.js`.
 - Evento `push`: lee `event.data.json()` y llama a `self.registration.showNotification(título, opciones)`
-  dentro de `event.waitUntil`. Siempre muestra algo (lo exige Safari, y Chrome pide `userVisibleOnly`).
+  dentro de `event.waitUntil`. Solo usa el título y la ruta. Siempre muestra algo (lo exige Safari, y Chrome pide
+  `userVisibleOnly`): sin un título legible, uno neutro, «Tienes un aviso nuevo».
 - Evento `notificationclick`: cierra el aviso y enfoca una ventana abierta de la app o abre la URL del aviso.
   Solo se aceptan rutas de la propia app.
 - El service worker no guarda páginas en caché: no hace falta modo sin conexión, y cachear páginas con
@@ -121,13 +122,16 @@ del canal). Es un punto a decidir en el widget, no en el push.
   - `urgency`: `very-low`, `low`, `normal` o `high`. Los traspasos van con `high`.
   - `topic`: hasta 32 caracteres de Base64 URL. Con el identificador de la conversación, un aviso nuevo
     sustituye al anterior de la misma conversación en lugar de acumularse.
-  - `timeout`: tiempo máximo de la conexión, en milisegundos.
+  - `timeout`: milisegundos que la conexión puede pasar sin recibir nada; no limita el envío entero. La app pone 10 s
+    y, además, su propio plazo para todo el envío (ver más abajo).
 - El payload va cifrado (`aes128gcm` por defecto) y debe ser pequeño: los servicios deben aceptar al menos
-  4.096 bytes y Apple rechaza lo que pasa de 4 KB. Solo lleva el título, el texto corto de los avisos del sistema y
-  la ruta de la app. El título dice qué pasa y con qué contacto, con su nombre en una línea corta («Traspaso: Ana»,
-  [PWA-04]); nunca teléfonos, emails ni el texto de los mensajes, porque se ve en la pantalla bloqueada. Los avisos de
-  una conversación (traspaso, conversación nueva o asignada) no llevan texto fuera de la app: el motivo de un traspaso
-  puede repetir lo que escribió el cliente y solo se lee dentro, en la campana (`src/server/notifications/notify.ts`).
+  4.096 bytes y Apple rechaza lo que pasa de 4 KB. Solo lleva el título y la ruta de la app (`{ title, link }`), nunca
+  el texto del aviso. El título es neutro: dice qué pasa y con qué contacto, con su nombre en una línea corta
+  («Traspaso: Ana», [PWA-04]); nunca teléfonos, emails ni el texto de los mensajes, porque se ve en la pantalla
+  bloqueada. El texto del aviso se lee en la campana de la app y, salvo en los avisos de una conversación, también en
+  el correo: el motivo de un traspaso puede repetir lo que escribió el cliente, así que los de una conversación
+  (traspaso, conversación nueva o asignada) no lo llevan fuera de la app (`src/server/notifications/notify.ts` y
+  `push.ts`).
 - Tanto si se resuelve como si falla, el resultado trae `statusCode`, `headers` y `body`:
 
   | Respuesta | Qué significa | Qué hace la app |
@@ -136,24 +140,39 @@ del canal). Es un punto a decidir en el widget, no en el push.
   | 404 | Suscripción caducada (RFC 8030) | Borra la suscripción |
   | 410 | La suscripción ya no es válida | Borra la suscripción |
   | 413 | Payload demasiado grande | Error de programación: se registra |
-  | 429 | Demasiadas peticiones | Reintenta después de lo que diga `Retry-After` |
-  | 400 o 403 | Petición o firma VAPID incorrectas | Se registra sin datos secretos y se avisa en Diagnóstico |
+  | 429 | Demasiadas peticiones | Se registra; no se reintenta |
+  | 400 o 403 | Petición o firma VAPID incorrectas | Se registra el código (y el motivo que da Apple) con el servidor, nunca la dirección entera ni datos secretos |
 
 - El `endpoint` lo manda el navegador de un usuario con sesión, y el servidor hace un `POST` a esa URL. Para
-  que nadie lo use para hacer peticiones a redes internas, se exige HTTPS y se rechazan IP privadas y
-  `localhost`. Se puede limitar además a los dominios de los servicios de push conocidos; de ellos, solo
-  `*.push.apple.com` está comprobado en la documentación oficial.
+  que nadie lo use para hacer peticiones a redes internas ni a un servidor cualquiera, solo se acepta el de un
+  servicio de push de los navegadores (`isAllowedPushEndpoint` de `src/server/notifications/push.ts`): HTTPS en el
+  puerto de siempre, sin usuario ni contraseña, y `fcm.googleapis.com` (Google) o un nombre bajo
+  `push.services.mozilla.com` (Mozilla), `notify.windows.com` (Microsoft) o `push.apple.com` (Apple); nunca el dominio
+  suelto ni un nombre que solo empieza o acaba igual. Además, nada de `localhost` ni de IP privadas: las direcciones IP
+  del nombre se comprueban al conectar, justo antes de cada envío, para que un cambio de DNS no lleve a la red interna.
+  De esos servicios, solo `*.push.apple.com` está comprobado en la documentación oficial.
+- Cada push va por su propia conexión, que no se reutiliza, y tiene un plazo para todo el envío, de conectar al último
+  byte de la respuesta: 10 s (`PUSH_DEADLINE_MS`). De la respuesta se leen como mucho 8 KB (`MAX_PUSH_RESPONSE_BYTES`:
+  el código y, de Apple, un motivo corto), porque `web-push` la leería entera sin límite. Un servicio que no responde a
+  tiempo o que responde de más se corta y se registra, y la suscripción se queda: no retiene a los demás dispositivos
+  ni el trabajo en segundo plano.
 - Apple pide no renovar el token VAPID más de una vez por hora. `web-push` lo firma en cada envío; con el
   volumen de un negocio pequeño no debería notarse (no verificado). Si Apple empieza a responder 403 o 429,
   es lo primero que se revisa.
-- Cada aviso es un job de la cola, con reintentos para 429 y errores 5xx.
+- Cada aviso es un job de la cola (`notifications.deliver`). Un push que falla (429, 5xx, sin respuesta a tiempo) no
+  se reintenta: se registra, y el aviso queda por las otras vías que la persona eligió para ese suceso (la campana de
+  la app, el correo).
 
 ## Pruebas
 
 - El envío se hace a través de una función inyectable para poder simularla en Vitest: se comprueba que un
-  404 o un 410 borra la suscripción y que el payload no lleva datos personales.
+  404 o un 410 borra la suscripción, que el payload no lleva datos personales, que solo se aceptan los servicios de
+  push de los navegadores y que un servicio que no responde se corta al pasar el plazo sin parar a los demás.
 - Playwright no puede recibir un push real; las pruebas de extremo a extremo comprueban el botón, el guardado
-  de la suscripción (con `PushManager` simulado) y que `/sw.js` y el manifiesto se sirven sin sesión.
+  de la suscripción (con `PushManager` simulado) y que `/sw.js` y el manifiesto se sirven sin sesión. El
+  `PushManager` simulado da direcciones del dominio reservado `.invalid` (RFC 2606), que nunca resuelven: el servidor
+  solo las acepta con `E2E_ALLOW_BASE_URL_OVERRIDES=true` y la app en este ordenador (`docs/security.md`
+  «Configuración»).
 - La app lee el permiso con la API de permisos (`navigator.permissions.query`) y, si el navegador no la tiene para
   las notificaciones, con `Notification.permission`: el Chromium sin ventana de las pruebas deja esta última en
   «denied» aunque el permiso esté concedido, y un navegador real puede tardar en ponerla al día. Pedir el permiso sigue

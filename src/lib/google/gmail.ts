@@ -48,6 +48,16 @@ const rawMessageSchema = z.object({
 });
 export type GmailRawMessage = z.infer<typeof rawMessageSchema>;
 
+const metadataMessageSchema = z.object({
+  id: z.string().min(1),
+  threadId: z.string().min(1),
+  labelIds: z.array(z.string()).default([]),
+  sizeEstimate: z.number().int().nonnegative().optional(),
+  internalDate: z.string().optional(),
+  payload: z.object({ headers: z.array(z.object({ name: z.string(), value: z.string() })).default([]) }).optional(),
+});
+export type GmailMessageMetadata = Omit<z.infer<typeof metadataMessageSchema>, "payload"> & { headers: { name: string; value: string }[] };
+
 const sentMessageSchema = z.object({ id: z.string().min(1), threadId: z.string().optional(), labelIds: z.array(z.string()).optional() });
 export type GmailSentMessage = z.infer<typeof sentMessageSchema>;
 
@@ -166,6 +176,14 @@ export function createGmailClient(options: GmailClientOptions) {
       if (input.q) query.push(["q", input.q]);
       if (input.pageToken) query.push(["pageToken", input.pageToken]);
       return parse(messageListSchema, await call({ path: "/messages", query }));
+    },
+    /**
+     * Labels, size and headers of a message without its body (format=metadata, [F14]): read first, so a message too big
+     * to read whole is never downloaded ([COR-19]).
+     */
+    async getMessageMetadata(id: string): Promise<GmailMessageMetadata> {
+      const { payload, ...message } = parse(metadataMessageSchema, await call({ path: `/messages/${assertId(id)}`, query: [["format", "metadata"]] }));
+      return { ...message, headers: payload?.headers ?? [] };
     },
     /** The whole RFC 2822 message in `raw` (base64url), parsed later like IMAP's ([F14]). */
     async getRawMessage(id: string): Promise<GmailRawMessage> {

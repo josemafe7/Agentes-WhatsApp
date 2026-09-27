@@ -6,9 +6,10 @@ import type { Role } from "@/lib/enums";
 import { createBooking, SlotUnavailableError, type BookingActor } from "@/server/booking";
 import { at, createHairdresser, NOW, TZ } from "@/server/booking/test-helpers";
 import { formatLocalMinute } from "@/server/booking/time";
-import { AuthError, NotFoundError, ValidationError } from "@/server/errors";
+import { AuthError, NotFoundError, RateLimitError, ValidationError } from "@/server/errors";
 import { actorFor, createChannel, createContactWithIdentity, createConversation, createUser, type TestUser } from "@/test/factories";
 import {
+  BOOKING_NOTICE_LIMIT,
   countTestBookings,
   createBookingByPerson,
   deleteTestBookings,
@@ -160,18 +161,76 @@ describe("a contact's bookings and the next one [CTO-02] [CTO-01]", () => {
 });
 
 describe("telling the customer what a person did [AGD-23]", () => {
-  it("moving or confirming with «Avisar al cliente» sends one message by the booking's conversation", async () => {
-    const channel = await createChannel({ type: "webchat" });
+  /** A pending «Tinte» booked from a web chat conversation of Marcos. */
+  async function bookedFromChat(channelId?: string, start = "2026-09-28T10:00") {
+    const channel = channelId ?? (await createChannel({ type: "webchat" })).id;
     const { contact } = await createContactWithIdentity("webchat", { name: "Marcos" });
-    const conversation = await createConversation(channel.id, contact.id);
-    const booking = await createBookingByPerson(users.owner.actor, { serviceId: hair.dye.id, resourceId: "any", start: "2026-09-28T10:00", conversationId: conversation.id }, { now: NOW });
+    const conversation = await createConversation(channel, contact.id);
+    const booking = await createBookingByPerson(users.owner.actor, { serviceId: hair.dye.id, resourceId: "any", start, conversationId: conversation.id }, { now: NOW });
+    return { booking, conversation };
+  }
+  const sentIn = async (conversationId: string) =>
+    (await db.select().from(messages).where(and(eq(messages.conversationId, conversationId), eq(messages.direction, "outbound")))).map((message) => message.text);
+
+  it("moving or confirming with «Avisar al cliente» sends one message by the booking's conversation", async () => {
+    const { booking, conversation } = await bookedFromChat();
     expect(booking.status).toBe("pending");
     const confirmed = await setBookingStatus(users.owner.actor, { bookingId: booking.id, status: "confirmed", notifyCustomer: true }, { now: NOW });
     expect(confirmed.notice).toMatchObject({ sent: true });
     const quiet = await moveBooking(users.owner.actor, { bookingId: booking.id, start: "2026-09-28T11:00" }, { now: NOW });
     expect(quiet.notice).toBeNull();
-    const sent = await db.select().from(messages).where(and(eq(messages.conversationId, conversation.id), eq(messages.direction, "outbound")));
-    expect(sent.map((message) => message.text)).toEqual(["Tu cita de Tinte el lunes 28 de septiembre a las 10:00 está confirmada. ¡Te esperamos!"]);
+    expect(await sentIn(conversation.id)).toEqual(["Tu cita de Tinte el lunes 28 de septiembre a las 10:00 está confirmada. ¡Te esperamos!"]);
+  });
+
+  it("only a real change is told: the same status again, or a «move» to the same time, sends nothing", async () => {
+    const { booking, conversation } = await bookedFromChat();
+    await setBookingStatus(users.owner.actor, { bookingId: booking.id, status: "confirmed", notifyCustomer: true }, { now: NOW });
+    expect((await setBookingStatus(users.owner.actor, { bookingId: booking.id, status: "confirmed", notifyCustomer: true }, { now: NOW })).notice).toBeNull();
+    expect((await moveBooking(users.owner.actor, { bookingId: booking.id, start: "2026-09-28T10:00", notifyCustomer: true }, { now: NOW })).notice).toBeNull();
+    expect((await moveBooking(users.owner.actor, { bookingId: booking.id, start: "2026-09-28T12:00", notifyCustomer: true }, { now: NOW })).notice).toMatchObject({ sent: true });
+    expect(await sentIn(conversation.id)).toEqual([
+      "Tu cita de Tinte el lunes 28 de septiembre a las 10:00 está confirmada. ¡Te esperamos!",
+      "Hemos cambiado tu cita de Tinte: ahora es el lunes 28 de septiembre a las 12:00.",
+    ]);
+  });
+
+  it("[PER-02] only who may reply in the booking's conversation tells the customer: an agent of other channels gets «no permitido» and nothing changes", async () => {
+    const mine = await createChannel({ type: "webchat" });
+    const theirs = await createChannel({ type: "webchat" });
+    const agent = await createUser("agent", { channelIds: [mine.id] });
+    const { booking, conversation } = await bookedFromChat(theirs.id);
+
+    await expect(setBookingStatus(agent.actor, { bookingId: booking.id, status: "confirmed", notifyCustomer: true }, { now: NOW })).rejects.toBeInstanceOf(AuthError);
+    await expect(moveBooking(agent.actor, { bookingId: booking.id, start: "2026-09-28T11:00", notifyCustomer: true }, { now: NOW })).rejects.toBeInstanceOf(AuthError);
+    const [row] = await db.select().from(bookings).where(eq(bookings.id, booking.id));
+    expect(row.status).toBe("pending");
+    expect(formatLocalMinute(row.startsAt, TZ)).toBe("2026-09-28T10:00");
+    expect(await sentIn(conversation.id)).toEqual([]);
+    expect((await getBooking(agent.actor, booking.id)).canNotify).toBe(false);
+
+    // The booking itself is theirs to manage ([PER-01] «Agenda»), without telling anyone.
+    expect((await setBookingStatus(agent.actor, { bookingId: booking.id, status: "confirmed" }, { now: NOW })).booking.status).toBe("confirmed");
+    // Someone who may reply there does tell the customer.
+    const own = await bookedFromChat(mine.id, "2026-09-28T12:00");
+    expect((await getBooking(agent.actor, own.booking.id)).canNotify).toBe(true);
+    expect((await setBookingStatus(agent.actor, { bookingId: own.booking.id, status: "confirmed", notifyCustomer: true }, { now: NOW })).notice).toMatchObject({ sent: true });
+  });
+
+  it("[SEG-07] telling customers has a limit per person: past it, the change waits and nothing is sent", async () => {
+    const { booking, conversation } = await bookedFromChat();
+    const supervisor = await createUser("supervisor");
+    for (let index = 0; index < BOOKING_NOTICE_LIMIT.limit; index += 1) {
+      await setBookingStatus(supervisor.actor, { bookingId: booking.id, status: index % 2 === 0 ? "confirmed" : "cancelled", notifyCustomer: true }, { now: NOW });
+    }
+    const told = (await sentIn(conversation.id)).length;
+    expect(told).toBe(BOOKING_NOTICE_LIMIT.limit);
+    const next = BOOKING_NOTICE_LIMIT.limit % 2 === 0 ? "confirmed" : "cancelled";
+    await expect(setBookingStatus(supervisor.actor, { bookingId: booking.id, status: next, notifyCustomer: true }, { now: NOW })).rejects.toBeInstanceOf(RateLimitError);
+    const [row] = await db.select().from(bookings).where(eq(bookings.id, booking.id));
+    expect(row.status).not.toBe(next);
+    expect(await sentIn(conversation.id)).toHaveLength(told);
+    // Someone else is not affected.
+    expect((await setBookingStatus(users.owner.actor, { bookingId: booking.id, status: next, notifyCustomer: true }, { now: NOW })).notice).toMatchObject({ sent: true });
   });
 });
 

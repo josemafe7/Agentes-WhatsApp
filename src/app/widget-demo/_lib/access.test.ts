@@ -22,6 +22,7 @@ afterEach(() => vi.unstubAllEnvs());
 describe("who opens /widget-demo [WEB-12] [PER-09] [WEB-10]", () => {
   it("in the demo (local), anyone: nobody is asked to sign in", async () => {
     vi.stubEnv("DEMO_MODE", "true");
+    vi.stubEnv("APP_URL", "http://localhost:3000");
     await expect(requireWidgetDemoViewer(CHAT)).resolves.toBeUndefined();
     expect(session.calls).toEqual([]);
   });
@@ -37,5 +38,15 @@ describe("who opens /widget-demo [WEB-12] [PER-09] [WEB-10]", () => {
   it("without DEMO_MODE at all it is a real installation", async () => {
     vi.stubEnv("DEMO_MODE", "");
     await expect(requireWidgetDemoViewer(null)).rejects.toThrow("REDIRECT:");
+  });
+
+  it("DEMO_MODE on an app with a public address still asks for a session: the demo is public only on this computer", async () => {
+    vi.stubEnv("DEMO_MODE", "true");
+    vi.stubEnv("APP_URL", "https://agentes.mipeluqueria.es");
+    vi.stubEnv("BETTER_AUTH_URL", "https://agentes.mipeluqueria.es");
+    await expect(requireWidgetDemoViewer(CHAT)).rejects.toThrow(`REDIRECT:/login?next=${encodeURIComponent(`/widget-demo?canal=${CHAT}`)}`);
+    vi.stubEnv("APP_URL", "http://localhost:3000");
+    vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
+    await expect(requireWidgetDemoViewer(CHAT)).resolves.toBeUndefined();
   });
 });

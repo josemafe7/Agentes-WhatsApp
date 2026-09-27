@@ -347,7 +347,8 @@ de encargo del tratamiento.
 - **«El modelo de respaldo tiene que ser de otro proveedor»:** elige uno de otra marca (por ejemplo, si el
   principal es de OpenAI, uno de Google o Anthropic).
 - **Un aviso dice que un modelo se retira o ya no está en la lista:** cambia el modelo del agente en su pestaña
-  Modelo antes de esa fecha.
+  Modelo antes de esa fecha. Si el aviso lleva a Ajustes › IA, el modelo es uno de los modelos por defecto: cámbialo
+  ahí. El aviso llega una sola vez por modelo (en la campana y, si así lo tienes en Mi cuenta, por email).
 - **El agente no usa el conocimiento:** mira en su pestaña Conocimiento que la base tenga «Usar» encendido y, en modo
   «Automático», que «Buscar en el conocimiento» esté encendida en Herramientas. Comprueba con «Probar búsqueda» que
   la base encuentra la respuesta con las palabras del cliente.

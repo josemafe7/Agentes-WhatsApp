@@ -56,13 +56,20 @@ export type EmailMessageView = {
   /** Who approved this AI reply from the inbox, and whether they edited it first ([CAN-07]). */
   approvedBy: string | null;
   edited: boolean;
+  /**
+   * A customer email: whether the server that received it vouched for its From ([COR-25]); false shows «Remitente no
+   * verificado». Null for ours, a person's from the mailbox and the demo's.
+   */
+  senderVerified: boolean | null;
+  /** The Reply-To addresses it asked for (other than its From): replies go only to the From ([COR-25]). */
+  replyToIgnored: EmailAddressView[];
 };
 
 export type EmailThreadView = {
   conversationId: string;
   subject: string | null;
   mailbox: string | null;
-  /** The next reply: to whom and with which subject, as the adapter will send it ([COR-06]). */
+  /** The next reply: to whom (only the From of the newest email, [COR-25]) and with which subject ([COR-06]). */
   reply: { to: EmailAddressView[]; subject: string };
   /** What a person's reply from the inbox ends with ([COR-21]); null without a signature or business name. */
   replySignature: string | null;
@@ -169,14 +176,18 @@ async function loadCustomerEmails(conversationId: string): Promise<CustomerEmail
 }
 
 /**
- * Whom a reply to `original` goes to: Reply-To, else From, never the mailbox itself, else the contact. The same rule
- * as the adapter's (src/server/channels/email/reply-context.ts); a test checks both give the same address.
+ * Whom a reply to `original` goes to: its From, never its Reply-To (anyone can write one, [COR-25]) nor the mailbox
+ * itself, else the contact. The same rule as the adapter's (src/server/channels/email/reply-context.ts); a test checks
+ * both give the same address.
  */
 function recipientsOf(original: EmailMetadata | null, contact: EmailAddressView | null, own: string | null): EmailAddressView[] {
-  const replyTo = (original?.replyTo ?? []).filter((item) => item.address !== own);
-  if (replyTo.length > 0) return replyTo;
   if (original?.from && original.from.address !== own) return [original.from];
   return contact ? [contact] : [];
+}
+
+/** The Reply-To addresses of a customer email that are neither its From nor the mailbox: not answered ([COR-25]). */
+function ignoredReplyTo(metadata: EmailMetadata, own: string | null): EmailAddressView[] {
+  return metadata.replyTo.filter((item) => item.address !== metadata.from?.address && item.address !== own);
 }
 
 /** File names of the attachments among `rows`, by the provider id of their email. */
@@ -217,12 +228,16 @@ function viewOf(row: MessageRow, context: ViewContext): EmailMessageView | null 
     fromMailbox: false,
     approvedBy: typeof row.metadata.approvedByName === "string" ? row.metadata.approvedByName : null,
     edited: row.metadata.editedBeforeSending === true,
+    senderVerified: null as boolean | null,
+    replyToIgnored: [] as EmailAddressView[],
   };
 
   // An email that came from outside: the customer's, or a person's reply from the mailbox ([COR-20]).
   if (metadata) {
+    const customer = row.direction === "inbound" && metadata.fromMailbox !== true;
     return {
       ...base,
+      ...(customer ? { senderVerified: metadata.senderVerified === true, replyToIgnored: ignoredReplyTo(metadata, context.mailbox) } : {}),
       subject: differentSubject(ownSubject),
       subjectLine: row.direction === "inbound" ? ownSubject : null,
       from: metadata.from,

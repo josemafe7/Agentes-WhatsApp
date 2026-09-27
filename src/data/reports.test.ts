@@ -21,7 +21,7 @@ import type { AiRunKind, BookingSource, BookingStatus, ChannelType, HandoffTrigg
 import { at, createHairdresser, NOW, TZ } from "@/server/booking/test-helpers";
 import { AuthError, ValidationError } from "@/server/errors";
 import { actorFor, createChannel, createContactWithIdentity, createConversation, createMessage } from "@/test/factories";
-import { getReport, median, percentileNearestRank, REPORT_MAX_DAYS, resolveReportPeriod, RESPONSE_TARGET_MS, type Report } from "./reports";
+import { getReport, getReportForExport, median, percentileNearestRank, REPORT_MAX_DAYS, resolveReportPeriod, RESPONSE_TARGET_MS, type Report } from "./reports";
 
 const MINUTE = 60_000;
 const owner = actorFor("owner");
@@ -257,6 +257,14 @@ describe("[PER-01] «Informes»: owner, admin, supervisor and viewer, never the 
     const wa = await createChannel({ type: "whatsapp", name: "WhatsApp" });
     await expect(getReport(actorFor("agent"), {})).rejects.toBeInstanceOf(AuthError);
     await expect(getReport(actorFor("agent", { channelIds: [wa.id] }), { channelId: wa.id })).rejects.toMatchObject({ code: "forbidden" });
+  });
+
+  it.each(["owner", "admin"] as const)("[INF-09] the %s gets a table to download in CSV", async (role) => {
+    await expect(getReportForExport(actorFor(role), {})).resolves.toMatchObject({ period: { month: "2026-09" } });
+  });
+
+  it.each(["supervisor", "viewer", "agent"] as const)("[INF-09] the %s never downloads a table in CSV", async (role) => {
+    await expect(getReportForExport(actorFor(role), {})).rejects.toMatchObject({ code: "forbidden" });
   });
 });
 

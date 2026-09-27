@@ -1,8 +1,8 @@
 // Custom HTTP tools ([HER-11]–[HER-14], [AGE-08]): list, create, edit, delete, «Probar» and which agents use each one.
 // Only owner and admin ([PER-01], spec «Agentes: herramientas HTTP personalizadas»). The secret headers are encrypted
 // before they touch the database and only ever come back masked («••••1234», [PER-07]); a saved value is sent only to
-// the server it was saved for: moving the address to another server needs it typed again (docs/security.md «Secretos
-// del negocio»). Deleting deletes the agents' links first (nothing relies on cascades).
+// the address it was saved for: any change of the address needs it typed again (docs/security.md «Secretos del
+// negocio»). Deleting deletes the agents' links first (nothing relies on cascades).
 import "server-only";
 import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -33,7 +33,7 @@ const NOT_FOUND = "No se ha encontrado la herramienta.";
 const AGENT_NOT_FOUND = "No se ha encontrado el agente.";
 const NAME_TAKEN = "Ya hay una herramienta con ese nombre.";
 const VALUE_MISSING = "Escribe el valor de la cabecera.";
-const VALUE_AGAIN = "Has cambiado el servidor de la dirección: vuelve a escribir el valor de esta cabecera.";
+const VALUE_AGAIN = "Has cambiado la dirección: vuelve a escribir el valor de esta cabecera.";
 const VALUE_UNREADABLE = "El valor guardado no se puede leer (ha cambiado la clave de cifrado): vuelve a escribirlo.";
 /** «Probar» calls an outside service: per person and minute ([SEG-07]). */
 export const HTTP_TOOL_TEST_LIMIT = 20;
@@ -209,11 +209,13 @@ function isUniqueViolation(error: unknown): boolean {
 
 /**
  * The secret headers to save: a new value replaces; a row without one keeps the saved value it points to (`keep`),
- * only if the address stays on the same server and the saved value can be read ([HER-12], [SEG-03]).
+ * only if the address stays exactly the same and the saved value can be read ([HER-12], [SEG-03]). Any change of the
+ * address (scheme, server, port, path or query) needs the value typed again: on a shared server another path may be
+ * someone else's endpoint.
  */
 function nextSecretHeaders(data: HttpToolInput, current: { url: string; secretHeadersEnc: string | null } | null): Record<string, string> {
   const saved = current ? readSecretHeaders(current.secretHeadersEnc) : {};
-  const sameServer = current !== null && templateOrigin(current.url)?.origin === templateOrigin(data.url)?.origin;
+  const sameAddress = current !== null && current.url === data.url;
   const next: Record<string, string> = {};
   const errors: Record<string, string[]> = {};
   data.headers.forEach((header, index) => {
@@ -232,7 +234,7 @@ function nextSecretHeaders(data: HttpToolInput, current: { url: string; secretHe
     }
     const kept = saved[header.keep];
     if (kept === undefined) errors[key] = [VALUE_MISSING];
-    else if (!sameServer) errors[key] = [VALUE_AGAIN];
+    else if (!sameAddress) errors[key] = [VALUE_AGAIN];
     else next[header.name] = kept;
   });
   if (Object.keys(errors).length > 0) throw new ValidationError(undefined, errors);

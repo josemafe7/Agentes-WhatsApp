@@ -10,7 +10,10 @@ import { createAgentRow, createBusiness, createChannel, createUser } from "@/tes
 import { memoryFileStorage } from "@/test/fixtures/whatsapp/memory-storage";
 import { createEmailAdapter, outlookAdapter } from "../adapter";
 import { encryptOAuthSecrets, readEmailConfig, readOAuthSecrets } from "../config";
+import { TOO_LARGE_TEXT } from "../ingest";
 import { runEmailPoll } from "../jobs";
+import { parseRawEmail } from "../parse";
+import type { EmailDeps } from "../provider";
 import { buildRawEmail, fakeMicrosoft } from "../test-helpers";
 import { outlookProvider, secretExpiryCheck } from "./provider";
 
@@ -49,7 +52,7 @@ async function setup(options: { replyMode?: "auto" | "draft"; accessExpiresAt?: 
 
 const conversationsOf = (channelId: string) => db.select().from(conversations).where(eq(conversations.channelId, channelId));
 const messagesOf = (channelId: string) => db.select().from(messages).where(eq(messages.channelId, channelId));
-const poll = (channelId: string, deps: ReturnType<typeof fakeMicrosoft>["deps"]) => runEmailPoll(channelId, {}, deps);
+const poll = (channelId: string, deps: EmailDeps) => runEmailPoll(channelId, {}, deps);
 
 async function loadChannel(id: string) {
   const [row] = await db.select().from(channels).where(eq(channels.id, id));
@@ -75,6 +78,27 @@ describe("Outlook: recepción por consulta delta ([COR-08])", () => {
     fake.state.cursor.inbox = 0;
     await poll(channel.id, deps);
     expect(await messagesOf(channel.id)).toHaveLength(1);
+  });
+
+  it("[COR-19] el tamaño se mira antes de descargar: uno demasiado grande no se descarga, se guarda con sus cabeceras", async () => {
+    const { fake, channel, deps } = await setup();
+    fake.addMessage("inbox", await buildRawEmail({ to: OWN, subject: "Vídeo de la boda", messageId: "<big@cliente.test>" }), { size: 45 * 1024 * 1024 });
+    const outcome = await poll(channel.id, deps);
+    expect(outcome).toMatchObject({ report: { ingested: 1 } });
+    expect(fake.calls.some((call) => call.url.pathname.endsWith("/$value"))).toBe(false);
+    const [message] = await messagesOf(channel.id);
+    expect(message.text).toBe(TOO_LARGE_TEXT);
+    expect(message.metadata).toMatchObject({ subject: "Vídeo de la boda", email: { messageId: "<big@cliente.test>", from: { address: "ana@cliente.test" }, truncated: true } });
+  });
+
+  it("[COR-19] sin tamaño de Graph, el MIME se deja de leer al pasar del máximo", async () => {
+    const { fake, channel, deps } = await setup();
+    const huge = await buildRawEmail({ to: OWN, subject: "Adjuntos", text: "x".repeat(2_000) });
+    fake.addMessage("inbox", huge, { size: null });
+    const outcome = await poll(channel.id, { ...deps, maxEmailBytes: 1_000 });
+    expect(outcome).toMatchObject({ report: { ingested: 1 } });
+    const [message] = await messagesOf(channel.id);
+    expect(message.text).toBe(TOO_LARGE_TEXT);
   });
 
   it("410 Gone: vuelve a sincronizar desde cero sin duplicar", async () => {
@@ -125,15 +149,48 @@ describe("Outlook: envío ([COR-08], [COR-14], [COR-15], [COR-18])", () => {
     expect((await conversationsOf(channel.id))[0].aiPausedUntil).toBeNull();
   });
 
-  it("si Graph no acepta nuestra cabecera al crear la respuesta, se crea sin ella", async () => {
+  it("[COR-18] si Graph no acepta nuestra cabecera en JSON, la respuesta se crea desde nuestro MIME, que la lleva", async () => {
     const { fake, channel, agent, deps } = await setup();
-    fake.addMessage("inbox", await buildRawEmail({ to: OWN }));
+    const original = fake.addMessage("inbox", await buildRawEmail({ to: OWN, subject: "Cita", messageId: "<o9@cliente.test>" }));
     await poll(channel.id, deps);
     fake.state.rejectHeaders = true;
     const [conversation] = await conversationsOf(channel.id);
     const sent = await sendOutbound({ conversationId: conversation.id, sender: { type: "ai", agentId: agent.id, agentName: agent.name }, text: "Hola", retryDelayMs: 0 });
     expect(sent.status).toBe("sent");
-    expect(fake.state.created[0].headers).toBeNull();
+    expect(fake.state.created).toHaveLength(1);
+    expect(fake.state.created[0]).toMatchObject({ replyTo: original.id, via: "mime" });
+    const mime = await parseRawEmail(fake.state.created[0].mime ?? Buffer.alloc(0));
+    expect(mime.headers["x-dominia-agente"]).toEqual(["1"]);
+    expect(mime.inReplyTo).toBe("<o9@cliente.test>");
+    expect(mime.subject).toBe("Re: Cita");
+    expect(mime.text).toContain("Hola");
+    // The text and the file are already in the MIME: the draft only gets its one recipient.
+    expect(fake.state.patched.at(-1)?.body).toEqual({ toRecipients: [{ emailAddress: { address: "ana@cliente.test", name: "Ana Cliente" } }] });
+    expect(fake.state.sentDrafts).toEqual([fake.state.created[0].id]);
+  });
+
+  it("[COR-18] si Graph tampoco la acepta desde el MIME, no se envía nada sin nuestra cabecera", async () => {
+    const { fake, channel, agent, deps } = await setup();
+    fake.addMessage("inbox", await buildRawEmail({ to: OWN }));
+    await poll(channel.id, deps);
+    fake.state.rejectHeaders = true;
+    fake.state.rejectMime = true;
+    const [conversation] = await conversationsOf(channel.id);
+    const sent = await sendOutbound({ conversationId: conversation.id, sender: { type: "ai", agentId: agent.id, agentName: agent.name }, text: "Hola", retryDelayMs: 0 });
+    expect(sent.status).toBe("failed");
+    expect(sent.error?.message).toMatch(/marca de la app/);
+    expect(fake.state.created).toHaveLength(0);
+    expect(fake.state.sentDrafts).toEqual([]);
+  });
+
+  it("[COR-25] la respuesta va solo al remitente, aunque el correo pida las respuestas en otra dirección (Reply-To)", async () => {
+    const { fake, channel, agent, deps } = await setup();
+    fake.addMessage("inbox", await buildRawEmail({ to: OWN, replyTo: "Pedidos <pedidos@otra.test>" }), { conversationId: "conv-R" });
+    await poll(channel.id, deps);
+    const [conversation] = await conversationsOf(channel.id);
+    await sendOutbound({ conversationId: conversation.id, sender: { type: "ai", agentId: agent.id, agentName: agent.name }, text: "Hola Ana", retryDelayMs: 0 });
+    // Exchange addresses a reply to the Reply-To by itself ([F41]): the draft gets the From as its only recipient.
+    expect(fake.state.patched[0].body).toMatchObject({ toRecipients: [{ emailAddress: { address: "ana@cliente.test", name: "Ana Cliente" } }] });
   });
 
   it("[COR-14] [COR-15] en modo borrador el borrador de createReply queda en Outlook y al aprobarlo se envía ese mismo", async () => {

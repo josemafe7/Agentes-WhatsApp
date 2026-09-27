@@ -2,9 +2,10 @@
 // (checked in src/data). Errors are the stored Spanish, secret-free messages ([SEG-02], [SEG-14]).
 import "server-only";
 import { getDiagnostics } from "@/data/diagnostics";
+import { listConnectionTests, type ConnectionTestInput, type ConnectionTests, type TestableChannelType } from "@/data/diagnostics-connections";
 import { getBusinessProfile } from "@/data/settings";
 import { listSystemEmails } from "@/data/system-mail";
-import type { AiRunKind, ChannelType, JobStatus, SystemEmailKind, SystemEmailStatus } from "@/lib/enums";
+import type { AiRunKind, ChannelStatus, ChannelType, JobStatus, SystemEmailKind, SystemEmailStatus } from "@/lib/enums";
 import { formatDateTime, formatNumber, formatRelative } from "@/lib/format";
 import type { Actor } from "@/lib/permissions";
 
@@ -44,6 +45,55 @@ const EMAIL_STATUS_LABELS: Record<SystemEmailStatus, string> = {
   failed: "No se envió",
 };
 
+/** «Pruebas de conexión» ([AJU-11]): what each channel's test does, as its own panel does it. */
+const CHANNEL_TESTS: Record<TestableChannelType, { badge: string; description: string; action: string }> = {
+  whatsapp: { badge: "WhatsApp", description: "Revalida el número con Meta y pone al día sus semáforos.", action: "Revalidar" },
+  email_gmail: { badge: "Gmail", description: "Comprueba con Google que el acceso al buzón sigue funcionando.", action: "Probar acceso" },
+  email_outlook: { badge: "Outlook", description: "Comprueba con Microsoft que el acceso al buzón sigue funcionando.", action: "Probar acceso" },
+  email_imap: { badge: "Correo IMAP/SMTP", description: "Prueba la entrada (IMAP) y el envío (SMTP) con los datos guardados.", action: "Probar conexión" },
+};
+const CHANNEL_STATUS_NOTES: Partial<Record<ChannelStatus, string>> = {
+  connecting: "Sin terminar de conectar.",
+  error: "Con error.",
+  disabled: "Desactivado.",
+};
+
+export type ConnectionTestItem = { key: string; title: string; badge: string | null; description: string; action: string; input: ConnectionTestInput };
+
+function systemMailDescription(mail: ConnectionTests["systemMail"]): string {
+  if (mail.configured) return "Envía un correo de prueba a tu email con el servidor de Ajustes › Correo del sistema.";
+  if (mail.outbox) return "Sin servidor configurado: el correo de prueba se guarda en la bandeja local de esta página.";
+  return "Sin servidor configurado, los correos de la app no salen: configúralo en Ajustes › Correo del sistema.";
+}
+
+export function connectionTestItems(tests: ConnectionTests): ConnectionTestItem[] {
+  return [
+    {
+      key: "openrouter",
+      title: "Clave de OpenRouter",
+      badge: null,
+      description: tests.openRouter.configured
+        ? "Pregunta a OpenRouter si la clave en uso es válida y cuánto le queda de su tope de gasto."
+        : "Todavía no hay clave: ponla en Ajustes › IA.",
+      action: "Probar clave",
+      input: { target: "openrouter" },
+    },
+    { key: "system_mail", title: "Correo del sistema", badge: null, description: systemMailDescription(tests.systemMail), action: "Enviar correo de prueba", input: { target: "system_mail" } },
+    ...tests.channels.map((channel): ConnectionTestItem => {
+      const test = CHANNEL_TESTS[channel.type];
+      const note = CHANNEL_STATUS_NOTES[channel.status];
+      return {
+        key: channel.id,
+        title: channel.name,
+        badge: channel.isDemo ? `${test.badge} · Demo` : test.badge,
+        description: channel.isDemo ? "Canal de demostración: no se conecta a ningún servicio." : note ? `${note} ${test.description}` : test.description,
+        action: test.action,
+        input: { target: "channel", channelId: channel.id },
+      };
+    }),
+  ];
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < KB) return `${formatNumber(bytes)} B`;
   if (bytes < KB * KB) return `${formatNumber(bytes / KB, { maximumFractionDigits: 1 })} KB`;
@@ -52,7 +102,12 @@ export function formatBytes(bytes: number): string {
 }
 
 export async function loadDiagnosticsView(actor: Actor) {
-  const [diagnostics, emails, profile] = await Promise.all([getDiagnostics(actor), listSystemEmails(actor), getBusinessProfile(actor)]);
+  const [diagnostics, emails, profile, connections] = await Promise.all([
+    getDiagnostics(actor),
+    listSystemEmails(actor),
+    getBusinessProfile(actor),
+    listConnectionTests(actor),
+  ]);
   const tz = profile.timezone;
   const now = new Date();
   const relative = (date: Date | null) => (date ? formatRelative(date, tz, now) : null);
@@ -142,6 +197,7 @@ export async function loadDiagnosticsView(actor: Actor) {
         canOpen: email.canOpen,
       })),
     },
+    connectionTests: connectionTestItems(connections),
   };
 }
 

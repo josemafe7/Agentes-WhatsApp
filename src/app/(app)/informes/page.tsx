@@ -35,8 +35,8 @@ const NO_ANSWERS = "Ningún traspaso atendido por una persona en este periodo";
 /**
  * Informes ([INF-01]–[INF-08], [CUM-11]): the current month by default, or another month or some days, in the business
  * time zone, for every channel or one. Indicators, four charts with «Ver datos», the reasons of the hand-offs and
- * «Descargar CSV» of each table. Owner, admin, supervisor and viewer; the server checks it again for every read and
- * every export ([PER-01] «Informes»).
+ * «Descargar CSV» of each table. Owner, admin, supervisor and viewer; «Descargar CSV» only owner and admin ([INF-09]);
+ * the server checks it again for every read and every export ([PER-01] «Informes»).
  */
 export default async function ReportsPage({ searchParams }: PageProps) {
   const actor = await requirePageActor({ next: REPORTS_PATH });
@@ -92,6 +92,8 @@ export default async function ReportsPage({ searchParams }: PageProps) {
   const empty = emptyCharts(report);
   const table = (key: ReportTableKey) => buildReportTable(report, key);
   const byDay = firstResponse.granularity === "day";
+  // «Descargar CSV»: owner and admin ([INF-09]); the action checks it again.
+  const canExport = can(actor, PERMISSIONS.reports.export);
 
   return (
     <>
@@ -103,6 +105,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
           table={table("canales")}
           description="Conversaciones en las que el cliente escribió en el periodo, y las que resolvió la IA sin traspaso ni personas."
           filter={filter}
+          canExport={canExport}
           chart={<ChannelsChart data={channelBars(report)} />}
           empty={empty.channels ? NO_DATA : null}
         />
@@ -110,6 +113,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
           table={table("traspasos")}
           description="Quién pasó la conversación a una persona: la IA, una regla del agente o alguien del equipo."
           filter={filter}
+          canExport={canExport}
           chart={<OriginsChart data={originBars(report)} />}
           empty={empty.origins ? NO_DATA : null}
         />
@@ -117,6 +121,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
           table={table("primera-respuesta")}
           description={`Mediana ${byDay ? "por día" : "por mes"} del tiempo desde el traspaso hasta el primer mensaje de una persona.`}
           filter={filter}
+          canExport={canExport}
           chart={<ResponseChart data={responseBars(report)} />}
           empty={empty.response === "no-handoffs" ? NO_DATA : empty.response === "no-answers" ? NO_ANSWERS : null}
           note={<Note>{RESPONSE_LAW_NOTE}</Note>}
@@ -125,6 +130,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
           table={table("costes")}
           description="Coste de la IA según OpenRouter y coste estimado de WhatsApp, en US$, de los últimos meses."
           filter={filter}
+          canExport={canExport}
           chart={<CostsChart data={costBars(report)} />}
           empty={empty.costs ? NO_DATA : null}
           note={
@@ -145,7 +151,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
             ) : null
           }
         />
-        <ReportCard table={table("motivos")} description="Lo que se anotó al pasar cada conversación a una persona, de más a menos frecuente." filter={filter} className="xl:col-span-2" />
+        <ReportCard table={table("motivos")} description="Lo que se anotó al pasar cada conversación a una persona, de más a menos frecuente." filter={filter} canExport={canExport} className="xl:col-span-2" />
       </div>
     </>
   );

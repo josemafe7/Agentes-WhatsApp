@@ -117,19 +117,41 @@ describe("raw channel webhooks [CUM-05]", () => {
 });
 
 describe("files of voice notes and attachments [CUM-05]", () => {
-  it("a voice note's file goes 30 days after its transcript; the transcript stays, and one without transcript waits as an attachment", async () => {
+  it("a voice note's file goes 30 days after it was transcribed, not after it arrived; the transcript stays, and one without transcript waits as an attachment", async () => {
     const conversation = await conversationQuietFor(1);
-    const transcribedOld = await messageAt(conversation, 31, { contentType: "audio", transcript: "Quería pedir cita el martes", media: await storedFile("audio/ogg") });
-    const transcribedNew = await messageAt(conversation, 29, { contentType: "audio", transcript: "¿Tenéis hueco?", media: await storedFile("audio/ogg") });
-    const untranscribed = await messageAt(conversation, 31, { contentType: "audio", media: await storedFile("audio/ogg") });
+    const voiceNote = async (receivedDaysAgo: number, transcribedDaysAgo: number | null, transcript: string | null = "Quería pedir cita el martes") =>
+      messageAt(conversation, receivedDaysAgo, {
+        contentType: "audio",
+        transcript,
+        media: await storedFile("audio/ogg"),
+        metadata: transcribedDaysAgo === null ? {} : { transcribedAt: daysAgo(transcribedDaysAgo).toISOString() },
+      });
+    const transcribedLongAgo = await voiceNote(40, 31);
+    // Arrived 40 days ago but transcribed 29 days ago (for example, the AI key was added later): it stays.
+    const transcribedLately = await voiceNote(40, 29, "¿Tenéis hueco?");
+    // Transcribed before the time was saved: it counts from its arrival.
+    const olderRow = await voiceNote(31, null);
+    const recentOlderRow = await voiceNote(29, null);
+    const untranscribed = await voiceNote(31, null, null);
 
     const { counts } = await run();
-    expect(counts.audioFiles).toBe(1);
-    const old = await rowOf(transcribedOld.id);
-    expect(old).toMatchObject({ media: null, transcript: "Quería pedir cita el martes" });
-    expect(await memory.storage.exists(transcribedOld.media?.fileKey ?? "")).toBe(false);
-    expect((await rowOf(transcribedNew.id)).media?.fileKey).toBe(transcribedNew.media?.fileKey);
-    expect(await memory.storage.exists(untranscribed.media?.fileKey ?? "")).toBe(true);
+    expect(counts.audioFiles).toBe(2);
+    expect(await rowOf(transcribedLongAgo.id)).toMatchObject({ media: null, transcript: "Quería pedir cita el martes" });
+    expect(await memory.storage.exists(transcribedLongAgo.media?.fileKey ?? "")).toBe(false);
+    expect((await rowOf(olderRow.id)).media).toBeNull();
+    for (const kept of [transcribedLately, recentOlderRow, untranscribed]) {
+      expect((await rowOf(kept.id)).media?.fileKey).toBe(kept.media?.fileKey);
+      expect(await memory.storage.exists(kept.media?.fileKey ?? "")).toBe(true);
+    }
+  });
+
+  it("voice notes transcribed lately never hold back the ones that are due", async () => {
+    const conversation = await conversationQuietFor(1);
+    const media = async () => ({ contentType: "audio" as const, transcript: "Hola", media: await storedFile("audio/ogg") });
+    for (let index = 0; index < 30; index += 1) await messageAt(conversation, 40, { ...(await media()), metadata: { transcribedAt: daysAgo(20).toISOString() } });
+    const due = await messageAt(conversation, 35, { ...(await media()), metadata: { transcribedAt: daysAgo(31).toISOString() } });
+    expect((await run()).counts.audioFiles).toBe(1);
+    expect((await rowOf(due.id)).media).toBeNull();
   });
 
   it("attachments (sent or received) go after 90 days: the message and its text stay", async () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { Ellipsis, LoaderCircle, Mail, Paperclip, UserCheck } from "lucide-react";
+import { Ellipsis, LoaderCircle, Mail, Paperclip, ShieldAlert, UserCheck } from "lucide-react";
 import { useEffect, useId, useState, useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,10 @@ import { ACTION_FAILED } from "../../_components/use-inbox-action";
 import { loadQuotedTextAction } from "./actions";
 import { approvalLabel, emailBody, formatAddress, formatAddresses, originalTextLabels, splitSignature } from "./presentation";
 import { useEmailThread } from "./thread-context";
+
+/** Why «Remitente no verificado» matters ([COR-25]). */
+const UNVERIFIED_DETAIL =
+  "El servidor que recibió este correo no ha podido comprobar que lo envía esa dirección: la IA no consulta, cambia ni cancela citas ni guarda datos con él, y ofrece una persona.";
 
 type EmailMessageContentProps = {
   message: MessageItem;
@@ -66,6 +70,16 @@ function EmailCard({ message, view, thread, onPrimary, timezone }: EmailCardProp
           </HeaderField>
         ) : null}
       </dl>
+      {view.senderVerified === false ? (
+        <p className="flex w-fit items-center gap-1.5 rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning" title={UNVERIFIED_DETAIL}>
+          <ShieldAlert aria-hidden className="size-3.5 shrink-0" />
+          Remitente no verificado
+          <span className="sr-only">: {UNVERIFIED_DETAIL}</span>
+        </p>
+      ) : null}
+      {view.replyToIgnored.length > 0 ? (
+        <p className={cn("text-xs", muted)}>Pedía las respuestas en {formatAddresses(view.replyToIgnored)}: se responde solo a quien lo envió.</p>
+      ) : null}
       {body ? <p className="whitespace-pre-wrap">{body}</p> : null}
       {signature ? <p className={cn("text-xs whitespace-pre-wrap", muted)}>{`-- \n${signature}`}</p> : null}
       {pendingSignature ? (

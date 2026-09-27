@@ -2,7 +2,8 @@
 // time zone. Conversations by channel and the share the AI resolved on its own, hand-offs and their reasons, the time
 // until a person first answered after a hand-off, bookings created by the AI, and the cost of the AI (what OpenRouter
 // reported, [MOT-11]) and the estimated cost of WhatsApp ([WA-47]). «Probar agente» never counts ([INF-08]): its AI
-// runs are added up apart. Owner, admin, supervisor and viewer read it; agents do not ([PER-01] «Informes»).
+// runs are added up apart. Owner, admin, supervisor and viewer read it; agents do not ([PER-01] «Informes»). Only owner
+// and admin download its tables in CSV ([INF-09]).
 //
 // Definitions, in the words of the screen:
 // - A conversation of the period is one where the customer wrote in it (long-lived WhatsApp and web chat conversations
@@ -461,6 +462,15 @@ function originCounts(rows: readonly HandoffRow[]): Report["handoffs"]["byOrigin
   return HANDOFF_ORIGINS.filter((origin) => counts.has(origin))
     .map((origin) => ({ origin, count: counts.get(origin) ?? 0 }))
     .sort((a, b) => b.count - a.count || HANDOFF_ORIGINS.indexOf(a.origin) - HANDOFF_ORIGINS.indexOf(b.origin));
+}
+
+/**
+ * The report to download a table of it in CSV: only owner and admin ([INF-09]), because the tables carry the reasons
+ * of the hand-offs, free text that may name customers.
+ */
+export async function getReportForExport(actor: Actor, input: unknown): Promise<Report> {
+  assertCan(actor, PERMISSIONS.reports.export);
+  return getReport(actor, input);
 }
 
 /**

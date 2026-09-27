@@ -44,11 +44,12 @@ function safeReturn(state: ConsumedState): string {
 
 async function checkState(actor: Actor | null, provider: OAuthProvider, query: OAuthCallbackQuery): Promise<{ state: ConsumedState } | { failure: OAuthCompletion }> {
   if (!actor) return { failure: fail("session", null) };
-  const consumed = await consumeOAuthState(provider, query.state);
+  // The round trip belongs to whoever started it, and that person must still manage channels ([COR-23], [SEG-04]):
+  // both are checked before the state is used up, so nobody else can spoil it.
+  if (!can(actor, PERMISSIONS.channels.manage)) return { failure: fail("state_invalid", null) };
+  const consumed = await consumeOAuthState(provider, query.state, actor.userId);
   if (!consumed.ok) return { failure: fail(consumed.reason, null) };
   const state = { ...consumed.state, returnTo: safeReturn(consumed.state) };
-  // The round trip belongs to whoever started it, and that person must still manage channels ([COR-23], [SEG-04]).
-  if (state.userId !== actor.userId || !can(actor, PERMISSIONS.channels.manage)) return { failure: fail("state_invalid", null) };
   if (query.error) return { failure: fail(query.error === "access_denied" ? "denied" : "provider_error", state) };
   return { state };
 }

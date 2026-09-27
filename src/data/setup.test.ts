@@ -133,7 +133,7 @@ describe("step 1 · owner [ASI-01] [ASI-02]", () => {
     expect(JSON.stringify(log)).not.toContain(TEST_PASSWORD);
   });
 
-  it("a second attempt is rejected once a user exists, and creates nobody", async () => {
+  it("a second attempt is rejected once a user exists, and creates nobody [USU-04]", async () => {
     await createOwner(OWNER_INPUT);
     await expect(createOwner({ name: "Intrusa", email: "otra@example.com", password: TEST_PASSWORD })).rejects.toBeInstanceOf(
       ConflictError,
@@ -269,7 +269,7 @@ describe("step 2 · business and sector [ASI-03] [ASI-04]", () => {
     );
   });
 
-  it.each(SECTORS)("every sector can be chosen: %s", async (sector) => {
+  it.each(SECTORS)("every sector can be chosen: %s [AGD-27]", async (sector) => {
     const owner = await ownerActor();
     await saveBusinessStep(owner, { ...BUSINESS, sector });
     const preset = getSectorPreset(sector);
@@ -283,7 +283,7 @@ describe("step 2 · business and sector [ASI-03] [ASI-04]", () => {
     expect(getSectorPreset("tienda").agendaMode).toBe(getSectorPreset("otro").agendaMode);
   });
 
-  it("saving again with the same sector keeps the data (no duplicates); another sector replaces what the wizard loaded", async () => {
+  it("saving again with the same sector keeps the data (no duplicates); another sector replaces what the wizard loaded [AGD-27]", async () => {
     const owner = await ownerActor();
     await saveBusinessStep(owner, BUSINESS);
     const [first] = await db.select().from(services);

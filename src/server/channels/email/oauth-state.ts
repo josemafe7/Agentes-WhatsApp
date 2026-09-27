@@ -1,8 +1,8 @@
 // OAuth round trips started from the app (Google and Microsoft, [COR-23]): each «Conectar» stores the SHA-256 of a
 // random `state`, the PKCE verifier encrypted, who started it, for which channel, where to return and a 10-minute
-// expiry. The callback consumes the state once (atomically): a return that does not match one of ours, comes back
-// twice, comes late or for another person is rejected and nothing is stored. System code: the data layer checks
-// permissions first.
+// expiry. The callback consumes the state once (atomically) and only for the person who started it: a return that
+// does not match one of ours, comes back twice, comes late or for another person is rejected and nothing is stored —
+// and another person's attempt does not use it up for its owner. System code: the data layer checks permissions first.
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq, gt, isNull, lt } from "drizzle-orm";
@@ -47,18 +47,18 @@ export async function createOAuthState(
 export type ConsumedState = { channelId: string; userId: string; codeVerifier: string; returnTo: string | null };
 export type ConsumeResult = { ok: true; state: ConsumedState } | { ok: false; reason: "state_invalid" | "state_expired" };
 
-/** Marks the state used (only once) and returns what it holds. */
-export async function consumeOAuthState(provider: OAuthProvider, state: string | null | undefined, now: Date = new Date()): Promise<ConsumeResult> {
+/** Marks the state used (only once, and only when it is `userId`'s) and returns what it holds. */
+export async function consumeOAuthState(provider: OAuthProvider, state: string | null | undefined, userId: string, now: Date = new Date()): Promise<ConsumeResult> {
   if (!state || state.length > 200) return { ok: false, reason: "state_invalid" };
   const stateHash = hashToken(state);
   const [row] = await db
     .update(oauthStates)
     .set({ usedAt: now, updatedAt: now })
-    .where(and(eq(oauthStates.stateHash, stateHash), eq(oauthStates.provider, provider), isNull(oauthStates.usedAt), gt(oauthStates.expiresAt, now)))
+    .where(and(eq(oauthStates.stateHash, stateHash), eq(oauthStates.provider, provider), eq(oauthStates.userId, userId), isNull(oauthStates.usedAt), gt(oauthStates.expiresAt, now)))
     .returning();
   if (!row) {
-    const [known] = await db.select({ expiresAt: oauthStates.expiresAt, usedAt: oauthStates.usedAt }).from(oauthStates).where(eq(oauthStates.stateHash, stateHash));
-    return { ok: false, reason: known && !known.usedAt && known.expiresAt <= now ? "state_expired" : "state_invalid" };
+    const [known] = await db.select({ expiresAt: oauthStates.expiresAt, usedAt: oauthStates.usedAt, userId: oauthStates.userId }).from(oauthStates).where(eq(oauthStates.stateHash, stateHash));
+    return { ok: false, reason: known && known.userId === userId && !known.usedAt && known.expiresAt <= now ? "state_expired" : "state_invalid" };
   }
   const codeVerifier = tryDecryptSecret(row.codeVerifierEnc);
   if (!row.channelId || !row.userId || !codeVerifier) return { ok: false, reason: "state_invalid" };

@@ -1,6 +1,7 @@
 // Bajas ([CUM-03], [CUM-04], [CUM-13]) as the business sees them: a customer of the demo WhatsApp (through the
-// simulator, so nothing ever reaches Meta, [AJU-13]) writes «BAJA». They get ONE confirmation, the AI stays quiet, and a
-// person of the team who tries to write to them is told why nothing can be sent. Needs the demo seed's WhatsApp channel.
+// simulator, so nothing ever reaches Meta, [AJU-13]) writes «BAJA». They get ONE confirmation and the AI stays quiet;
+// their message waits for a person, who can still answer them, warned over the composer that the AI, the reminders
+// and the templates are stopped. Needs the demo seed's WhatsApp channel.
 import { authStatePath } from "../support/app";
 import { untilWithQueue } from "../support/engine";
 import { conversationLog, replyBox, sendReplyButton } from "../support/inbox";
@@ -12,10 +13,10 @@ test.use({ storageState: authStatePath("owner") });
 
 /** The confirmation the customer gets (src/server/compliance/opt-out.ts). */
 const CONFIRMATION = "Listo: te hemos dado de baja y no te enviaremos más mensajes por este canal.";
-/** Why a person's message is refused. */
-const REFUSED = "El cliente se ha dado de baja en este canal";
+/** The warning over the composer (src/server/compliance/opt-out.ts, OPTED_OUT_COMPOSER_WARNING). */
+const WARNING = "Este cliente se ha dado de baja en este canal: la IA, los recordatorios y las plantillas están parados.";
 
-test("[CUM-03][CUM-04][CUM-13] a customer who writes «BAJA» gets one confirmation, and from then on nobody can write to them in that channel", async ({
+test("[CUM-03][CUM-04][CUM-13] a customer who writes «BAJA» gets one confirmation and the AI stays quiet; a person can still answer them, with a warning over the composer", async ({
   page,
   request,
   mock,
@@ -38,11 +39,16 @@ test("[CUM-03][CUM-04][CUM-13] a customer who writes «BAJA» gets one confirmat
     expect(await mock.requests({ service: "meta" })).toHaveLength(0);
   });
 
-  await test.step("[CUM-03] a person's message is refused with the reason, and it is not in the conversation", async () => {
+  await test.step("[CUM-04] the composer warns that the AI, the reminders and the templates are stopped", async () => {
+    await expect(page.getByRole("main").getByRole("status").filter({ hasText: WARNING })).toBeVisible();
+  });
+
+  await test.step("[CUM-04] a person's message still reaches the customer (through the simulator: nothing reaches Meta)", async () => {
     const text = uniqueMessage(testInfo, "Te echaremos de menos");
     await replyBox(page).fill(text);
     await sendReplyButton(page).click();
-    await expect(page.getByRole("main").getByRole("alert").filter({ hasText: REFUSED })).toBeVisible();
-    await expect(conversationLog(page).getByText(text, { exact: true })).toHaveCount(0);
+    await expect(conversationLog(page).getByText(text, { exact: true })).toBeVisible();
+    await expect(replyBox(page)).toHaveValue("");
+    expect(await mock.requests({ service: "meta" })).toHaveLength(0);
   });
 });

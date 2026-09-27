@@ -100,7 +100,11 @@ export function ReminderSettingsForm({ settings, options, defaultEmail, words }:
           <legend className="text-sm font-medium">Por dónde</legend>
           <RadioGroup value={channel} onValueChange={(value) => setChannel(value === "email" ? "email" : "whatsapp_template")} className="grid gap-3">
             <ChannelOption value="whatsapp_template" label="WhatsApp" help="Con una plantilla de utilidad aprobada por Meta, desde uno de tus números." />
-            <ChannelOption value="email" label="Email" help={`Con el correo del sistema, a los ${words.customers} que tienen email.`} />
+            <ChannelOption
+              value="email"
+              label="Email"
+              help={`A los ${words.customers} que tienen email: por su hilo del buzón conectado si ya te han escrito, y si no con el correo del sistema.`}
+            />
           </RadioGroup>
           <FieldError errors={errorList(errors?.channel)} />
         </fieldset>
@@ -310,7 +314,7 @@ function EmailSection({ subject, body, onSubject, onBody, defaults, fields, syst
       </h2>
       {systemMailConfigured ? null : (
         <Warning>
-          Sin correo del sistema no sale ningún recordatorio por email. Configúralo en{" "}
+          Sin correo del sistema solo salen los recordatorios de quien ya te ha escrito a un buzón conectado. Configúralo en{" "}
           <Link href="/ajustes/correo" className="underline underline-offset-4">
             Ajustes › Correo del sistema
           </Link>

@@ -276,15 +276,32 @@ async function readUpTo(response: Response, maxBytes: number, signal: AbortSigna
   return { bytes, truncated };
 }
 
-/** Every form in which a secret header value may come back: as it is, JSON-escaped and URL-encoded, and its long words. */
+/** Every character as a JSON \u escape, in lower or upper case hex. */
+function unicodeEscaped(value: string, upper: boolean): string {
+  return [...value]
+    .map((char) => {
+      const code = char.charCodeAt(0).toString(16).padStart(4, "0");
+      return `\\u${upper ? code.toUpperCase() : code}`;
+    })
+    .join("");
+}
+
+/**
+ * Every form in which a secret header value may come back in the raw answer: as it is, JSON-escaped (also with «\/»
+ * and all as \u escapes), URL-encoded, and its long words. Mixed escapes are caught once the answer is decoded.
+ */
 function secretForms(values: readonly string[]): string[] {
   const forms = new Set<string>();
   for (const value of values) {
     const candidates = [value, ...value.split(/\s+/).filter((word) => word.length >= MIN_SECRET_WORD_CHARS)];
     for (const candidate of candidates) {
       if (candidate.length < MIN_SECRET_CHARS) continue;
+      const jsonEscaped = JSON.stringify(candidate).slice(1, -1);
       forms.add(candidate);
-      forms.add(JSON.stringify(candidate).slice(1, -1));
+      forms.add(jsonEscaped);
+      forms.add(jsonEscaped.replaceAll("/", "\\/"));
+      forms.add(unicodeEscaped(candidate, false));
+      forms.add(unicodeEscaped(candidate, true));
       forms.add(encodeURIComponent(candidate));
     }
   }
@@ -299,6 +316,16 @@ export function redactSecretValues(text: string, values: readonly string[]): str
   return result;
 }
 
+/** A decoded JSON value with the secrets removed from every text in it, keys included ([HER-12]). */
+function redactJson(value: unknown, values: readonly string[]): unknown {
+  if (typeof value === "string") return redactSecretValues(value, values);
+  if (Array.isArray(value)) return value.map((item) => redactJson(item, values));
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [redactSecretValues(key, values), redactJson(item, values)]));
+  }
+  return value;
+}
+
 function cut(text: string): string {
   return `${text.slice(0, MAX_DATA_CHARS)}…`;
 }
@@ -310,7 +337,10 @@ function tidy(text: string): string {
     .trim();
 }
 
-/** The answer as the model gets it: JSON compacted, HTML as its text, anything else as text; always without secrets. */
+/**
+ * The answer as the model gets it: JSON compacted, HTML as its text, anything else as text; always without secrets,
+ * removed before decoding and again after it (JSON escapes and HTML entities could hide them from the first pass).
+ */
 function compactAnswer(response: Response, read: { bytes: Uint8Array; truncated: boolean }, url: string, secrets: readonly string[]): { data: unknown; truncated: boolean } {
   if (read.bytes.byteLength === 0) return { data: null, truncated: false };
   const header = response.headers.get("content-type");
@@ -320,14 +350,15 @@ function compactAnswer(response: Response, read: { bytes: Uint8Array; truncated:
   const text = redactSecretValues(decodeText({ body: read.bytes, charset, contentType }), secrets);
   if (!read.truncated && (contentType.includes("json") || /^\s*[[{]/.test(text))) {
     try {
-      const parsed: unknown = JSON.parse(text);
+      const parsed = redactJson(JSON.parse(text), secrets);
       const compact = JSON.stringify(parsed);
       return compact.length <= MAX_DATA_CHARS ? { data: parsed, truncated: false } : { data: cut(compact), truncated: true };
     } catch {
-      // Not JSON after all: read as text.
+      // Not JSON after all (or nested beyond what can be walked): read as text.
     }
   }
-  const plain = contentType === "text/html" || contentType === "application/xhtml+xml" ? htmlToMarkdown(text, url).markdown : tidy(text);
+  const decoded = contentType === "text/html" || contentType === "application/xhtml+xml" ? htmlToMarkdown(text, url).markdown : tidy(text);
+  const plain = redactSecretValues(decoded, secrets);
   if (plain.length > MAX_DATA_CHARS) return { data: cut(plain), truncated: true };
   return { data: plain === "" ? null : plain, truncated: read.truncated };
 }

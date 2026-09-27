@@ -362,6 +362,19 @@ Recomendación: empieza con **Borrador para revisar** y pasa a **Automático** c
 - En Gmail, el correo contestado recibe la etiqueta **IA/Respondido** (dentro de «IA»); en IMAP, la palabra clave IA-Respondido.
 - Con **saludo** y **firma**: la firma del canal (o el nombre del negocio, si no pones ninguna) y una línea con el aviso de IA: «Este correo lo ha escrito un asistente de inteligencia artificial.» o, si una persona revisó el borrador, «Este correo lo ha escrito un asistente de inteligencia artificial y lo ha revisado una persona.»
 - Todo lo que envía la app lleva una marca propia: así nunca se contesta a sí misma.
+- Solo a **quien envió el correo**. Si el correo pedía las respuestas en otra dirección («Responder a»), la app no la
+  usa y lo dice en el hilo: esa dirección la escribe quien envía y podría ser la de otra persona.
+
+### Remitente no verificado
+
+La dirección del remitente la escribe quien envía el correo. Por eso la app mira lo que dice el servidor que lo recibió
+(Gmail, Outlook y la mayoría de los servidores lo comprueban): si no confirma que el correo viene de esa dirección, la
+Bandeja lo marca **«Remitente no verificado»** y, en esa respuesta, la IA no puede ver, cambiar ni cancelar citas ni
+guardar datos del cliente: responde a lo general y ofrece que lo gestione una persona. Pasa lo mismo si en el hilo
+escribe alguien distinto del cliente de la conversación (por ejemplo, alguien en copia). Con «Otro (IMAP/SMTP)», mira
+en la Bandeja un correo que te hayan enviado desde fuera: si sale como no verificado aunque venga de un cliente real,
+tu servidor de correo no está comprobando los remitentes; pregunta a tu proveedor antes de dar al agente de correo
+herramientas de citas.
 
 ### Cuando responde una persona desde el buzón
 
@@ -372,9 +385,10 @@ Si alguien del equipo contesta al cliente desde su propio programa de correo (Gm
 Para que una conversación no se alargue sin fin (por ejemplo, con otro programa que contesta solo), la IA tiene un tope de respuestas al día:
 
 - **por hilo**: 5 por defecto;
-- **por remitente**: 10 por defecto.
+- **por remitente**: 10 por defecto;
+- **por buzón**: 200, sumando todos los hilos y remitentes (este no se cambia).
 
-Los cambias en el canal. Al llegar al tope, la IA deja de contestar ese día y la conversación espera a una persona, con el motivo «Tope diario de respuestas de la IA en este hilo» o «Tope diario de respuestas de la IA a este remitente». El día se cuenta en la zona horaria del negocio.
+Los dos primeros los cambias en el canal. Se comprueban al llegar cada correo y otra vez justo antes de enviar la respuesta. Al llegar al tope, la IA deja de contestar ese día y la conversación espera a una persona, con el motivo «Tope diario de respuestas de la IA en este hilo», «Tope diario de respuestas de la IA a este remitente» o «Tope diario de respuestas de la IA en este buzón». El día se cuenta en la zona horaria del negocio.
 
 ### Qué correos se ignoran
 

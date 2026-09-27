@@ -5,7 +5,18 @@ import { json, record, type RecordedCall } from "./http";
 export const GMAIL_BASE = "https://gmail.test";
 export const GOOGLE_OAUTH_BASE = "https://accounts.google.test";
 
-export type FakeGmailMessage = { id: string; threadId: string; labelIds: string[]; raw: Buffer; internalDate: number };
+export type FakeGmailMessage = { id: string; threadId: string; labelIds: string[]; raw: Buffer; internalDate: number; sizeEstimate?: number };
+
+/** The header lines of a raw message, unfolded, as Gmail's format=metadata lists them in payload.headers. */
+function headerPairs(raw: Buffer): { name: string; value: string }[] {
+  const text = raw.toString("utf8");
+  const end = text.search(/\r?\n\r?\n/);
+  const block = (end >= 0 ? text.slice(0, end) : text).replace(/\r?\n[ \t]+/g, " ");
+  return block
+    .split(/\r?\n/)
+    .map((line) => ({ name: line.slice(0, Math.max(0, line.indexOf(":"))).trim(), value: line.slice(line.indexOf(":") + 1).trim() }))
+    .filter((pair) => pair.name.length > 0);
+}
 
 export function fakeGoogle(options: { emailAddress?: string; historyId?: string; scope?: string } = {}) {
   const state = {
@@ -26,9 +37,9 @@ export function fakeGoogle(options: { emailAddress?: string; historyId?: string;
   const calls: RecordedCall[] = [];
   const nextId = () => `m${(++state.counter).toString(16).padStart(6, "0")}`;
 
-  function addMessage(raw: Buffer, options: { labels?: string[]; threadId?: string; id?: string } = {}): FakeGmailMessage {
+  function addMessage(raw: Buffer, options: { labels?: string[]; threadId?: string; id?: string; sizeEstimate?: number } = {}): FakeGmailMessage {
     const id = options.id ?? nextId();
-    const message = { id, threadId: options.threadId ?? `t-${id}`, labelIds: options.labels ?? ["INBOX", "UNREAD"], raw, internalDate: Date.parse("2026-09-27T09:00:00Z") };
+    const message = { id, threadId: options.threadId ?? `t-${id}`, labelIds: options.labels ?? ["INBOX", "UNREAD"], raw, internalDate: Date.parse("2026-09-27T09:00:00Z"), sizeEstimate: options.sizeEstimate };
     state.messages.set(id, message);
     state.historyId += 1;
     state.history.push({ historyId: state.historyId, ids: [id] });
@@ -80,7 +91,11 @@ export function fakeGoogle(options: { emailAddress?: string; historyId?: string;
     if (messageMatch && call.method === "GET") {
       const message = state.messages.get(messageMatch[1]);
       if (!message) return json({ error: { code: 404, message: "Not Found" } }, 404);
-      return json({ id: message.id, threadId: message.threadId, labelIds: message.labelIds, sizeEstimate: message.raw.byteLength, internalDate: String(message.internalDate), raw: message.raw.toString("base64url") });
+      const base = { id: message.id, threadId: message.threadId, labelIds: message.labelIds, sizeEstimate: message.sizeEstimate ?? message.raw.byteLength, internalDate: String(message.internalDate) };
+      const format = call.url.searchParams.get("format") ?? "full";
+      if (format === "metadata") return json({ ...base, payload: { mimeType: "text/plain", headers: headerPairs(message.raw) } });
+      if (format === "raw") return json({ ...base, raw: message.raw.toString("base64url") });
+      return json({ error: { code: 400, message: `Unsupported format ${format}` } }, 400);
     }
     if (path === "/messages/send") {
       const raw = Buffer.from(String(body.raw), "base64url");

@@ -9,6 +9,11 @@ export const SYSTEM_MAIL_HEADER = "X-DominIA-System";
 /** Defaults of the daily caps of AI replies per thread and per sender ([COR-17]). */
 export const DEFAULT_DAILY_CAP_PER_THREAD = 5;
 export const DEFAULT_DAILY_CAP_PER_SENDER = 10;
+/**
+ * AI replies a mailbox sends in a day, all its threads and senders together ([COR-17]): many senders each under their
+ * own cap still stop here. Fixed (docs/spec.md), under the daily sending limits of Gmail and Outlook.com mailboxes.
+ */
+export const DAILY_CAP_PER_CHANNEL = 200;
 export const MAX_DAILY_CAP = 100;
 export const MAX_SIGNATURE = 1_000;
 

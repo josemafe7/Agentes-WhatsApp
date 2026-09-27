@@ -72,6 +72,16 @@ describe("[COR-05] cliente de la API de Gmail", () => {
     expect(fake.seen[0].body).toEqual({ id: "r-1", message: { raw: "UkFX", threadId: "t1" } });
   });
 
+  it("[COR-19] el tamaño y las cabeceras de un correo se piden antes que el correo entero (format=metadata)", async () => {
+    const fake = fakeGmail([
+      ok({ id: "m1", threadId: "t1", labelIds: ["INBOX"], sizeEstimate: 52_000_000, internalDate: "1790000000000", payload: { headers: [{ name: "From", value: "Ana <ana@cliente.test>" }, { name: "Subject", value: "Fotos" }] } }),
+    ]);
+    const client = createGmailClient({ getAccessToken: async () => "tok", fetchImpl: fake.fetchImpl, baseUrl: "https://gmail.test" });
+    await expect(client.getMessageMetadata("m1")).resolves.toMatchObject({ id: "m1", sizeEstimate: 52_000_000, headers: [{ name: "From", value: "Ana <ana@cliente.test>" }, { name: "Subject", value: "Fotos" }] });
+    expect(fake.seen[0].url.pathname).toBe("/gmail/v1/users/me/messages/m1");
+    expect(fake.seen[0].url.searchParams.get("format")).toBe("metadata");
+  });
+
   it("no mete en la ruta ids que no son de Gmail", async () => {
     const client = createGmailClient({ getAccessToken: async () => "tok", fetchImpl: async () => new Response("{}"), baseUrl: "https://gmail.test" });
     await expect(client.getRawMessage("../../profile")).rejects.toBeInstanceOf(GmailApiError);

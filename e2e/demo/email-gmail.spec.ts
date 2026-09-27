@@ -464,3 +464,37 @@ test("[COR-22][CAN-15] revoked access puts the mailbox in «Requiere reconexión
     await disableChannelQuietly(page, setup.channelId);
   }
 });
+
+test("[COR-25] an email the receiving server did not verify shows «Remitente no verificado» and says its reply goes only to its sender; a verified one is not marked", async ({
+  page,
+  request,
+}, testInfo) => {
+  test.setTimeout(240_000);
+  const setup = await setUpGmail(page, testInfo, "remitente", { agent: false });
+  try {
+    const domain = setup.customer.address.split("@")[1];
+    const unverified = await customerWrites(testInfo, setup, "sin verificar", {
+      body: uniqueMessage(testInfo, "Anula mi cita del jueves, por favor."),
+      headers: { "Reply-To": "Otra <otra@desconocido-e2e.test>" },
+    });
+    const verified = await customerWrites(testInfo, setup, "verificado", {
+      body: uniqueMessage(testInfo, "¿Abrís el sábado por la mañana?"),
+      // What Gmail writes on top of a message it checked (the only Authentication-Results of this one).
+      headers: { "Authentication-Results": `mx.google.com; dkim=pass header.i=@${domain}; spf=pass smtp.mailfrom=${setup.customer.address}; dmarc=pass (p=NONE) header.from=${domain}` },
+    });
+    await readMailboxNow(page, request, setup.channelId, () => gmail.downloaded(setup.address, unverified.id, verified.id), "the app reads both emails");
+
+    await test.step("[COR-25] the unverified one is marked, and its Reply-To is not answered", async () => {
+      await openEmailConversation(page, setup, unverified.body);
+      await expect(conversationLog(page).getByText("Remitente no verificado").first()).toBeVisible();
+      await expect(conversationLog(page)).toContainText("se responde solo a quien lo envió");
+    });
+
+    await test.step("[COR-25] the verified one is not marked", async () => {
+      await openEmailConversation(page, setup, verified.body);
+      await expect(conversationLog(page).getByText("Remitente no verificado")).toHaveCount(0);
+    });
+  } finally {
+    await disableChannelQuietly(page, setup.channelId);
+  }
+});

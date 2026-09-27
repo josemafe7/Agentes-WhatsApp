@@ -10,7 +10,7 @@ import { getAgendaSettings } from "@/data/agenda-config";
 import { previewContactMerge, type MergePreview } from "@/data/contacts-merge";
 import { getBusinessProfile } from "@/data/settings";
 import { can, PERMISSIONS } from "@/lib/permissions";
-import { AuthError, ValidationError } from "@/server/errors";
+import { AuthError, ConflictError, ValidationError } from "@/server/errors";
 import { requirePageActor } from "@/server/session";
 import { CONTACTS_PATH, DUPLICATES_PATH, mergePath, mergeQueryFromSearchParams } from "../_lib/search-params";
 import { bookingWords } from "../[id]/_bookings/presentation";
@@ -58,11 +58,13 @@ export default async function MergePage({ searchParams }: PageProps) {
       previewContactMerge(actor, { keepId: query.other, mergeId: query.one }),
     ]);
   } catch (error) {
-    if (!(error instanceof AuthError) && !(error instanceof ValidationError)) throw error;
+    if (!(error instanceof AuthError) && !(error instanceof ValidationError) && !(error instanceof ConflictError)) throw error;
+    // A customer of the simulator and a real one never merge ([AJU-13]): the reason is said as it is.
+    const description = error instanceof ConflictError ? error.userMessage : "Puede que alguno ya no exista o que hayas elegido el mismo dos veces.";
     return (
       <div className="space-y-6">
         {header}
-        <EmptyState icon={Lock} title="No se pueden fusionar estos contactos" description="Puede que alguno ya no exista o que hayas elegido el mismo dos veces." action={backToContacts} />
+        <EmptyState icon={Lock} title="No se pueden fusionar estos contactos" description={description} action={backToContacts} />
       </div>
     );
   }

@@ -2,7 +2,7 @@
 // - a customer's email → the common ingest pipeline (contact by the sender's address, one conversation per thread,
 //   stored once, reply scheduled, [CAN-09]–[CAN-13]) as its text (quotes and signature removed, [COR-19]) plus one
 //   message per attachment (images and PDFs go to the model, audio to transcription through src/server/media), then
-//   the daily caps ([COR-17]);
+//   the daily caps ([COR-17]). Each one keeps whether the server that received it vouched for its From ([COR-25]);
 // - a person's reply from the mailbox → stored in its conversation as the person's message and the AI pauses there
 //   ([COR-20], [BAN-11]);
 // - our own sent copy → a mailbox draft the person sent from Gmail or Outlook is marked as sent ([COR-15]).
@@ -23,7 +23,8 @@ import { baseMimeType, isPdf } from "@/server/media/limits";
 import { MediaRejectedError, storeInboundMedia } from "@/server/media/store";
 import { publishConversationEvent } from "@/server/realtime/events";
 import type { ChannelRecord, InboundMessageEvent } from "../types";
-import { enforceDailyCaps } from "./caps";
+import { senderVerification } from "./auth-results";
+import { enforceDailyCaps, type DailyCap } from "./caps";
 import { updateEmailConfig } from "./config";
 import { MAX_EMAIL_TEXT, MAX_ORIGINAL_TEXT } from "./constants";
 import type { EmailMetadataInput } from "./metadata";
@@ -54,7 +55,7 @@ export type IncomingEmail = {
 export type EmailIngestDeps = { now?: Date; storage?: FileStorage; queue?: JobQueue };
 
 export type EmailIngestOutcome =
-  | { kind: "ingested"; conversationId: string; messageIds: string[]; capped: "thread" | "sender" | null }
+  | { kind: "ingested"; conversationId: string; messageIds: string[]; capped: DailyCap | null }
   | { kind: "duplicate" };
 
 /** Whether a message of the channel already has this provider id ([CAN-11]). */
@@ -146,6 +147,8 @@ export async function ingestInboundEmail(channel: ChannelRecord, email: Incoming
   const sender = { externalIds: [from.address], email: from.address, displayName: from.name };
   const subject = email.parsed.subject ? { subject: email.parsed.subject } : {};
   const original = quotedRemoved || truncated ? { originalText: email.parsed.text.slice(0, MAX_ORIGINAL_TEXT) } : {};
+  // Anyone can write any From: only the receiving server's Authentication-Results vouches for it ([COR-25]).
+  const senderVerified = senderVerification(email.parsed.headers, from.address, email.parsed.fromCount).verified;
   const events: InboundMessageEvent[] = [
     {
       kind: "inbound_message",
@@ -157,7 +160,7 @@ export async function ingestInboundEmail(channel: ChannelRecord, email: Incoming
       sentAt,
       metadata: {
         ...subject,
-        email: emailMetadataOf(email, { quotedRemoved, ...(truncated ? { truncated } : {}), ...original, ...(dropped.length ? { droppedAttachments: dropped.slice(0, 100) } : {}) }),
+        email: emailMetadataOf(email, { quotedRemoved, senderVerified, ...(truncated ? { truncated } : {}), ...original, ...(dropped.length ? { droppedAttachments: dropped.slice(0, 100) } : {}) }),
       },
     },
     ...stored.map(
@@ -170,7 +173,7 @@ export async function ingestInboundEmail(channel: ChannelRecord, email: Incoming
         text: null,
         media: attachment.media,
         sentAt,
-        metadata: { ...subject, email: { providerId: `${email.providerId}#${index + 1}`, messageId: null, attachmentOf: email.providerId } },
+        metadata: { ...subject, email: { providerId: `${email.providerId}#${index + 1}`, messageId: null, attachmentOf: email.providerId, from: email.parsed.from, senderVerified } },
       }),
     ),
   ];

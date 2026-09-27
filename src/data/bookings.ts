@@ -4,20 +4,23 @@
 // ("YYYY-MM-DDTHH:mm" in its time zone) and are stored in UTC. Permissions ([PER-01]): everyone who sees the agenda
 // reads it; owner, admin, supervisor and agent manage bookings; nobody else writes. An agent limited to some channels
 // only books for contacts of those channels and only links conversations of them ([PER-02]).
+// «Avisar al cliente» ([AGD-23]) writes to the customer in the booking's conversation: only who may reply there
+// («Bandeja: responder», [PER-02]), only when something really changed, and with a limit per person ([SEG-07]).
 import "server-only";
 import { and, asc, desc, eq, gt, inArray, isNotNull, lt, notInArray, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { bookingEvents, bookings, businessHours, closures, conversations } from "@/db/schema";
 import { BOOKING_STATUSES, type BookingActorType, type BookingStatus } from "@/lib/enums";
-import { channelFilter, PERMISSIONS, type Actor } from "@/lib/permissions";
+import { can, channelFilter, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
+import { getRateLimiter } from "@/server/adapters/rate-limiter";
 import {
   addDays,
   ANY_RESOURCE,
   type AvailableSlot,
-  cancelBooking,
-  changeBookingStatus,
+  cancelBookingReporting,
+  changeBookingStatusReporting,
   computeAvailability,
   createBooking,
   daysBetween,
@@ -29,7 +32,7 @@ import {
   localToInstant,
   MAX_RANGE_DAYS,
   parseLocalDateTime,
-  rescheduleBooking,
+  rescheduleBookingReporting,
   selectBookingView,
   selectBookingViews,
   sendBookingNotice,
@@ -40,7 +43,7 @@ import {
   type BookingView,
   type UnavailableReason,
 } from "@/server/booking";
-import { AuthError, NotFoundError, parseInput, ValidationError } from "@/server/errors";
+import { AuthError, NotFoundError, parseInput, RateLimitError, ValidationError } from "@/server/errors";
 import { writeAudit } from "./audit";
 import { loadConversationFor } from "./conversation-scope";
 import { assertCan } from "./guard";
@@ -141,7 +144,11 @@ export type BookingHistoryItem = {
   createdAt: Date;
 };
 
-export type BookingDetail = BookingView & { history: BookingHistoryItem[] };
+export type BookingDetail = BookingView & {
+  history: BookingHistoryItem[];
+  /** «Avisar al cliente» is offered: a real booking with a conversation where this person may reply ([AGD-23]). */
+  canNotify: boolean;
+};
 
 /** The booking's card ([AGD-19]) with its history ([AGD-15]). */
 export async function getBooking(actor: Actor, bookingId: unknown): Promise<BookingDetail> {
@@ -155,7 +162,8 @@ export async function getBooking(actor: Actor, bookingId: unknown): Promise<Book
     .from(bookingEvents)
     .where(eq(bookingEvents.bookingId, view.id))
     .orderBy(asc(bookingEvents.createdAt), asc(bookingEvents.id));
-  return { ...view, history };
+  const target = view.isTest ? null : await noticeChannelOf(view.id);
+  return { ...view, history, canNotify: target !== null && can(actor, PERMISSIONS.inbox.reply, { channelId: target }) };
 }
 
 /** A contact's bookings for their card ([CTO-02]): whoever sees the contact and the agenda. Newest first. */
@@ -282,7 +290,35 @@ export async function createBookingByPerson(actor: Actor, input: unknown, option
   return booking;
 }
 
-async function noticeIf(notify: boolean | undefined, view: BookingView, kind: BookingNoticeKind): Promise<BookingNoticeResult | null> {
+/** Notices to customers a person may ask for, per person ([SEG-07]): each one is a message the business sends. */
+export const BOOKING_NOTICE_LIMIT = { limit: 30, windowMs: 10 * 60_000 } as const;
+const NOTICE_LIMITED = "Has avisado a muchos clientes seguidos. Espera unos minutos o guarda el cambio sin avisar.";
+
+/** The channel of the booking's real conversation, where a notice would be written; null when there is none. */
+async function noticeChannelOf(bookingId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ channelId: conversations.channelId, isTest: conversations.isTest })
+    .from(bookings)
+    .innerJoin(conversations, eq(conversations.id, bookings.conversationId))
+    .where(eq(bookings.id, bookingId));
+  return row && !row.isTest ? row.channelId : null;
+}
+
+/**
+ * Before a change that asks for «Avisar al cliente»: only who may reply in the booking's conversation writes to the
+ * customer ([PER-02]), and a person has a limit of notices ([SEG-07]). Refused before anything changes.
+ */
+async function assertMayNotify(actor: Actor, bookingId: string): Promise<void> {
+  const channelId = await noticeChannelOf(bookingId);
+  // Nothing would be written (no conversation, or a test one): sendBookingNotice says why.
+  if (channelId === null) return;
+  assertCan(actor, PERMISSIONS.inbox.reply, { channelId });
+  const result = await getRateLimiter().hit(`booking-notice:${actor.userId}`, BOOKING_NOTICE_LIMIT.limit, BOOKING_NOTICE_LIMIT.windowMs);
+  if (!result.allowed) throw new RateLimitError(NOTICE_LIMITED);
+}
+
+/** The notice only when asked for and something really changed ([AGD-23]). */
+async function noticeIf(notify: boolean, view: BookingView, kind: BookingNoticeKind): Promise<BookingNoticeResult | null> {
   return notify ? sendBookingNotice(view, kind) : null;
 }
 
@@ -302,8 +338,10 @@ export const moveBookingInputSchema = z
 export async function moveBooking(actor: Actor, input: unknown, options: { now?: Date } = {}): Promise<{ booking: BookingView; notice: BookingNoticeResult | null }> {
   assertCan(actor, PERMISSIONS.agenda.bookings);
   const data = parseInput(moveBookingInputSchema, input);
+  const notify = data.notifyCustomer === true && data.start !== undefined;
+  if (notify) await assertMayNotify(actor, data.bookingId);
   const { timezone } = await loadAgendaSettings();
-  const booking = await rescheduleBooking({
+  const { booking, moved } = await rescheduleBookingReporting({
     bookingId: data.bookingId,
     start: data.start ? toInstant(data.start, timezone, "start") : undefined,
     resourceId: data.resourceId,
@@ -313,7 +351,8 @@ export async function moveBooking(actor: Actor, input: unknown, options: { now?:
     now: options.now,
   });
   await writeAudit({ actor, action: "booking.moved", targetType: "booking", targetId: booking.id });
-  return { booking, notice: await noticeIf(data.notifyCustomer && data.start !== undefined, booking, "moved") };
+  // The customer hears of a new time only: the same time again tells them nothing.
+  return { booking, notice: await noticeIf(notify && moved, booking, "moved") };
 }
 
 export const updateBookingInputSchema = z
@@ -348,14 +387,17 @@ export const bookingStatusInputSchema = z
 export async function setBookingStatus(actor: Actor, input: unknown, options: { now?: Date } = {}): Promise<{ booking: BookingView; notice: BookingNoticeResult | null }> {
   assertCan(actor, PERMISSIONS.agenda.bookings);
   const data = parseInput(bookingStatusInputSchema, input);
-  const bookingActor = personActor(actor);
-  const booking =
-    data.status === "cancelled"
-      ? await cancelBooking({ bookingId: data.bookingId, reason: data.reason, actor: bookingActor, now: options.now })
-      : await changeBookingStatus({ bookingId: data.bookingId, status: data.status, actor: bookingActor, now: options.now });
-  await writeAudit({ actor, action: "booking.status_changed", targetType: "booking", targetId: booking.id, metadata: { status: booking.status } });
   const kind: BookingNoticeKind | null = data.status === "confirmed" ? "confirmed" : data.status === "cancelled" ? "cancelled" : null;
-  return { booking, notice: kind ? await noticeIf(data.notifyCustomer, booking, kind) : null };
+  const notify = data.notifyCustomer === true && kind !== null;
+  if (notify) await assertMayNotify(actor, data.bookingId);
+  const bookingActor = personActor(actor);
+  const { booking, changed } =
+    data.status === "cancelled"
+      ? await cancelBookingReporting({ bookingId: data.bookingId, reason: data.reason, actor: bookingActor, now: options.now })
+      : await changeBookingStatusReporting({ bookingId: data.bookingId, status: data.status, actor: bookingActor, now: options.now });
+  await writeAudit({ actor, action: "booking.status_changed", targetType: "booking", targetId: booking.id, metadata: { status: booking.status } });
+  // The same status again changes nothing, so it tells the customer nothing.
+  return { booking, notice: kind ? await noticeIf(notify && changed, booking, kind) : null };
 }
 
 // ─── Test bookings ([PRU-04]) ────────────────────────────────────────────────────────────────────────────

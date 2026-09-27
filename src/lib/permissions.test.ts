@@ -50,6 +50,7 @@ const EXPECTED: Record<Action, [Expect, Expect, Expect, Expect, Expect]> = {
   [P.channels.manage]: [Y, Y, N, N, N], // crear, conectar, configurar, desconectar, borrar; agente activo e IA
   // Informes
   [P.reports.view]: [Y, Y, Y, N, Y],
+  [P.reports.export]: [Y, Y, N, N, N], // descargar cada tabla en CSV ([INF-09])
   // Ajustes
   [P.settings.business]: [Y, Y, N, N, N], // Negocio, Horario, Privacidad y legal, Notificaciones y Tarifas
   [P.settings.integrations]: [Y, Y, N, N, N], // IA (claves y modelos) y Correo del sistema

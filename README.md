@@ -251,7 +251,9 @@ personas y desde «Probar agente», más unas vacaciones y un hueco bloqueado. L
    que la deja unida a esa conversación.
 9. **Recordatorios** (**Ajustes › Recordatorios**, propietario y administrador): desactivados por defecto. La demo trae
    preparada la plantilla aprobada «recordatorio_cita» del WhatsApp de demo con sus variables asignadas; también se
-   pueden enviar por email. Cada cita recibe uno solo, nunca si está cancelada o el cliente se ha dado de baja, y se
+   pueden enviar por email (por el buzón conectado del negocio, en el hilo del cliente, si ya le escribió; si no, con el
+   correo del sistema, y las respuestas van al buzón conectado o, sin ninguno, al email de contacto del negocio). Cada
+   cita recibe uno solo, nunca si está cancelada o el cliente se ha dado de baja, y se
    recalcula si la cita se mueve. En la demo, los de email se guardan en `data/outbox/` y los de WhatsApp salen por el
    canal de demo, que nunca llama a Meta. Por WhatsApp, cada recordatorio se cobra (plantilla de utilidad).
 10. **Restaurante (agenda por aforo):** `pnpm seed --sector=restaurante` carga un restaurante con Comedor (40 plazas) y
@@ -296,7 +298,8 @@ revisar. La guía completa es [`docs/guia-correo.md`](docs/guia-correo.md), tamb
    corre cada día y deja en el Registro de actividad cuánto borró.
 4. **Informes** (menú): conversaciones por canal, porcentaje resuelto por la IA, traspasos y sus motivos, tiempo hasta
    la primera respuesta de una persona (y cuántos en menos de 3 minutos), citas creadas por la IA y costes de IA y de
-   WhatsApp, por mes o por fechas y por canal, con «Descargar CSV» en cada tabla. «Probar agente» nunca cuenta.
+   WhatsApp, por mes o por fechas y por canal; el propietario y los administradores tienen además «Descargar CSV» en
+   cada tabla. «Probar agente» nunca cuenta.
 5. **App instalable y avisos push:** en **Mi cuenta** (o Ajustes › Notificaciones), «Instalar la app» la pone en el
    ordenador o el móvil con el nombre y el logo del negocio, y «Activar avisos en este dispositivo» manda un push cuando
    hay un traspaso («Traspaso: Ana», sin el texto del mensaje). En local funciona en <http://localhost:3000>; en el
@@ -341,7 +344,8 @@ revisar. La guía completa es [`docs/guia-correo.md`](docs/guia-correo.md), tamb
 - **Ajustes › Horario, IA, Correo del sistema, Privacidad y legal y Notificaciones:** horario con varios tramos
   por día y festivos; la clave de OpenRouter, los modelos por defecto (chat, respaldo de otro proveedor,
   transcripción, embeddings y descripción de imágenes) elegidos de la lista con precios, la lista de
-  recomendados y «Sin retención de datos», con aviso si un modelo en uso se retira o si el de transcripción tiene
+  recomendados y «Sin retención de datos», con aviso si un modelo en uso se retira (también en la campana y por email al
+  propietario y a los administradores, una vez por modelo; la lista se vuelve a pedir sola cada 12 horas) o si el de transcripción tiene
   proveedores que pueden guardar los audios, «Reordenar resultados» del conocimiento con su modelo (desactivado por
   defecto; con «Sin retención de datos» solo se ofrece el que no guarda nada y, si el elegido sí guarda, lo avisa y
   no reordena), y la clave de Mistral OCR para los PDF escaneados; el servidor SMTP de los correos de la app; textos legales, aviso de IA y plazos de conservación; y quién recibe cada aviso.
@@ -349,7 +353,9 @@ revisar. La guía completa es [`docs/guia-correo.md`](docs/guia-correo.md), tamb
   filtros; y el estado de la base de datos, de la cola de trabajos (con «Reintentar»), los errores recientes de la IA
   (si una respuesta falla también al reintentarla, la conversación pasa a una persona y el error aparece aquí), el
   último aviso de cada canal, los correos que cada buzón ignoró y por qué, y los correos que ha enviado la app, que en
-  local puedes abrir desde ahí.
+  local puedes abrir desde ahí. **Pruebas de conexión** ejecuta en el momento «Probar clave» de OpenRouter, «Enviar
+  correo de prueba» y la prueba de cada canal (revalidar WhatsApp con Meta, el acceso a Gmail u Outlook y «Probar
+  conexión» de otro buzón), con el resultado en español; los canales de demo nunca llaman a nadie.
 - **Asistente de arranque:** con `pnpm db:fresh` (ver «Paso a un negocio real») la app queda vacía y te guía:
   cuenta de propietario, negocio y sector, horario, clave de IA, primer agente (desde la plantilla del sector
   o generado desde la web del negocio si hay clave), un chat web con ese agente que se prueba ahí mismo (y en
@@ -499,12 +505,19 @@ guía, y `actualizar` pasa a una versión nueva con una copia de seguridad antes
 
 ## Paso a un negocio real
 
+Un negocio real nunca usa `pnpm dev`, que es el modo de desarrollo (más lento y más permisivo: por ejemplo, deja a las
+herramientas HTTP llamar a la red local). Usa la app publicada (ver «Despliegue»: con una base nueva ya está vacía y
+empiezas en el paso 4) o, instalada en un ordenador, la versión compilada:
+
 1. Para la app y ejecuta `pnpm db:fresh`: borra la demo y deja la instalación vacía.
-2. En `.env.local`, cambia `DEMO_MODE=true` por `DEMO_MODE=false` y arranca con `pnpm dev`.
-3. Abre la app: el asistente de arranque te pide la cuenta de propietario, el negocio y su sector, el horario y
-   la clave de OpenRouter.
-4. Guarda `APP_ENCRYPTION_KEY` en un gestor de contraseñas.
-5. Sigue la **lista de puesta en marcha** ([`docs/checklist-puesta-en-marcha.md`](docs/checklist-puesta-en-marcha.md),
+2. En `.env.local`, cambia `DEMO_MODE=true` por `DEMO_MODE=false` y pon en `SETUP_TOKEN` un código largo al azar
+   (se crea como explica `docs/guia-despliegue.md`, apartado «4. Las variables de entorno»).
+3. Arranca la versión compilada con `pnpm build && pnpm start` y, en otra terminal, `pnpm worker`, que hace el trabajo
+   en segundo plano (respuestas de la IA, correo y recordatorios).
+4. Abre la app: el asistente de arranque te pide el código de instalación, la cuenta de propietario, el negocio y su
+   sector, el horario y la clave de OpenRouter.
+5. Guarda `APP_ENCRYPTION_KEY` en un gestor de contraseñas.
+6. Sigue la **lista de puesta en marcha** ([`docs/checklist-puesta-en-marcha.md`](docs/checklist-puesta-en-marcha.md),
    también en **Ayuda › Lista de puesta en marcha**): la privacidad de la cuenta de OpenRouter, los textos legales, el
    primer agente y su conocimiento, la agenda, los canales primero en modo pruebas, el equipo y las comprobaciones de
    cada semana y cada mes. Con datos de clientes, revisa con un abogado la plantilla de contrato de encargo del
@@ -565,7 +578,7 @@ de código, la skill `nuevo-negocio` (`.agents/skills/nuevo-negocio/`) te acompa
   persona respondió desde su programa de correo o se llegó al tope diario. La guía del correo lo explica en «Problemas».
 - **La lista de modelos no sale o le falta alguno:** sin clave no se carga. Solo aparecen modelos que admiten
   herramientas, con precio y sin fecha de retirada; «Actualizar lista» la vuelve a pedir a OpenRouter (se guarda
-  12 horas).
+  12 horas y, con clave, se vuelve a pedir sola cada 12 horas).
 - **El agente no usa el conocimiento:** en su pestaña Conocimiento, la base tiene que tener «Usar» encendido y, en
   «Automático», el agente necesita «Buscar en el conocimiento» encendida en Herramientas (la pestaña lo avisa).
   Comprueba con «Probar búsqueda» de la base que encuentra la respuesta.

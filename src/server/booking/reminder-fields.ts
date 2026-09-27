@@ -53,12 +53,16 @@ export function renderReminderText(template: string, values: ReminderValues): st
   });
 }
 
-/** Default email when the business writes none, with its word for a booking («cita», «reserva»). */
+/**
+ * Default email when the business writes none, with its word for a booking («cita», «reserva»). It says how to cancel
+ * (answering the email or calling) and never promises that writing «BAJA» by email unsubscribes: when the business has
+ * no mailbox connected, the answer reaches a person, not the app ([AGD-26], [CUM-03]).
+ */
 export function defaultReminderEmail(bookingWord: string): { subject: string; body: string } {
   return {
     subject: `Recordatorio de tu ${bookingWord} en {negocio}`,
     body:
       `Hola, {nombre}:\n\nTe recordamos tu ${bookingWord} de {servicio} el {fecha} a las {hora}.\n\n` +
-      `Si no puedes venir, avísanos para dejar el hueco libre. ¡Gracias!`,
+      `Si no puedes venir, responde a este correo o llámanos para cancelarla y dejar el hueco libre. ¡Gracias!`,
   };
 }

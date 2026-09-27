@@ -1,13 +1,14 @@
 // Connections to the business's own IMAP and SMTP servers (ImapFlow and Nodemailer, docs/integracion-correo.md §3.2
 // and §3.3), with the SSRF guard of docs/security.md: the host must resolve only to public addresses (never private,
 // loopback, link-local or cloud metadata) unless ALLOW_PRIVATE_MAIL_HOSTS=true (a self-hosted server next to the
-// app). The checked address is the one used: we connect to that IP and keep the name for TLS (SNI and certificate),
+// app), which still never allows link-local or cloud metadata. The checked address is the one used: we connect to
+// that IP and keep the name for TLS (SNI and certificate),
 // so DNS cannot switch to an internal address in between. Never port 25, never without TLS, never a password in
 // clear text. Tests and the e2e mocks replace the connectors (the mail servers are simulated by replacing the
 // connection, docs/testing.md).
 import "server-only";
 import dns from "node:dns";
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 import { AppError } from "@/server/errors";
@@ -82,8 +83,35 @@ export function allowPrivateMailHosts(): boolean {
 const resolveWithDns: ResolveHost = (hostname) => dns.promises.lookup(hostname, { all: true, verbatim: true });
 
 /**
- * Checks a mail server's host and port and returns where to connect. Private addresses only with
- * ALLOW_PRIVATE_MAIL_HOSTS=true (self-hosted installations).
+ * Never a mail server, not even with ALLOW_PRIVATE_MAIL_HOSTS=true: link-local addresses (169.254.0.0/16 and fe80::/10,
+ * where the cloud metadata lives) and AWS's IPv6 metadata (fd00:ec2::254). The list also matches their ::ffff: forms.
+ */
+const NEVER_MAIL_HOSTS = new BlockList();
+NEVER_MAIL_HOSTS.addSubnet("169.254.0.0", 16, "ipv4");
+NEVER_MAIL_HOSTS.addSubnet("fe80::", 10, "ipv6");
+NEVER_MAIL_HOSTS.addAddress("fd00:ec2::254", "ipv6");
+
+function isNeverAllowed(address: string): boolean {
+  const family = isIP(address);
+  if (family === 0) return true;
+  try {
+    return NEVER_MAIL_HOSTS.check(address, family === 4 ? "ipv4" : "ipv6");
+  } catch {
+    // An IPv6 with a zone (fe80::1%eth0) is link-local anyway.
+    return true;
+  }
+}
+
+/** Public always; private only with ALLOW_PRIVATE_MAIL_HOSTS=true; link-local and metadata never. */
+function isAllowedMailAddress(address: string, allowPrivate: boolean): boolean {
+  if (isNeverAllowed(address)) return false;
+  return allowPrivate || isPublicAddress(address);
+}
+
+/**
+ * Checks a mail server's host and port and returns where to connect: always the checked IP (the name only for TLS).
+ * Private addresses only with ALLOW_PRIVATE_MAIL_HOSTS=true (self-hosted installations), and never link-local or
+ * cloud metadata.
  */
 export async function resolveMailHost(host: string, port: number, options: { resolveHost?: ResolveHost; allowPrivate?: boolean } = {}): Promise<ConnectTarget> {
   const name = host.trim().toLowerCase().replace(/\.$/, "");
@@ -91,11 +119,10 @@ export async function resolveMailHost(host: string, port: number, options: { res
   const allowPrivate = options.allowPrivate ?? allowPrivateMailHosts();
   const literal = isIP(name.replace(/^\[|\]$/g, "")) ? name.replace(/^\[|\]$/g, "") : null;
   if (literal) {
-    if (!allowPrivate && !isPublicAddress(literal)) throw new MailHostError("blocked");
+    if (!isAllowedMailAddress(literal, allowPrivate)) throw new MailHostError("blocked");
     return { address: literal, servername: null };
   }
   if (!HOST_NAME.test(name)) throw new MailHostError("invalid");
-  if (allowPrivate) return { address: name, servername: name };
   let addresses;
   try {
     addresses = await (options.resolveHost ?? resolveWithDns)(name);
@@ -103,7 +130,7 @@ export async function resolveMailHost(host: string, port: number, options: { res
     throw new MailHostError("not_found");
   }
   if (addresses.length === 0) throw new MailHostError("not_found");
-  if (addresses.some((entry) => !isPublicAddress(entry.address))) throw new MailHostError("blocked");
+  if (addresses.some((entry) => !isAllowedMailAddress(entry.address, allowPrivate))) throw new MailHostError("blocked");
   return { address: addresses[0].address, servername: name };
 }
 

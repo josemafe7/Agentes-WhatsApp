@@ -1,7 +1,8 @@
 // Bajas ([CUM-03], [CUM-04], [CUM-13], [CTO-08]) end to end through the real pieces: the ingest pipeline opts out a
-// customer who writes only «BAJA» or «STOP» and queues ONE confirmation; from then on nothing of the business reaches
-// them in that channel (the AI, a person, an approved draft, a notice of the platform or a retry) until a person lifts
-// it. The channel is a WhatsApp number whose adapter only records what would leave.
+// customer who writes only «BAJA» or «STOP» (by email, the first line of the body alone, from its sender) and queues ONE
+// confirmation; from then on only a person reaches them in that channel — never the AI, an approved AI draft, a notice
+// of the platform or a retry of those — until a person lifts it. The channel is a WhatsApp number whose adapter only
+// records what would leave.
 import { and, asc, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { liftOptOut } from "@/data/consents";
@@ -26,6 +27,9 @@ import {
   realtimeEvents,
 } from "@/db/schema";
 import { LibsqlJobQueue } from "@/server/adapters/job-queue";
+import { ingestInboundEmail } from "@/server/channels/email/ingest";
+import { parseRawEmail } from "@/server/channels/email/parse";
+import { buildRawEmail, type RawEmailInput } from "@/server/channels/email/test-helpers";
 import { registerChannelAdapter, unregisterChannelAdapter } from "@/server/channels/registry";
 import type { ChannelAdapter, ChannelRecord, OutboundMessage } from "@/server/channels/types";
 import { processReplyJob } from "@/server/engine/reply";
@@ -212,7 +216,7 @@ describe("the customer opts out by writing it [CUM-03] [CUM-13]", () => {
   });
 });
 
-describe("nothing reaches an opted-out customer in that channel [CUM-03] [CUM-04]", () => {
+describe("only a person reaches an opted-out customer in that channel [CUM-03] [CUM-04]", () => {
   it("the AI does not answer: the new message waits in the inbox for a person", async () => {
     const { conversationId } = await receive("BAJA");
     await receive("Hola, ¿abrís mañana?", { when: at(60_000) });
@@ -222,12 +226,12 @@ describe("nothing reaches an opted-out customer in that channel [CUM-03] [CUM-04
     expect((await conversationRow(conversationId)).unreadCount).toBe(2);
   });
 
-  it("a person's message is refused with the reason; nothing is stored and the AI is not paused", async () => {
+  it("[CUM-04] a person can still answer them: the message reaches the customer, like any reply", async () => {
     const { conversationId } = await receive("BAJA");
-    await expect(sendHumanMessage(owner.actor, { conversationId, text: "¡Hola Ana! ¿Seguro?" })).rejects.toMatchObject({ status: 409, userMessage: OPTED_OUT_SEND_ERROR });
-    expect(await outboundOf(conversationId)).toHaveLength(0);
-    expect(await conversationRow(conversationId)).toMatchObject({ aiPausedUntil: null });
-    expect(leaving).toHaveLength(0);
+    const sent = await sendHumanMessage(owner.actor, { conversationId, text: "¡Hola Ana! ¿Seguro?" });
+    expect(sent).toMatchObject({ status: "sent", error: null });
+    expect(leaving.map((message) => message.text)).toEqual(["¡Hola Ana! ¿Seguro?"]);
+    expect((await outboundOf(conversationId)).map((message) => message.senderType)).toEqual(["human"]);
   });
 
   it("approving a draft of the AI is refused too, and the draft stays", async () => {
@@ -249,13 +253,14 @@ describe("nothing reaches an opted-out customer in that channel [CUM-03] [CUM-04
     expect((await conversationRow(conversationId)).lastOutboundAt).toEqual(before.lastOutboundAt);
   });
 
-  it("«Reintentar» a message that failed before sends nothing while the opt-out lasts [BAN-13]", async () => {
+  it("«Reintentar» an AI message that failed before sends nothing while the opt-out lasts; a person's message goes [BAN-13]", async () => {
     const { conversationId } = await receive("Hola");
-    const failed = await createMessage({ id: conversationId, channelId: channel.id }, { direction: "outbound", senderType: "human", senderName: "Olga", status: "failed", text: "Te esperamos." });
+    const failedAi = await createMessage({ id: conversationId, channelId: channel.id }, { direction: "outbound", senderType: "ai", agentName: "Recepción", status: "failed", text: "¡Hola! Sí, abrimos." });
+    const failedHuman = await createMessage({ id: conversationId, channelId: channel.id }, { direction: "outbound", senderType: "human", senderName: "Olga", status: "failed", text: "Te esperamos." });
     await receive("BAJA", { when: at(60_000) });
-    const retried = await resendOutbound(failed.id, { retryDelayMs: 0 });
-    expect(retried).toMatchObject({ status: "failed", error: { code: "opted_out", message: OPTED_OUT_SEND_ERROR } });
-    expect(leaving).toHaveLength(0);
+    expect(await resendOutbound(failedAi.id, { retryDelayMs: 0 })).toMatchObject({ status: "failed", error: { code: "opted_out", message: OPTED_OUT_SEND_ERROR } });
+    expect(await resendOutbound(failedHuman.id, { retryDelayMs: 0 })).toMatchObject({ status: "sent", error: null });
+    expect(leaving.map((message) => message.text)).toEqual(["Te esperamos."]);
   });
 
   it("only in that channel: the same customer still gets messages in another one", async () => {
@@ -272,5 +277,48 @@ describe("nothing reaches an opted-out customer in that channel [CUM-03] [CUM-04
     expect(await isOptedOut(contactId, channel.id)).toBe(false);
     await sendHumanMessage(owner.actor, { conversationId, text: "¡Hola de nuevo, Ana!" });
     expect(leaving.map((message) => message.text)).toEqual(["¡Hola de nuevo, Ana!"]);
+  });
+});
+
+describe("«BAJA» or «STOP» by email: the body alone, and its sender [CUM-03]", () => {
+  let mailbox: ChannelRecord;
+
+  beforeEach(async () => {
+    mailbox = await createChannel({ type: "email_imap", name: "Correo Lola", status: "connected", isDemo: false, config: { emailAddress: "hola@lola.test" } });
+  });
+
+  async function email(input: RawEmailInput, threadId = `t-${crypto.randomUUID()}`) {
+    const parsed = await parseRawEmail(await buildRawEmail({ to: "hola@lola.test", ...input }));
+    return ingestInboundEmail(mailbox, { providerId: `p-${crypto.randomUUID()}`, threadId, parsed, receivedAt: NOW }, { now: NOW });
+  }
+
+  async function optedOutByEmail(address: string): Promise<boolean> {
+    const [identity] = await db.select({ contactId: contactIdentities.contactId }).from(contactIdentities).where(eq(contactIdentities.externalId, address));
+    return identity ? isOptedOut(identity.contactId, mailbox.id) : false;
+  }
+
+  it("the body of a new email counts, not the subject line the app puts on top of it", async () => {
+    await email({ from: "ana@cliente.test", subject: "Recordatorio de tu cita", text: "BAJA" });
+    expect(await optedOutByEmail("ana@cliente.test")).toBe(true);
+    expect((await db.select().from(jobs)).map((job) => job.type)).toEqual([OPT_OUT_CONFIRMATION_JOB]);
+  });
+
+  it("its first line counts, with a sign-off and the quoted email below it", async () => {
+    await email({ from: "luis@cliente.test", subject: "Re: Tu cita", text: "Baja.\n\nUn saludo,\nLuis\n\nEl lun, 28 sept 2026, Peluquería Lola <hola@lola.test> escribió:\n> Te recordamos tu cita del martes." });
+    expect(await optedOutByEmail("luis@cliente.test")).toBe(true);
+  });
+
+  it("a subject «BAJA» over other words, or a body that only talks about it, is not", async () => {
+    await email({ from: "marta@cliente.test", subject: "BAJA", text: "¿Me dais cita el martes?" });
+    await email({ from: "eva@cliente.test", subject: "Consulta", text: "Quiero darme de baja de las promociones" });
+    expect(await optedOutByEmail("marta@cliente.test")).toBe(false);
+    expect(await optedOutByEmail("eva@cliente.test")).toBe(false);
+  });
+
+  it("in a thread, whoever writes it opts out, not the thread's first contact", async () => {
+    await email({ from: "pilar@cliente.test", messageId: "<h1@cliente.test>" }, "hilo-baja");
+    await email({ from: "copia@cliente.test", subject: "Re: Consulta", inReplyTo: "<h1@cliente.test>", text: "STOP" }, "hilo-baja");
+    expect(await optedOutByEmail("copia@cliente.test")).toBe(true);
+    expect(await optedOutByEmail("pilar@cliente.test")).toBe(false);
   });
 });

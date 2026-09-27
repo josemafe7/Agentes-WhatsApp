@@ -9,7 +9,7 @@
 // one entry in the activity log says how much went, without anything personal. System code (no actor).
 import "server-only";
 import { subMonths } from "date-fns";
-import { and, asc, eq, inArray, isNotNull, isNull, like, lt, ne, notInArray, or, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNotNull, isNull, like, lt, ne, notInArray, or, type SQL } from "drizzle-orm";
 import { writeAudit } from "@/data/audit";
 import { loadBusinessSettings } from "@/data/settings";
 import { db } from "@/db";
@@ -32,6 +32,7 @@ import { getJobQueue, type EnqueueResult, type JobQueue } from "@/server/adapter
 import { getRateLimiter, type RateLimiter } from "@/server/adapters/rate-limiter";
 import { getRealtime, type Realtime } from "@/server/adapters/realtime";
 import { deleteKv, getKv, setKv } from "@/server/kv";
+import { transcribedAtOf } from "@/server/media/metadata";
 import { safeErrorMessage } from "@/server/redact";
 
 export const RETENTION_JOB = "compliance.retention";
@@ -94,7 +95,9 @@ export type RetentionDeps = {
 export type RetentionOutcome = { finished: boolean; counts: RetentionCounts };
 
 type Cutoffs = { webhooks: Date; audio: Date; attachments: Date; conversations: Date };
-type Round = { counts: RetentionCounts; cutoffs: Cutoffs; storage: FileStorage; now: Date };
+/** Where the look for voice notes goes on from, within one run (arrival time, then id). */
+type Cursor = { createdAt: Date; id: string };
+type Round = { counts: RetentionCounts; cutoffs: Cutoffs; storage: FileStorage; now: Date; voiceNotesAfter?: Cursor };
 /** One batch of a step; true when there may be more of it. */
 type Step = (round: Round) => Promise<boolean>;
 
@@ -224,17 +227,35 @@ async function dropFiles(rows: readonly (MediaRow & { metadata: Record<string, u
 
 const mediaRow = { id: messages.id, media: messages.media, metadata: messages.metadata };
 
-/** A voice note's file some days after its transcript: what the customer said stays as text ([MED-04]). */
+/**
+ * A voice note's file some days after it was transcribed ([CUM-05]); what the customer said stays as text ([MED-04]).
+ * The time is saved with the transcript (src/server/media/prepare.ts); a transcript saved before that counts from the
+ * message's arrival. A note is always transcribed after it arrives, so only those that arrived before the cutoff are
+ * looked at, page after page: the ones transcribed later wait without holding back the rest.
+ */
 async function dropVoiceNoteFiles(round: Round): Promise<boolean> {
+  const after = round.voiceNotesAfter;
   const rows = await db
-    .select(mediaRow)
+    .select({ ...mediaRow, createdAt: messages.createdAt })
     .from(messages)
-    .where(and(eq(messages.contentType, "audio"), isNotNull(messages.media), isNotNull(messages.transcript), ne(messages.transcript, ""), lt(messages.createdAt, round.cutoffs.audio)))
-    .orderBy(asc(messages.createdAt))
+    .where(
+      and(
+        eq(messages.contentType, "audio"),
+        isNotNull(messages.media),
+        isNotNull(messages.transcript),
+        ne(messages.transcript, ""),
+        lt(messages.createdAt, round.cutoffs.audio),
+        after ? or(gt(messages.createdAt, after.createdAt), and(eq(messages.createdAt, after.createdAt), gt(messages.id, after.id))) : undefined,
+      ),
+    )
+    .orderBy(asc(messages.createdAt), asc(messages.id))
     .limit(FILE_BATCH);
-  const done = await dropFiles(rows, round);
-  round.counts.audioFiles += done;
-  return rows.length === FILE_BATCH && done > 0;
+  const last = rows.at(-1);
+  if (!last) return false;
+  round.voiceNotesAfter = { createdAt: last.createdAt, id: last.id };
+  const due = rows.filter((row) => (transcribedAtOf(row.metadata) ?? row.createdAt).getTime() < round.cutoffs.audio.getTime());
+  round.counts.audioFiles += await dropFiles(due, round);
+  return rows.length === FILE_BATCH;
 }
 
 /** Any other file of a message (sent or received), and a voice note that has no transcript. */

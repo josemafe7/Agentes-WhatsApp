@@ -3,10 +3,14 @@
 // job, never inside a webhook. notify() has already chosen the people (preferences and channels, [PWA-08]); here every
 // device of each one gets the push. It says what happened and with whom («Traspaso: Ana»), never the customer's words
 // ([PWA-04]), and a subscription the push service says is gone is deleted ([PWA-05]).
+// The server POSTs to the address a browser gave, so it only accepts the push services of the browsers (Google,
+// Mozilla, Microsoft and Apple), and every push has a deadline for the whole exchange and reads only a short answer:
+// a slow or chatty service never holds the background work.
 import "server-only";
 import { createHash } from "node:crypto";
 import https from "node:https";
 import { isIP } from "node:net";
+import type { Duplex } from "node:stream";
 import { and, count, desc, eq, isNull } from "drizzle-orm";
 import { generateVAPIDKeys, sendNotification, WebPushError, type RequestOptions } from "web-push";
 import { z } from "zod";
@@ -17,7 +21,7 @@ import { integrationSettings, pushSubscriptions } from "@/db/schema";
 import { HOME_PATH } from "@/lib/auth-paths";
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
 import { getRateLimiter } from "@/server/adapters/rate-limiter";
-import { getAppUrl } from "@/server/app-url";
+import { baseUrlOverridesAllowed, getAppUrl } from "@/server/app-url";
 import { encryptSecret, tryDecryptSecret } from "@/server/crypto";
 import { ConflictError, NotFoundError, parseInput, RateLimitError } from "@/server/errors";
 import { safeErrorMessage } from "@/server/redact";
@@ -28,7 +32,12 @@ export const PUSH_TTL_SECONDS = 12 * 60 * 60;
 export const MAX_PUSH_DEVICES = 10;
 /** Turning push on or off and removing devices, per person ([SEG-07]). */
 export const PUSH_WRITE_LIMIT = { limit: 30, windowMs: 10 * 60_000 } as const;
+/** A silent connection is cut after this long without data. */
 const PUSH_TIMEOUT_MS = 10_000;
+/** One push, from connecting to the last byte of the answer, never takes longer than this. */
+export const PUSH_DEADLINE_MS = 10_000;
+/** Of a push service's answer only this much is read: a status and, from Apple, a short reason. */
+export const MAX_PUSH_RESPONSE_BYTES = 8 * 1024;
 /** 404: expired (RFC 8030); 410: no longer valid. Either way the subscription is dead. */
 const GONE_STATUSES: ReadonlySet<number> = new Set([404, 410]);
 const MAX_ENDPOINT_LENGTH = 2048;
@@ -119,15 +128,33 @@ export function vapidSubject(appUrl: string, contactEmail: string | null): strin
 
 // ─── Each person's devices ──────────────────────────────────────────────────────────────────────────────
 
+/** The push services of the browsers: exact names, and names under these domains (never the bare domain). */
+const PUSH_SERVICE_HOSTS: ReadonlySet<string> = new Set(["fcm.googleapis.com", "updates.push.services.mozilla.com", "web.push.apple.com"]);
+const PUSH_SERVICE_DOMAINS = [".push.services.mozilla.com", ".notify.windows.com", ".push.apple.com"] as const;
+
+/** Chrome and Edge (FCM), Firefox (Mozilla), Windows (WNS) or Safari (Apple): where a browser's subscription points. */
+export function isKnownPushService(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  return PUSH_SERVICE_HOSTS.has(host) || PUSH_SERVICE_DOMAINS.some((domain) => host.endsWith(domain) && host.length > domain.length);
+}
+
 /**
- * Where the server will POST: https on the usual port, a public name or address, no credentials. The connection checks
- * the resolved addresses again (publicOnlyLookup), so a name cannot lead into the server's own network.
+ * The Playwright runs simulate the browser's PushManager with addresses under the reserved .invalid domain (RFC 2606),
+ * which never resolve: accepted only there (the app on this computer with E2E_ALLOW_BASE_URL_OVERRIDES=true).
+ */
+function isTestPushService(hostname: string): boolean {
+  return baseUrlOverridesAllowed() && hostname.toLowerCase().endsWith(".invalid");
+}
+
+/**
+ * Where the server will POST: https on the usual port, a known push service, no credentials. The connection checks the
+ * resolved addresses again (publicOnlyLookup), so a name cannot lead into the server's own network.
  */
 export function isAllowedPushEndpoint(value: string): boolean {
   if (!URL.canParse(value)) return false;
   const url = new URL(value);
   if (url.protocol !== "https:" || url.username || url.password || url.port !== "") return false;
-  return isPublicHostname(url.hostname);
+  return isPublicHostname(url.hostname) && (isKnownPushService(url.hostname) || isTestPushService(url.hostname));
 }
 
 /** Base64 URL of exactly `bytes` bytes (the browser's P-256 key is 65, the auth secret 16); stored without padding. */
@@ -246,12 +273,52 @@ export async function removePushDevice(actor: Actor, id: unknown): Promise<void>
 
 // ─── Sending ────────────────────────────────────────────────────────────────────────────────────────────
 
-let connectionAgent: https.Agent | undefined;
+const TIMED_OUT = "el servicio de avisos no ha respondido a tiempo";
+const TOO_LONG = "el servicio de avisos ha respondido demasiado";
 
-/** Connects only to public addresses, checked right before connecting (as src/server/web-fetch.ts does). */
-function publicAgent(): https.Agent {
-  connectionAgent ??= new https.Agent({ lookup: publicOnlyLookup });
-  return connectionAgent;
+/**
+ * Cuts a push's connection when its deadline passes, or when the service sends back more than a short answer:
+ * web-push reads the whole answer with no limit of its own, so the limit goes on the connection.
+ */
+export function guardPushSocket(socket: Duplex, deadline: AbortSignal, maxBytes: number = MAX_PUSH_RESPONSE_BYTES): void {
+  const expire = () => socket.destroy(new Error(TIMED_OUT));
+  if (deadline.aborted) {
+    expire();
+    return;
+  }
+  deadline.addEventListener("abort", expire, { once: true });
+  socket.once("close", () => deadline.removeEventListener("abort", expire));
+  let received = 0;
+  socket.on("data", (chunk: Buffer | string) => {
+    received += typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.byteLength;
+    if (received > maxBytes) socket.destroy(new Error(TOO_LONG));
+  });
+}
+
+/**
+ * The connection of one push: only public addresses, checked right before connecting (as src/server/web-fetch.ts
+ * does), never reused, and guarded by guardPushSocket.
+ */
+class PushAgent extends https.Agent {
+  constructor(private readonly deadline: AbortSignal) {
+    super({ lookup: publicOnlyLookup, keepAlive: false });
+  }
+
+  override createConnection(options: https.RequestOptions, callback?: (error: Error | null, stream: Duplex) => void): Duplex | null | undefined {
+    const socket = super.createConnection(options, callback);
+    if (socket) guardPushSocket(socket, this.deadline);
+    return socket;
+  }
+}
+
+/** The promise, or the deadline's reason when it passes first. */
+function beforeDeadline<T>(promise: Promise<T>, deadline: AbortSignal): Promise<T> {
+  if (deadline.aborted) return Promise.reject(deadline.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(deadline.reason);
+    deadline.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => deadline.removeEventListener("abort", onAbort));
+  });
 }
 
 /** The title and the in-app path. Never the notice's body: a hand-off reason may quote the customer ([PWA-04]). */
@@ -274,33 +341,39 @@ function serviceReason(body: string): string | null {
 }
 
 /** For the log: the status (and Apple's reason) or the network error, never an address (its path identifies the device). */
-function failureText(error: unknown): string {
+function failureText(error: unknown, deadline: AbortSignal): string {
   if (error instanceof WebPushError) {
-    const reason = serviceReason(error.body);
+    const reason = serviceReason(error.body.slice(0, MAX_PUSH_RESPONSE_BYTES));
     return `respuesta ${error.statusCode}${reason ? ` (${reason})` : ""}`;
   }
+  if (deadline.aborted) return TIMED_OUT;
   return safeErrorMessage(error, 200).replace(/https?:\/\/\S+/g, "[dirección]");
 }
 
 type StoredSubscription = typeof pushSubscriptions.$inferSelect;
 
-async function sendToDevice(device: StoredSubscription, message: string, options: RequestOptions): Promise<"sent" | "gone" | "failed"> {
+async function sendToDevice(device: StoredSubscription, message: string, options: RequestOptions, deadlineMs: number): Promise<"sent" | "gone" | "failed"> {
+  // Its own connection and deadline: one slow service never holds the others (nor the job).
+  const deadline = AbortSignal.timeout(deadlineMs);
+  const agent = new PushAgent(deadline);
   try {
-    await sendNotification({ endpoint: device.endpoint, keys: { p256dh: device.p256dh, auth: device.auth } }, message, options);
+    await beforeDeadline(sendNotification({ endpoint: device.endpoint, keys: { p256dh: device.p256dh, auth: device.auth } }, message, { ...options, agent }), deadline);
   } catch (error) {
     if (error instanceof WebPushError && GONE_STATUSES.has(error.statusCode)) {
       await db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, device.id));
       return "gone";
     }
-    console.error(`[push] No se ha podido entregar un aviso a ${new URL(device.endpoint).host}: ${failureText(error)}`);
+    console.error(`[push] No se ha podido entregar un aviso a ${new URL(device.endpoint).host}: ${failureText(error, deadline)}`);
     return "failed";
+  } finally {
+    agent.destroy();
   }
   await db.update(pushSubscriptions).set({ lastSuccessAt: new Date() }).where(eq(pushSubscriptions.id, device.id));
   return "sent";
 }
 
 /** Sends one notice to every device of the person (the default sender of deliverPush). */
-export async function sendPushToUser(userId: string, payload: PushPayload): Promise<PushOutcome> {
+export async function sendPushToUser(userId: string, payload: PushPayload, options: { deadlineMs?: number } = {}): Promise<PushOutcome> {
   // Keys first: if they had to be replaced, the old subscriptions are already gone.
   const keys = await loadVapidKeys();
   const devices = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
@@ -311,8 +384,9 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
     return "skipped";
   }
   // Hand-offs and new conversations wait for a person: delivered at once, even on a phone saving battery.
-  const options: RequestOptions = { TTL: PUSH_TTL_SECONDS, urgency: "high", timeout: PUSH_TIMEOUT_MS, vapidDetails: { subject, ...keys }, agent: publicAgent() };
+  const requestOptions: RequestOptions = { TTL: PUSH_TTL_SECONDS, urgency: "high", timeout: PUSH_TIMEOUT_MS, vapidDetails: { subject, ...keys } };
   const message = pushMessage(payload);
-  const results = await Promise.all(devices.map((device) => sendToDevice(device, message, options)));
+  const deadlineMs = options.deadlineMs ?? PUSH_DEADLINE_MS;
+  const results = await Promise.all(devices.map((device) => sendToDevice(device, message, requestOptions, deadlineMs)));
   return results.includes("sent") ? "sent" : "skipped";
 }

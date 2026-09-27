@@ -1,7 +1,9 @@
 // `pnpm worker`: runs the background work in a loop, for an own server (VPS) without the cron route
 // (docs/decisions/0008). Ctrl+C or SIGTERM lets the current job finish; a second one stops at once. It makes the same
-// start-up checks as the web server (src/server/startup-checks.ts): with an unsafe configuration it does not start.
+// start-up checks as the web server (src/server/startup-checks.ts), and those of a published app always, whatever
+// NODE_ENV says (a server may not set it): with an unsafe configuration it does not start.
 import { closeDb } from "../src/db";
+import { assertProductionConfig, productionConfigWarnings } from "../src/server/app-url";
 import { runImapIdleWatchers } from "../src/server/channels/email/imap/idle";
 import { ensureEmailPollingForAll } from "../src/server/channels/email/jobs";
 import { tick } from "../src/server/jobs";
@@ -9,6 +11,13 @@ import { safeErrorMessage } from "../src/server/redact";
 import { checkStartupConfig, isStartupConfigError } from "../src/server/startup-checks";
 import { loadLocalEnv } from "./lib/cli";
 import { runWorkerLoop } from "./lib/worker-loop";
+
+/** The web server's start-up checks plus the rules of a published app, always; what to say when it starts. */
+function checkWorkerConfig(): string[] {
+  const warnings = checkStartupConfig();
+  assertProductionConfig(process.env, { worker: true });
+  return [...new Set([...warnings, ...productionConfigWarnings(process.env, { worker: true })])];
+}
 
 /** Time a single job may use (its handler sees it as remainingMs()). */
 const JOB_BUDGET_MS = 60_000;
@@ -18,7 +27,7 @@ const IDLE_SLEEP_MS = 5_000;
 async function main(): Promise<void> {
   loadLocalEnv();
   try {
-    for (const warning of checkStartupConfig()) console.warn(`[worker] ${warning}`);
+    for (const warning of checkWorkerConfig()) console.warn(`[worker] ${warning}`);
   } catch (error) {
     // Only the explanation: never the value of a key or an address.
     console.error(`[worker] No puede arrancar. ${isStartupConfigError(error) ? error.message : safeErrorMessage(error)}`);

@@ -16,7 +16,6 @@ vi.mock("@/server/adapters/file-storage", async (importOriginal) => {
 import { db } from "@/db";
 import { consents, contactIdentities, contacts, conversations, handoffEvents, jobs, messages, notifications, realtimeEvents, userRoles } from "@/db/schema";
 import { getFileStorage } from "@/server/adapters/file-storage";
-import { OptedOutError } from "@/server/compliance/opt-out";
 import { AuthError, ValidationError } from "@/server/errors";
 import { makePdf, PNG_1X1 } from "@/server/media/test-fixtures";
 import { createBusiness, createChannel, createContactWithIdentity, createConversation, createMessage, createUser, type TestUser } from "@/test/factories";
@@ -102,13 +101,12 @@ describe("attachments from the inbox [BAN-14] [CAN-14]", () => {
     expect(await outbound(noImages.id)).toHaveLength(0);
   });
 
-  it("[CUM-03] a file for a customer who opted out of the channel is refused, and no file is left stored", async () => {
+  it("[CUM-03] [CUM-04] a person can still send a file to a customer who opted out of the channel", async () => {
     const conversation = await conversationIn(webchat);
     await db.insert(consents).values({ contactId: conversation.contactId ?? "", channelId: webchat, channelType: "webchat", type: "opt_out", source: "keyword" });
-    const filesBefore = fs.readdirSync(state.storageDir, { recursive: true }).length;
-    expect(await errorOf(sendHumanAttachment(users.owner.actor, { conversationId: conversation.id }, png()))).toBeInstanceOf(OptedOutError);
-    expect(await outbound(conversation.id)).toHaveLength(0);
-    expect(fs.readdirSync(state.storageDir, { recursive: true })).toHaveLength(filesBefore);
+    const sent = await sendHumanAttachment(users.owner.actor, { conversationId: conversation.id }, png());
+    expect(sent.error).toBeNull();
+    expect((await outbound(conversation.id)).map((message) => message.contentType)).toEqual(["image"]);
     await db.delete(consents);
   });
 

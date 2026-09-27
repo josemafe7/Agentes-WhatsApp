@@ -1,13 +1,17 @@
 // Every message the business sends (AI replies, people's replies, hand-off notices) goes through here: stored first
 // as «en cola» (or as a draft), then handed to the channel's adapter, retried once on a transient error, and marked
 // «fallido» with its Spanish error otherwise ([WA-46], [BAN-13]). Replies to simulated messages never leave the app
-// ([AJU-13]). Nothing reaches a customer who opted out of the channel ([CUM-03]): a person's message is refused with
-// the reason, and what the platform sends on its own stays as not sent, with it. System code: callers check permissions.
+// ([AJU-13]). A customer who opted out of the channel ([CUM-03], [CUM-04]) only gets what a person writes (the inbox
+// warns them): the AI, an AI draft, reminders, templates and the platform's notices stay as not sent, with the reason.
+// The opt-out that counts is the one of whoever the message reaches: in email, the sender of the newest email of the
+// thread. System code: callers check permissions.
 import "server-only";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { channels, contactIdentities, contacts, conversations, messages, type MessageError, type MessageMedia } from "@/db/schema";
 import type { MessageContentType, MessageStatus } from "@/lib/enums";
+import { isEmailChannelType } from "@/server/channels/email/config";
+import { replyRecipientContactId } from "@/server/channels/email/reply-context";
 import { getSendAdapter } from "@/server/channels/registry";
 import { ChannelSendError, type ChannelRecord, type OutboundRecipient } from "@/server/channels/types";
 import { isOptedOut, OPTED_OUT_MESSAGE_ERROR, OptedOutError } from "@/server/compliance/opt-out";
@@ -71,6 +75,12 @@ async function loadTarget(conversationId: string): Promise<Target> {
   return { channel, conversation, recipient };
 }
 
+/** The contact a message of the conversation reaches: in email, the sender of the newest email ([CAN-12], [COR-25]). */
+function recipientContactId(target: Target): Promise<string | null> {
+  const { conversation, channel } = target;
+  return isEmailChannelType(channel.type) ? replyRecipientContactId(conversation.id, channel.type, conversation.contactId) : Promise.resolve(conversation.contactId);
+}
+
 /** A conversation started by the simulator, or whose last customer message was simulated, never goes out. */
 async function isSimulated(conversation: Target["conversation"]): Promise<boolean> {
   if (conversation.metadata.simulated === true) return true;
@@ -131,15 +141,14 @@ async function deliver(target: Target, row: typeof messages.$inferSelect, simula
 }
 
 /**
- * Stores and sends one message of the business in a conversation. Throws NotFoundError without conversation, and
- * OptedOutError for a person's message to a customer who opted out of the channel ([CUM-03]).
+ * Stores and sends one message of the business in a conversation. Throws NotFoundError without conversation. A person
+ * may write to a customer who opted out of the channel; anything else for them stays as not sent ([CUM-03]).
  */
 export async function sendOutbound(input: SendOutboundInput): Promise<SendOutboundResult> {
   const target = await loadTarget(input.conversationId);
   const simulated = await isSimulated(target.conversation);
   const now = input.now ?? new Date();
-  const optedOut = !input.draft && !input.allowOptedOut && (await isOptedOut(target.conversation.contactId, target.channel.id));
-  if (optedOut && input.sender.type === "human") throw new OptedOutError();
+  const optedOut = !input.draft && !input.allowOptedOut && input.sender.type !== "human" && (await isOptedOut(await recipientContactId(target), target.channel.id));
   const row = await db.transaction(async (tx) => {
     const [created] = await tx
       .insert(messages)
@@ -189,10 +198,10 @@ export async function resendOutbound(messageId: string, options: { retryDelayMs?
   if (!row || row.direction !== "outbound") throw new NotFoundError("No se ha encontrado el mensaje.");
   const target = await loadTarget(row.conversationId);
   const now = new Date();
-  // While the customer stays opted out of the channel it stays not sent, with the reason ([CUM-03]); only the
-  // confirmation of the opt-out itself may go again.
-  const optOutConfirmation = typeof row.metadata.optOutConfirmation === "string";
-  if (!optOutConfirmation && (await isOptedOut(target.conversation.contactId, target.channel.id))) {
+  // While the customer stays opted out of the channel it stays not sent, with the reason ([CUM-03]); only a person's
+  // message and the confirmation of the opt-out itself may go again.
+  const mayReachOptedOut = row.senderType === "human" || typeof row.metadata.optOutConfirmation === "string";
+  if (!mayReachOptedOut && (await isOptedOut(await recipientContactId(target), target.channel.id))) {
     await db.update(messages).set({ status: "failed", error: OPTED_OUT_MESSAGE_ERROR, statusUpdatedAt: now, updatedAt: now }).where(eq(messages.id, row.id));
     await publishConversationEvent(
       { type: "message.status", conversationId: row.conversationId, channelId: target.channel.id, messageId: row.id, status: "failed" },
@@ -219,13 +228,14 @@ export type SendDraftOptions = {
 /**
  * «Aprobar» a draft of the AI ([CAN-07], [MOT-14]): the same message (still signed by its agent) leaves as it is or
  * as the person edited it. Only a draft that is still a draft moves on, so two people approving at once send it once.
- * A person approves it: for a customer who opted out of the channel it is refused with the reason ([CUM-03]).
+ * The words are still the AI's: for a customer who opted out of the channel it is refused with the reason ([CUM-03]);
+ * a person can write to them instead.
  */
 export async function sendDraft(messageId: string, options: SendDraftOptions): Promise<SendOutboundResult> {
   const [row] = await db.select().from(messages).where(eq(messages.id, messageId));
   if (!row || row.direction !== "outbound") throw new NotFoundError("No se ha encontrado el mensaje.");
   const target = await loadTarget(row.conversationId);
-  if (await isOptedOut(target.conversation.contactId, target.channel.id)) throw new OptedOutError();
+  if (await isOptedOut(await recipientContactId(target), target.channel.id)) throw new OptedOutError();
   const now = options.now ?? new Date();
   const text = options.text ?? row.text;
   const [queued] = await db

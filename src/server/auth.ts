@@ -39,6 +39,16 @@ function trustedOrigins(): string[] {
 
 const baseURL = authBaseUrl();
 
+/**
+ * Secure cookies (and the __Secure- prefix) whenever the app is served over https: APP_URL or BETTER_AUTH_URL with
+ * https:// (a published app refuses to start when they differ, src/server/app-url.ts); without either, in production.
+ */
+export function usesSecureCookies(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  const urls = [env.APP_URL, env.BETTER_AUTH_URL].map((value) => value?.trim() ?? "").filter((value) => value !== "");
+  if (urls.length === 0) return env.NODE_ENV === "production";
+  return urls.some((value) => value.startsWith("https://"));
+}
+
 /** Where the Better Auth router lives (src/app/api/auth/[...all]/route.ts). */
 const AUTH_BASE_PATH = "/api/auth";
 
@@ -121,7 +131,7 @@ export const auth = betterAuth({
     database: { generateId: "uuid" },
     cookiePrefix: AUTH_COOKIE_PREFIX,
     // Secure cookies (and the __Secure- prefix) whenever the app runs on HTTPS, i.e. in production.
-    useSecureCookies: baseURL?.startsWith("https://") ?? process.env.NODE_ENV === "production",
+    useSecureCookies: usesSecureCookies(),
   },
   plugins: [
     httpAllowlist,

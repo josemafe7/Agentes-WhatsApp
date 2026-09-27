@@ -2,7 +2,8 @@
 // inbox (new customer mail) and of sentitems (a person replying from Outlook, [COR-20]), each deltaLink stored; the
 // first round only brings what arrived since the connection. 410 Gone or an expired sync state → a new delta round
 // from shortly before the last good poll, never duplicating (each immutable id is stored once, [CAN-11]). The thread
-// is Outlook's conversationId; the text without the quoted history comes from uniqueBody ([F44]).
+// is Outlook's conversationId; the text without the quoted history comes from uniqueBody ([F44]). The size of each
+// message is asked before its MIME, so one too big to read whole never is ([COR-19]).
 import "server-only";
 import { GraphApiError, type GraphClient, type GraphDeltaItem } from "@/lib/microsoft/graph";
 import { safeErrorMessage } from "@/server/redact";
@@ -10,7 +11,7 @@ import type { ChannelRecord } from "../../types";
 import { readEmailConfig, updateEmailConfig, type EmailConfig } from "../config";
 import { MAX_EMAIL_BYTES } from "../constants";
 import { isEmailStored, type IncomingEmail } from "../ingest";
-import { parseRawEmail } from "../parse";
+import { headerBlock, headerPart, parseRawEmail } from "../parse";
 import { processIncomingEmail } from "../process";
 import { emptyReport, type SyncContext, type SyncReport } from "../provider";
 import { fallbackThreadId } from "../threading";
@@ -20,7 +21,6 @@ const MAX_DELTA_PAGES = 20;
 const MIN_REMAINING_MS = 5_000;
 /** After a resync, the new round starts this long before the last good poll: dedupe absorbs the overlap. */
 const RESYNC_OVERLAP_MS = 24 * 60 * 60_000;
-const HEADER_END = Buffer.from("\r\n\r\n");
 
 export type OutlookFolder = "inbox" | "sentitems";
 
@@ -57,9 +57,30 @@ async function readFolder(client: GraphClient, folder: OutlookFolder, config: Em
   }
 }
 
-function headerPart(raw: Buffer): Buffer {
-  const end = raw.indexOf(HEADER_END);
-  return end >= 0 ? raw.subarray(0, end + HEADER_END.length) : raw;
+/** A deleted message (404) is simply not there any more. */
+const gone = (error: unknown) => error instanceof GraphApiError && error.httpStatus === 404;
+
+/**
+ * The message as bytes, never more than `max` in memory ([COR-19]): its size is asked first and a bigger one is read as
+ * its headers only; without a size from Graph, reading the MIME stops past `max`. Null when it was deleted meanwhile.
+ */
+async function readRaw(client: GraphClient, id: string, max: number): Promise<{ raw: Buffer; tooLarge: boolean } | null> {
+  let size: number | null = null;
+  try {
+    size = await client.getMessageSize(id);
+  } catch (error) {
+    if (gone(error)) return null;
+    // A refused size query is not a reason to stop reading: the MIME has its own cap below.
+    if (!(error instanceof GraphApiError && error.httpStatus === 400)) throw error;
+  }
+  try {
+    if (size !== null && size > max) return { raw: headerBlock(await client.getMessageHeaders(id)), tooLarge: true };
+    const mime = await client.getMimeMessage(id, { maxBytes: max });
+    return mime.truncated ? { raw: headerPart(mime.bytes), tooLarge: true } : { raw: mime.bytes, tooLarge: false };
+  } catch (error) {
+    if (gone(error)) return null;
+    throw error;
+  }
 }
 
 async function uniqueBody(client: GraphClient, id: string): Promise<string | null> {
@@ -73,18 +94,13 @@ async function uniqueBody(client: GraphClient, id: string): Promise<string | nul
 }
 
 async function readItem(channel: ChannelRecord, client: GraphClient, item: GraphDeltaItem, folder: OutlookFolder, report: SyncReport, context: SyncContext): Promise<void> {
-  let mime: Buffer;
-  try {
-    mime = await client.getMimeMessage(item.id);
-  } catch (error) {
-    if (error instanceof GraphApiError && error.httpStatus === 404) {
-      report.skipped += 1;
-      return;
-    }
-    throw error;
+  const read = await readRaw(client, item.id, context.deps.maxEmailBytes ?? MAX_EMAIL_BYTES);
+  if (!read) {
+    report.skipped += 1;
+    return;
   }
-  const tooLarge = mime.byteLength > MAX_EMAIL_BYTES;
-  const parsed = await parseRawEmail(tooLarge ? headerPart(mime) : mime);
+  const { tooLarge } = read;
+  const parsed = await parseRawEmail(read.raw);
   const received = item.receivedDateTime ? new Date(item.receivedDateTime) : context.now;
   const email: IncomingEmail = {
     providerId: item.id,

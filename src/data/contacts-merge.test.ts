@@ -11,7 +11,7 @@ import { createBooking } from "@/server/booking";
 import { at, createHairdresser, NOW } from "@/server/booking/test-helpers";
 import { clearContactData, createRichContact } from "@/server/compliance/contact-data-test-helpers";
 import { replyDedupeKey } from "@/server/engine/schedule";
-import { AuthError, ValidationError } from "@/server/errors";
+import { AuthError, ConflictError, ValidationError } from "@/server/errors";
 import { createChannel, createContactWithIdentity, createConversation, createMessage, createUser, type TestUser } from "@/test/factories";
 import { memoryFileStorage } from "@/test/fixtures/whatsapp/memory-storage";
 import { listDuplicateSuggestions, mergeContacts, previewContactMerge } from "./contacts-merge";
@@ -205,6 +205,48 @@ describe("quién puede fusionar [PER-01] [SEG-04]", () => {
     expect(await errorOf(previewContactMerge(users[role].actor, input))).toBeInstanceOf(AuthError);
     expect(await errorOf(mergeContacts(users[role].actor, input))).toBeInstanceOf(AuthError);
     expect(await db.select({ id: contacts.id }).from(contacts)).toHaveLength(2);
+    expect(await db.select().from(auditLog).where(eq(auditLog.action, "contact.merged"))).toEqual([]);
+  });
+});
+
+describe("the simulator's customers stay apart [AJU-13]", () => {
+  /** A customer the simulator made: its identity lives in the «sim:» space and its conversation is simulated. */
+  async function simulatedCopyOfJose() {
+    const [contact] = await db.insert(contacts).values({ name: "José Pérez", email: "jose@example.com", phone: "600111222", createdAt: minute(50) }).returning();
+    await db.insert(contactIdentities).values({ contactId: contact.id, channelType: "webchat", externalId: `sim:${crypto.randomUUID()}` });
+    const conversation = await createConversation(web.id, contact.id, { metadata: { simulated: true }, createdAt: minute(50) });
+    await createMessage(conversation, { text: "Soy una prueba del simulador.", simulated: true, createdAt: minute(50) });
+    return { contact, conversation };
+  }
+
+  it("never suggests a simulated customer as a duplicate of a real one, even with the same email, phone and name", async () => {
+    const simulated = await simulatedCopyOfJose();
+    const suggestions = await listDuplicateSuggestions(users.owner.actor);
+    for (const suggestion of suggestions) {
+      const ids = suggestion.contacts.map((item) => item.id);
+      expect(ids.includes(simulated.contact.id), JSON.stringify(ids)).toBe(false);
+    }
+    expect(await listDuplicateSuggestions(users.owner.actor, { contactId: simulated.contact.id })).toEqual([]);
+    // Two customers of the simulator may still be the same one.
+    const [twin] = await db.insert(contacts).values({ name: "José Pérez", email: "jose@example.com" }).returning();
+    await db.insert(contactIdentities).values({ contactId: twin.id, channelType: "whatsapp", externalId: "sim:ES.123456789" });
+    expect((await listDuplicateSuggestions(users.owner.actor, { contactId: simulated.contact.id })).map((item) => item.contacts.map((contact) => contact.id).sort())).toEqual([
+      [simulated.contact.id, twin.id].sort(),
+    ]);
+  });
+
+  it("refuses to merge a simulated customer with a real one, either way round, and nothing changes", async () => {
+    const simulated = await simulatedCopyOfJose();
+    for (const input of [
+      { keepId: jose.contact.id, mergeId: simulated.contact.id },
+      { keepId: simulated.contact.id, mergeId: jose.contact.id },
+    ]) {
+      expect(await errorOf(previewContactMerge(users.owner.actor, input))).toBeInstanceOf(ConflictError);
+      expect(await errorOf(mergeContacts(users.owner.actor, input, { now: NOW }))).toBeInstanceOf(ConflictError);
+    }
+    expect(await db.select().from(contacts).where(eq(contacts.id, simulated.contact.id))).toHaveLength(1);
+    const [conversation] = await db.select().from(conversations).where(eq(conversations.id, simulated.conversation.id));
+    expect(conversation).toMatchObject({ contactId: simulated.contact.id, metadata: { simulated: true } });
     expect(await db.select().from(auditLog).where(eq(auditLog.action, "contact.merged"))).toEqual([]);
   });
 });

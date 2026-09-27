@@ -162,6 +162,19 @@ describe("audios [MED-01] [MED-03] [MED-04]", () => {
     expect(callsTo(fake, "/audio/transcriptions")).toHaveLength(1);
   });
 
+  it("[CUM-05] saves when the voice note was transcribed: its file is kept 30 days from then", async () => {
+    const message = await mediaMessage("audio", OGG, "audio/ogg; codecs=opus");
+    await db.update(messages).set({ metadata: { kept: "sí" } }).where(eq(messages.id, message.id));
+    const before = Date.now();
+    await prepareMessagesForModel(await load([message.id]), context(openRouter()));
+    const { metadata, transcript } = await row(message.id);
+    expect(transcript).toBe("Quería una cita para el martes");
+    expect(metadata).toMatchObject({ kept: "sí", transcribedAt: expect.any(String) });
+    const transcribedAt = Date.parse(String(metadata.transcribedAt));
+    expect(transcribedAt).toBeGreaterThanOrEqual(before);
+    expect(transcribedAt).toBeLessThanOrEqual(Date.now());
+  });
+
   it("uses the transcription model of Settings › IA", async () => {
     await db.update(integrationSettings).set({ defaultModels: { transcription: "mistralai/voxtral-mini-transcribe" } });
     const message = await mediaMessage("audio", OGG, "audio/ogg");

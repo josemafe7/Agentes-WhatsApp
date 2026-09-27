@@ -180,9 +180,13 @@ Detalles del conocimiento que salieron al construirlo (fase 4, sin cambiar el es
   17-03-2026 para las notas de voz. `draft` es la respuesta que espera aprobación ([CAN-07], [MOT-14]).
 - `pricing_category`, `pricing_type` y `cost_estimate` ([WA-38], [WA-47]). `pricing_type` no está en el §4
   del encargo: sin él no se sabe si Meta cobró el mensaje.
-- `metadata`: lo propio de cada canal (cabeceras del correo, mensaje citado…) y lo que añade la app:
-  `aiRunId` (el uso de la IA que lo escribió), `handoff` y `unknownAnswer` (mensaje de traspaso, respuesta «no lo
-  sé»), `transcriptionFailed` («No se pudo transcribir», [MED-03]), `imageDescription` o `imageDescriptionFailed`
+- `metadata`: lo propio de cada canal (cabeceras del correo, mensaje citado…; en un correo de un cliente, también
+  `email.senderVerified`: si el servidor que lo recibió verificó su remitente con la cabecera Authentication-Results,
+  [COR-25]; lo llevan también los mensajes de sus adjuntos, y sin él, en un correo anterior a la marca, cuenta como no
+  verificado) y lo que añade la app: `aiRunId` (el uso de la IA que lo escribió), `handoff` y `unknownAnswer` (mensaje
+  de traspaso, respuesta «no lo sé»), `transcribedAt` (fecha ISO de cuándo se guardó la transcripción de una nota de
+  voz: los días de conservación de su audio cuentan desde ahí, [CUM-05]), `transcriptionFailed` («No se pudo
+  transcribir», [MED-03]), `imageDescription` o `imageDescriptionFailed`
   ([MED-05]), en una plantilla de WhatsApp `whatsappTemplate` (lo que se envía a Meta tal cual) y `templateId`
   ([WA-42]), y, en un borrador aprobado, `approvedByUserId`, `approvedByName`, `approvedAt` y
   `editedBeforeSending` ([CAN-07]). Un borrador descartado se borra. `simulated` es una columna aparte. Las
@@ -278,7 +282,10 @@ Cómo lo hace (fase 7, `src/server/compliance/retention.ts`, sin cambiar el esqu
 
 - **Archivos:** se borran del almacén antes que su fila, salvo si otro mensaje usa el mismo archivo (la demo comparte
   los suyos). El mensaje se queda sin `media` (con `metadata.mediaDeletedAt`) y conserva su texto y su transcripción.
-  Una nota de voz sin transcripción espera el plazo de los adjuntos.
+  Los días del audio de una nota de voz transcrita cuentan desde `metadata.transcribedAt`, cuando se guardó su
+  transcripción, no desde que llegó: una nota transcrita tarde conserva su audio el plazo entero. Una transcripción
+  guardada antes de existir esa marca cuenta desde la llegada del mensaje. Una nota de voz sin transcripción espera el
+  plazo de los adjuntos.
 - **Conversaciones, «Borrar»:** una conversación cuya última actividad (`last_message_at`) pasa del plazo se borra con
   sus mensajes, notas, traspasos y `message_retrievals`; `ai_runs` y `bookings` se quedan, sin el enlace. En las que
   siguen vivas se borran los mensajes, notas y traspasos más antiguos que el plazo, y su resumen acumulado se vacía

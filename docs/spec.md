@@ -203,7 +203,9 @@ límites y sus fuentes) están en `docs/integracion-whatsapp.md`, `docs/integrac
 - [AJU-10] Registro de actividad: lo que hacen las personas y la IA, con filtros. Nadie lo puede editar ni borrar
   a mano.
 - [AJU-11] Diagnóstico: estado de la base de datos y de la cola de trabajo (pendientes, fallidos, última ronda),
-  último aviso recibido por canal, errores recientes, pruebas de conexión y simulador de canales.
+  último aviso recibido por canal, errores recientes, pruebas de conexión (la clave de OpenRouter, el correo de prueba
+  del sistema y la prueba de cada canal conectado: revalidar con Meta, el acceso a Gmail u Outlook y «Probar
+  conexión» de un buzón IMAP/SMTP) y simulador de canales.
 - [AJU-12] Cuando se usa el simulador (canal, contacto y tipo de mensaje: texto, audio, imagen o documento), el
   mensaje entra por el mismo camino que uno real, aparece en la bandeja y la IA responde como lo haría.
 - [AJU-13] Los mensajes del simulador quedan marcados como simulados y sus respuestas nunca salen a Meta, Google,
@@ -461,8 +463,9 @@ Detalles en `docs/integracion-correo.md`.
   rebotes, los enviados por el propio buzón, spam y promociones. Las promociones solo se filtran en Gmail (su
   categoría «Promociones»): Outlook no tiene esa categoría y su clasificación «Otros» mide relevancia, así que
   nunca es el único filtro. En Outlook e IMAP se ignoran el correo no deseado y lo que marcan las cabeceras.
-- [COR-17] Tope diario de respuestas de la IA por hilo y por remitente (5 y 10 por defecto, editables); al
-  llegar, la IA deja de contestar ese día y la conversación espera a una persona.
+- [COR-17] Tope diario de respuestas de la IA por hilo y por remitente (5 y 10 por defecto, editables) y por buzón (200,
+  fijo, sumando todos sus hilos y remitentes); se comprueban al llegar cada correo y otra vez justo antes de enviar la
+  respuesta. Al llegar a uno, la IA deja de contestar ese día y la conversación espera a una persona.
 - [COR-18] En modo «Automático», lo que envía la IA lleva la marca de respuesta automática
   (`Auto-Submitted: auto-replied`) en Gmail e IMAP; en Outlook, solo si se comprueba que la vía MIME la
   conserva, porque Microsoft Graph solo deja añadir cabeceras propias que empiezan por `x-`. Un borrador que una
@@ -483,6 +486,13 @@ Detalles en `docs/integracion-correo.md`.
 - [COR-23] Cuando la vuelta de Google o Microsoft no corresponde a una conexión iniciada desde la app, o trae un
   error, no se guarda nada y se muestra el motivo.
 - [COR-24] Las apps de Google y Microsoft son del propio negocio; nunca se comparten entre negocios.
+- [COR-25] El remitente de un correo (From) lo escribe quien lo envía: solo cuenta como verificado si el servidor que
+  lo recibió lo dice en la cabecera Authentication-Results que pone encima del mensaje (DMARC superado o, sin resultado
+  de DMARC, SPF o DKIM superados para el dominio del remitente). Si no está verificado, o si quien escribe en el hilo
+  no es el contacto de la conversación, la IA puede responder a preguntas generales, pero en esa respuesta no puede
+  ver, cambiar ni cancelar citas ni guardar datos del contacto, y le ofrece una persona; la bandeja muestra «Remitente
+  no verificado». Las respuestas van solo a la dirección del remitente, nunca a la de «Responder a» (Reply-To), y el
+  hilo lo indica cuando el correo pedía otra.
 
 ### Chat web
 
@@ -554,7 +564,8 @@ Se construye después de la fase 7 (ver «Fases»); sus reglas quedan escritas p
 Detalles en `docs/integracion-openrouter.md`.
 
 - [MOD-01] La lista de modelos sale de OpenRouter con la clave del negocio, respetando su configuración de
-  privacidad (si falla, se usa la lista general). Se guarda 12 horas y tiene botón «Actualizar».
+  privacidad (si falla, se usa la lista general). Se guarda 12 horas, se vuelve a pedir sola cada 12 horas mientras
+  hay clave y tiene botón «Actualizar».
 - [MOD-02] Solo aparecen modelos que admiten herramientas. Se excluyen los gratuitos o marcados «solo pruebas»,
   los de procesamiento por lotes, los alias que cambian de modelo, los que tienen precios negativos y los que
   tienen fecha de retirada.
@@ -563,8 +574,9 @@ Detalles en `docs/integracion-openrouter.md`.
 - [MOD-04] Hay buscador y una lista de recomendados que se puede editar.
 - [MOD-05] Al guardar un agente se comprueba que su modelo existe y admite herramientas, y se elige un modelo de
   respaldo de otro proveedor; si el principal falla, responde el de respaldo.
-- [MOD-06] Cuando un modelo en uso anuncia fecha de retirada o desaparece de la lista, la app lo avisa en el
-  agente y al propietario y a los administradores.
+- [MOD-06] Cuando un modelo en uso (el principal o el de respaldo de un agente, o uno de los modelos por defecto de
+  Ajustes > IA) anuncia fecha de retirada o desaparece de la lista, la app lo avisa en el agente y, una sola vez por
+  modelo y por cambio, al propietario y a los administradores ([AJU-08]).
 - [MOD-07] Por agente se ajustan temperatura, razonamiento (bajo por defecto, porque muchos modelos razonan de
   serie y tardan) y longitud máxima de la respuesta.
 - [MOD-08] Sin clave, la lista no se carga y se ve el aviso de [ARR-14].
@@ -770,11 +782,16 @@ Detalles en `docs/busqueda-hibrida.md` y, para los PDF escaneados, en `docs/inte
 - [AGD-24] Recordatorio configurable (por ejemplo, 24 h antes), desactivado por defecto: por WhatsApp con una
   plantilla de utilidad aprobada y sus variables asignadas en la configuración, o por email. Esa plantilla se
   cobra: desde el 1-10-2026, también cuando se envía dentro de la ventana de 24 h, y sin tramo gratuito
-  ([WA-47]).
+  ([WA-47]). El email sale de forma que el cliente pueda contestar ([AGD-26]): si ya escribió a un buzón conectado
+  del negocio (Gmail, Outlook o IMAP), por ese buzón y como respuesta en su hilo, así que lo que conteste llega a esa
+  conversación de la bandeja; si no, desde el correo del sistema, con «Responder a» el buzón conectado del negocio o,
+  si no tiene ninguno, su email de contacto. En ese último caso la respuesta la lee una persona fuera de la app: el
+  texto dice cómo cancelar (respondiendo o llamando) y nunca promete la baja escribiendo «BAJA» por correo.
 - [AGD-25] El recordatorio se envía una sola vez; no se envía si la cita está cancelada ni al contacto dado de
   baja en ese canal; si la cita se mueve, se recalcula.
 - [AGD-26] El cliente puede cancelar respondiendo: la IA se lo confirma y cancela; con la IA apagada, la
-  conversación espera a una persona.
+  conversación espera a una persona. Si el recordatorio salió por email sin ningún buzón conectado, su respuesta
+  llega al email de contacto del negocio y la atiende una persona ([AGD-24]).
 - [AGD-27] Cada sector trae datos de agenda editables: Peluquería/Estética, Clínica dental, Clínica/Fisioterapia,
   Restaurante, Taller, Academia/Clases y Otro.
 - [AGD-28] Las horas se ven y se escriben en la zona horaria del negocio.
@@ -852,6 +869,7 @@ Cómo se cuenta cada cifra (periodo, conversaciones, resueltas por la IA, traspa
 - [INF-06] Citas creadas por la IA.
 - [INF-07] Coste de IA por mes (el que indica OpenRouter) y coste estimado de WhatsApp por mes ([WA-47]).
 - [INF-08] Las conversaciones de «Probar agente» no cuentan.
+- [INF-09] Propietario y Administrador pueden descargar cada tabla de Informes en CSV.
 
 ### PWA y avisos
 
@@ -885,8 +903,11 @@ Detalles en `docs/notificaciones-push.md`.
   https://www.boe.es/buscar/act.php?id=BOE-A-2025-26698 (consultada el 2026-09-26).
 - [CUM-03] Cuando un cliente escribe solo «BAJA» o «STOP» (sin distinguir mayúsculas ni tildes), queda dado de
   baja en ese canal: recibe una confirmación, la IA deja de contestarle y no recibe recordatorios ni plantillas por
-  ese canal. Queda anotado en sus consentimientos.
-- [CUM-04] Si un cliente dado de baja vuelve a escribir, su mensaje llega a la bandeja para una persona.
+  ese canal. Queda anotado en sus consentimientos. En el correo cuenta la primera línea del cuerpo (sin el asunto ni el
+  texto citado), y se da de baja quien envía ese correo.
+- [CUM-04] Si un cliente dado de baja vuelve a escribir, su mensaje llega a la bandeja para una persona, que puede
+  contestarle: sobre el cuadro de escribir, la bandeja avisa «Este cliente se ha dado de baja en este canal: la IA, los
+  recordatorios y las plantillas están parados». La IA, los recordatorios y las plantillas siguen parados en ese canal.
 - [CUM-05] La conservación se configura, con borrado o anonimización cada día. Por defecto: conversaciones 12
   meses, audios 30 días después de transcribirlos, adjuntos 90 días y avisos en bruto de los canales 14 días
   (entre 7 y 30).
@@ -994,6 +1015,7 @@ Lo que no aparece aquí no está permitido.
 | Canales: ver lista, estado y panel, sin credenciales | Sí | Sí | No | No | Ver |
 | Canales: crear, conectar, configurar, desconectar y borrar; agente activo e IA del canal | Sí | Sí | No | No | No |
 | Informes | Sí | Sí | Sí | No | Ver |
+| Informes: descargar cada tabla en CSV | Sí | Sí | No | No | No |
 | Ajustes: Negocio, Horario, Privacidad y legal, Notificaciones y Tarifas | Sí | Sí | No | No | No |
 | Ajustes: IA (claves y modelos) y Correo del sistema | Sí | Sí | No | No | No |
 | Ajustes: Usuarios (invitar, roles, canales, desactivar, borrar y exigir 2FA) | Sí | Sí, salvo sobre el propietario | No | No | No |
@@ -1101,19 +1123,29 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
   pág. 2 y el agente la cita); revisiones de especificación, seguridad y aceptación corregidas. Falta que el
   propietario ejecute una vez `pnpm seed:embeddings` con su clave para guardar en el repositorio los embeddings de la
   demo ([ARR-12]); hasta entonces se calculan en segundo plano al poner la clave.
-- [ ] Fase 5 · Agenda: datos de la agenda, motor de disponibilidad con pruebas exhaustivas (cambios de hora y
+- [x] Fase 5 · Agenda: datos de la agenda, motor de disponibilidad con pruebas exhaustivas (cambios de hora y
   aforo), pantalla, datos por sector, herramientas de citas, confirmaciones y recordatorios — se comprueba: con
   peluquería, el agente ofrece huecos reales y reserva; dos reservas a la vez del último hueco dejan una sola cita;
   con restaurante, respeta el aforo.
-- [ ] Fase 6 · Correo: Gmail, Outlook e IMAP/SMTP, filtros, hilos y borradores — se comprueba, con Google,
+  Comprobado el 2026-09-27: motor de disponibilidad con pruebas de cambios de hora y aforo; en la demo de peluquería
+  el agente ofrece huecos reales y reserva; dos reservas a la vez del último hueco dejan una sola cita; con
+  restaurante se respeta el aforo (4330 pruebas de Vitest y 163 de Playwright en verde).
+- [x] Fase 6 · Correo: Gmail, Outlook e IMAP/SMTP, filtros, hilos y borradores — se comprueba, con Google,
   Microsoft y servidor de correo simulados: un correo entrante crea un borrador; al aprobarlo, sale en el mismo
   hilo; se ignoran los boletines y las respuestas automáticas.
-- [ ] Fase 7 · Cumplimiento y producción: aviso de IA, bajas y conservación, exportar y borrar, páginas legales
+  Comprobado el 2026-09-27: con Google, Microsoft y servidor de correo simulados, un correo entrante crea un
+  borrador, al aprobarlo sale en el mismo hilo y se ignoran boletines y respuestas automáticas; remitente verificado
+  por DMARC para las herramientas de citas.
+- [x] Fase 7 · Cumplimiento y producción: aviso de IA, bajas y conservación, exportar y borrar, páginas legales
   completas con sus textos editables, informes, PWA y push, herramientas HTTP, repaso de seguridad, guías y
   skills — se comprueba: un clon limpio en otra carpeta funciona siguiendo solo el README; siguiendo las guías
   se pone en marcha un negocio real en local
   (`pnpm db:fresh` y asistente); la guía de publicación en Vercel queda lista para comprobarla cuando se publique;
   `pnpm audit` sin fallos graves.
+  Comprobado el 2026-09-27: clon limpio con `pnpm install && pnpm dev` y los usuarios del README; `pnpm db:fresh`
+  lleva al asistente; bajas, aviso de IA, conservación, exportar/borrar/fusionar, informes, PWA y push, herramientas
+  HTTP y seguridad con pruebas; `pnpm audit` sin fallos graves. Pendiente del propietario: publicar en Vercel y
+  generar `seed/fixtures/embeddings.json` con su clave.
 
 Después: publicación en Vercel (Turso, Blob y cron) con la prueba del número de prueba de Meta; Supabase; Dokploy;
 GitHub (versión, migraciones solo aditivas, changelog y aviso de versión nueva); Telegram; respuestas con voz;

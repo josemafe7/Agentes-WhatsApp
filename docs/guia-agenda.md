@@ -208,8 +208,13 @@ defecto**. Se configuran en **Ajustes › Recordatorios** (también hay un enlac
      utilidad, y desde el 1-10-2026 Meta la cobra también dentro de la ventana de 24 horas, sin tramo gratuito. El
      precio aproximado está en Ajustes › WhatsApp (tarifas). Si no aparece ninguna plantilla, créala en WhatsApp
      Manager, espera a que Meta la apruebe y sincroniza las plantillas desde el panel del número en Canales.
-   - **Email:** sale con el correo del sistema (**Ajustes › Correo del sistema**; sin él, la app te avisa de que no
-     saldrán). Puedes cambiar el asunto y el texto usando {nombre}, {servicio}, {fecha}, {hora}, {recurso},
+   - **Email:** sale de forma que el cliente pueda contestar para cancelar. Si ya ha escrito a un buzón conectado del
+     negocio (Gmail, Outlook u otro por IMAP/SMTP), sale por ese buzón como respuesta en su mismo hilo, y lo que
+     conteste llega a esa conversación de la Bandeja, como cualquier otro correo. Si no, sale con el correo del
+     sistema (**Ajustes › Correo del sistema**; sin él, la app te avisa de que no saldrán) y las respuestas van a tu
+     buzón conectado o, si no tienes ninguno, al email de contacto de **Ajustes › Negocio**, donde las lee una
+     persona. Por eso el texto por defecto dice que, para cancelar, responda al correo o llame, y no promete la baja
+     escribiendo «BAJA». Puedes cambiar el asunto y el texto usando {nombre}, {servicio}, {fecha}, {hora}, {recurso},
      {personas} y {negocio}, que se sustituyen por los datos de cada cita.
 4. Pulsa **«Guardar recordatorios»**.
 
@@ -246,3 +251,6 @@ Cómo funcionan:
   confirmar» esté activado para tu rol, y tus preferencias en Mi cuenta.
 - **Un recordatorio no ha salido:** mira el motivo en la ficha de la cita. Lo habitual: el cliente no tiene email o
   no escribe por WhatsApp, se ha dado de baja, la plantilla ya no está aprobada o falta el correo del sistema.
+- **Un cliente contestó a un recordatorio por email y no aparece en la Bandeja:** sin ningún buzón conectado, las
+  respuestas llegan al email de contacto de Ajustes › Negocio, fuera de la app. Conecta el buzón del negocio (guía
+  «Conectar el correo») para que lleguen a la Bandeja.

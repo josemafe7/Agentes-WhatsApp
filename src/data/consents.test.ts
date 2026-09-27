@@ -4,11 +4,11 @@
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
-import { auditLog, channelMembers, channels, consents, contactIdentities, contacts } from "@/db/schema";
+import { auditLog, channelMembers, channels, consents, contactIdentities, contacts, conversations, messages } from "@/db/schema";
 import type { Role } from "@/lib/enums";
 import { isOptedOut } from "@/server/compliance/opt-out";
-import { createBusiness, createChannel, createContactWithIdentity, createUser } from "@/test/factories";
-import { liftOptOut } from "./consents";
+import { actorFor, createBusiness, createChannel, createContactWithIdentity, createConversation, createMessage, createUser } from "@/test/factories";
+import { isConversationOptedOut, liftOptOut } from "./consents";
 
 const OPTED_OUT_AT = new Date("2026-09-20T10:00:00Z");
 
@@ -20,7 +20,7 @@ async function optOut(at = OPTED_OUT_AT) {
 }
 
 beforeEach(async () => {
-  for (const table of [consents, contactIdentities, contacts, auditLog, channelMembers]) await db.delete(table);
+  for (const table of [messages, conversations, consents, contactIdentities, contacts, auditLog, channelMembers]) await db.delete(table);
   await db.delete(channels);
   await createBusiness();
   channelId = (await createChannel({ type: "whatsapp", name: "WhatsApp" })).id;
@@ -92,5 +92,37 @@ describe.each<Role>(["agent", "viewer"])("lifting an opt-out as %s [PER-03] [SEG
     await expect(liftOptOut(person.actor, { contactId, channelId })).rejects.toMatchObject({ status: 403 });
     expect(await isOptedOut(contactId, channelId)).toBe(true);
     expect(await db.select().from(auditLog)).toHaveLength(0);
+  });
+});
+
+describe("the inbox warns when the customer opted out of the channel [CUM-03] [CUM-04]", () => {
+  it("whoever sees the conversation learns it; once lifted, the warning goes", async () => {
+    const conversation = await createConversation(channelId, contactId);
+    const owner = await createUser("owner");
+    const viewer = await createUser("viewer");
+    expect(await isConversationOptedOut(owner.actor, conversation.id)).toBe(false);
+    await optOut();
+    expect(await isConversationOptedOut(owner.actor, conversation.id)).toBe(true);
+    expect(await isConversationOptedOut(viewer.actor, conversation.id)).toBe(true);
+    await liftOptOut(owner.actor, { contactId, channelId });
+    expect(await isConversationOptedOut(owner.actor, conversation.id)).toBe(false);
+  });
+
+  it("[PER-02] an agent of another channel is refused", async () => {
+    const conversation = await createConversation(channelId, contactId);
+    await expect(isConversationOptedOut(actorFor("agent", { channelIds: [crypto.randomUUID()] }), conversation.id)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("[CUM-03] in an email thread, the one that counts is the sender of the newest email", async () => {
+    const mailbox = await createChannel({ type: "email_imap", name: "Correo" });
+    const first = await createContactWithIdentity("email_imap", { externalId: "ana@cliente.test" });
+    const copied = await createContactWithIdentity("email_imap", { externalId: "luis@otro.test" });
+    const conversation = await createConversation(mailbox.id, first.contact.id, { externalThreadId: "hilo" });
+    const email = (address: string) => ({ email: { providerId: crypto.randomUUID(), messageId: null, from: { address, name: null } } });
+    await createMessage(conversation, { createdAt: new Date("2026-09-27T09:00:00Z"), metadata: email("ana@cliente.test") });
+    await createMessage(conversation, { createdAt: new Date("2026-09-27T10:00:00Z"), metadata: email("luis@otro.test") });
+    await db.insert(consents).values({ contactId: copied.contact.id, channelId: mailbox.id, channelType: "email_imap", type: "opt_out", source: "keyword" });
+    const owner = await createUser("owner");
+    expect(await isConversationOptedOut(owner.actor, conversation.id)).toBe(true);
   });
 });

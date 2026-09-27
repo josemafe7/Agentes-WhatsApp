@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { REQUEST_PATH_HEADER } from "@/lib/auth-paths";
-import { proxy } from "./proxy";
+import { config, proxy } from "./proxy";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -137,5 +137,19 @@ describe("Content-Security-Policy of every page, with a fresh nonce [SEG-11]", (
   it("a signed-out visit to a private page is only redirected (a redirect carries no page)", () => {
     const response = get("/contactos");
     expect(response.status).toBe(307);
+  });
+
+  it("runs on every page, also on a path with a dot (a not-found page is a page too); only the API and the static files are skipped", () => {
+    // Next.js anchors the matcher at both ends (node_modules/next/dist/build/analysis/get-page-static-info.js,
+    // getMiddlewareMatchers); this one is a plain regular expression.
+    const runsOn = (path: string) => config.matcher.some((pattern) => new RegExp(`^${pattern}$`).test(path));
+    for (const path of ["/", "/bandeja", "/contactos/ana.lopez", "/invitacion/abc.def", "/legal/privacidad.html", "/wp-login.php", "/widget-demo", "/widget.jsx"]) {
+      expect(runsOn(path), path).toBe(true);
+    }
+    for (const path of ["/api/health", "/api/widget/x/config", "/_next/static/chunks/app.js", "/_next/image", "/favicon.ico", "/sw.js", "/widget.js", "/manifest.webmanifest"]) {
+      expect(runsOn(path), path).toBe(false);
+    }
+    const policy = get("/contactos/ana.lopez", { cookie: "dominia.session_token=x" }).headers.get("content-security-policy");
+    expect(policy).toContain("script-src");
   });
 });

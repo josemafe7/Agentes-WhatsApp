@@ -1,5 +1,6 @@
 // Our own Microsoft Graph client for Outlook / Microsoft 365 mailboxes (docs/integracion-correo.md §2.3–§2.5): the
-// user, delta queries of a folder, the MIME of a message, its unique body, createReply → PATCH → send, and deletes.
+// user, delta queries of a folder, the size of a message before its MIME (read with a cap), its headers, its unique
+// body, createReply (in JSON, or from our MIME) → PATCH (text and only recipient) → send, and deletes.
 // Immutable ids everywhere (`Prefer: IdType="ImmutableId"`, [F45]). MS_GRAPH_BASE_URL points at the e2e mock;
 // injectable fetch. The token comes from a callback: a 401 asks for a fresh one once. Paging links are only followed
 // on Graph's own origin, so the token never leaves for another host.
@@ -54,6 +55,16 @@ const uniqueBodySchema = z.object({
 const draftSchema = z.object({ id: z.string().min(1), conversationId: z.string().nullish(), internetMessageId: z.string().nullish() });
 export type GraphDraft = z.infer<typeof draftSchema>;
 
+/**
+ * PR_MESSAGE_SIZE (PidTagMessageSize, property 0x0E08, a 32-bit integer): the size of the message in bytes, read as a
+ * single-value extended property because the message resource has no size of its own.
+ */
+const MESSAGE_SIZE_PROPERTY = "Integer 0x0E08";
+const sizeSchema = z.object({ singleValueExtendedProperties: z.array(z.object({ id: z.string(), value: z.string().nullish() })).optional() });
+const headersSchema = z.object({ internetMessageHeaders: z.array(z.object({ name: z.string(), value: z.string() })).nullish() });
+
+export type GraphRecipient = { address: string; name: string | null };
+
 const errorBodySchema = z.object({ error: z.object({ code: z.string().optional(), message: z.string().optional() }) });
 
 /** Delta tokens that no longer work: sync again from scratch ([F40]). */
@@ -94,7 +105,36 @@ export class GraphApiError extends Error {
 export type GraphTokenProvider = (options: { forceRefresh: boolean }) => Promise<string>;
 export type GraphClientOptions = { getAccessToken: GraphTokenProvider; baseUrl?: string; fetchImpl?: typeof fetch };
 
-type Call = { method?: "GET" | "POST" | "PATCH" | "DELETE"; url: string; body?: unknown; prefer?: string[]; timeoutMs?: number; raw?: boolean };
+type Call = {
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  url: string;
+  body?: unknown;
+  /** A body sent as it is with its own type (the base64 MIME of createReply) instead of JSON. */
+  text?: { body: string; contentType: string };
+  prefer?: string[];
+  timeoutMs?: number;
+  raw?: boolean;
+};
+
+/** Reads a response body up to `maxBytes` and stops there: a huge message never sits whole in memory. */
+async function readCapped(response: Response, maxBytes: number): Promise<{ bytes: Buffer; truncated: boolean }> {
+  const reader = response.body?.getReader();
+  if (!reader) return { bytes: Buffer.alloc(0), truncated: false };
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return { bytes: Buffer.concat(chunks), truncated: false };
+    const room = maxBytes - total;
+    if (value.byteLength > room) {
+      chunks.push(value.subarray(0, Math.max(0, room)));
+      await reader.cancel().catch(() => undefined);
+      return { bytes: Buffer.concat(chunks), truncated: true };
+    }
+    chunks.push(value);
+    total += value.byteLength;
+  }
+}
 
 function retryAfter(response: Response): number | null {
   const value = Number(response.headers.get("retry-after"));
@@ -116,7 +156,8 @@ export function createGraphClient(options: GraphClientOptions) {
     if (new URL(input.url).origin !== origin) throw new GraphApiError(400, "foreign_link");
     const token = await options.getAccessToken({ forceRefresh });
     const headers: Record<string, string> = { Authorization: `Bearer ${token}`, Prefer: [IMMUTABLE_ID, ...(input.prefer ?? [])].join(", ") };
-    if (input.body !== undefined) headers["Content-Type"] = "application/json";
+    if (input.text) headers["Content-Type"] = input.text.contentType;
+    else if (input.body !== undefined) headers["Content-Type"] = "application/json";
     if (!input.raw) headers.Accept = "application/json";
     let response: Response;
     try {
@@ -124,7 +165,7 @@ export function createGraphClient(options: GraphClientOptions) {
         method: input.method ?? "GET",
         headers,
         // «send» takes an empty body with Content-Length: 0 ([F43]).
-        body: input.body !== undefined ? JSON.stringify(input.body) : input.method === "POST" ? "" : undefined,
+        body: input.text ? input.text.body : input.body !== undefined ? JSON.stringify(input.body) : input.method === "POST" ? "" : undefined,
         signal: AbortSignal.timeout(input.timeoutMs ?? TIMEOUT_MS),
       });
     } catch {
@@ -166,10 +207,26 @@ export function createGraphClient(options: GraphClientOptions) {
       });
       return { items, nextLink: page["@odata.nextLink"] ?? null, deltaLink: page["@odata.deltaLink"] ?? null };
     },
-    /** The whole MIME message ([F50]), parsed like IMAP's. */
-    async getMimeMessage(id: string): Promise<Buffer> {
+    /**
+     * The size of a message in bytes, asked before its MIME ([COR-19]): null when Graph does not give it (then the MIME
+     * is read with its own cap).
+     */
+    async getMessageSize(id: string): Promise<number | null> {
+      const url = new URL(`${api}/messages/${idPath(id)}`);
+      url.searchParams.set("$select", "id");
+      url.searchParams.set("$expand", `singleValueExtendedProperties($filter=id eq '${MESSAGE_SIZE_PROPERTY}')`);
+      const found = await json(sizeSchema, { url: url.toString() });
+      const value = Number(found.singleValueExtendedProperties?.[0]?.value);
+      return Number.isSafeInteger(value) && value >= 0 ? value : null;
+    },
+    /** Only the headers of a message, for one too big to read whole ([F44]). */
+    async getMessageHeaders(id: string): Promise<{ name: string; value: string }[]> {
+      return (await json(headersSchema, { url: `${api}/messages/${idPath(id)}?$select=internetMessageHeaders` })).internetMessageHeaders ?? [];
+    },
+    /** The MIME message ([F50]), parsed like IMAP's; reading stops past `maxBytes` (`truncated`: only its start came). */
+    async getMimeMessage(id: string, options: { maxBytes: number }): Promise<{ bytes: Buffer; truncated: boolean }> {
       const response = await call({ url: `${api}/messages/${idPath(id)}/$value`, raw: true, timeoutMs: MIME_TIMEOUT_MS });
-      return Buffer.from(await response.arrayBuffer());
+      return readCapped(response, options.maxBytes);
     },
     /** The body without the quoted history, as text ([F44], [F46]). */
     async getUniqueBody(id: string): Promise<{ text: string | null; inferenceClassification: string | null }> {
@@ -194,8 +251,20 @@ export function createGraphClient(options: GraphClientOptions) {
         body: { "@odata.type": "#microsoft.graph.fileAttachment", name: file.name, contentType: file.contentType, contentBytes: file.content.toString("base64") },
       });
     },
-    async setTextBody(id: string, text: string): Promise<void> {
-      await call({ method: "PATCH", url: `${api}/messages/${idPath(id)}`, body: { body: { contentType: "Text", content: text } } });
+    /**
+     * The same reply draft created from our MIME message, in base64 as text ([F42]): the only way to give it headers
+     * that Graph does not take in JSON.
+     */
+    async createReplyMime(id: string, mime: Buffer): Promise<GraphDraft> {
+      return json(draftSchema, { method: "POST", url: `${api}/messages/${idPath(id)}/createReply`, text: { body: mime.toString("base64"), contentType: "text/plain" } });
+    },
+    /** A draft's text and, when given, its only recipients (a draft's recipients can change, [F46]). */
+    async updateDraft(id: string, input: { text?: string; to?: readonly GraphRecipient[] }): Promise<void> {
+      const body = {
+        ...(input.text !== undefined ? { body: { contentType: "Text", content: input.text } } : {}),
+        ...(input.to ? { toRecipients: input.to.map((item) => ({ emailAddress: { address: item.address, ...(item.name ? { name: item.name } : {}) } })) } : {}),
+      };
+      await call({ method: "PATCH", url: `${api}/messages/${idPath(id)}`, body });
     },
     /** 202 without body ([F43]). */
     async sendDraft(id: string): Promise<void> {

@@ -74,6 +74,10 @@ Qué se prueba y cómo, para demostrar que el código funciona.
   y dos pruebas demuestran que los límites existen.
 - Vitest excluye `e2e/` en su configuración, porque por defecto recogería también los `.spec.ts` de
   Playwright.
+- Lo que no es código también tiene prueba cuando es una regla: `project-config.test.ts` (configuración de Next.js y
+  Vercel), `project-docs.test.ts` (el README con sus usuarios de prueba, la lista de puesta en marcha, la plantilla de
+  contrato y las skills con su puente, [ARR-22]–[ARR-24], [CUM-09]) y `scripts/lib/env-example.test.ts`
+  (`.env.example`, [ARR-04]). Solo comprueban que está lo que la regla pide, no la redacción.
 - Las pruebas no dependen unas de otras ni del orden en que se ejecutan.
 - Datos inventados y usuarios de prueba: los del seed (ver `docs/conventions.md`). Las pruebas nunca se
   ejecutan contra una base de datos con datos reales (tampoco la de Turso de producción): si la del
@@ -149,7 +153,10 @@ Qué se prueba y cómo, para demostrar que el código funciona.
     `openRouterKey` (`e2e/support/test.ts`): guarda la clave como el propietario desde Ajustes › IA y la quita al
     terminar, aunque la prueba falle, para que las demás sigan viendo la instalación sin IA.
   - Los servidores de correo (IMAP y SMTP) se simulan en Vitest sustituyendo su conexión
-    (`src/server/channels/email/test-fakes/`).
+    (`src/server/channels/email/test-fakes/`). Un correo de prueba no trae la cabecera Authentication-Results del servidor
+    que lo recibe, así que su remitente sale «no verificado» ([COR-25]); `verifiedEmail()` y `receivedWith()` de
+    `src/server/channels/email/test-helpers.ts` la ponen encima, como haría ese servidor. En Playwright, los buzones
+    simulados tampoco la añaden: la prueba la escribe en el correo cuando la necesita.
   - Google y Microsoft simulados en Playwright (fase 6, `e2e/mocks/routes/google.mjs` y `microsoft.mjs`, con lo común en
     `google-microsoft-mail.mjs`): las pantallas de consentimiento (se puede desmarcar un permiso), los tokens con PKCE,
     la API de Gmail y Microsoft Graph de cada buzón, que las pruebas manejan como un guion: llega un correo, una persona

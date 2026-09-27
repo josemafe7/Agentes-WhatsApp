@@ -33,7 +33,10 @@ export const BASE_URL_OVERRIDE_VARIABLES = [
   "TELEGRAM_API_BASE_URL",
 ] as const;
 
-/** Set to "true" only by playwright.config.ts for its app servers (compiled app, mock services, http://localhost). */
+/**
+ * Set to "true" only by playwright.config.ts for its app servers (compiled app, mock services, http://localhost). It
+ * counts only while the app's address is on this computer (baseUrlOverridesAllowed): never in a published app.
+ */
 export const E2E_OVERRIDES_FLAG = "E2E_ALLOW_BASE_URL_OVERRIDES";
 /** Lets the HTTP tools reach this machine and its network (src/server/ai/tools/http-tool.ts): development and tests only. */
 export const LOCAL_HTTP_TOOLS_VARIABLE = "ALLOW_LOCAL_HTTP_TOOLS";
@@ -56,6 +59,33 @@ function isLoopbackHttp(url: URL): boolean {
   return url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname);
 }
 
+/** The app's addresses that are set (APP_URL, BETTER_AUTH_URL), as written. */
+function appUrlValues(env: Env): { name: (typeof APP_URL_VARIABLES)[number]; value: string }[] {
+  return APP_URL_VARIABLES.map((name) => ({ name, value: env[name]?.trim() ?? "" })).filter((entry) => entry.value !== "");
+}
+
+/**
+ * The app runs only on this computer: APP_URL (and BETTER_AUTH_URL, when set) point to localhost, 127.0.0.1 or [::1].
+ * False when neither is set: a published app always has its address.
+ */
+export function isLoopbackAppUrl(env: Env = process.env): boolean {
+  const values = appUrlValues(env);
+  return values.length > 0 && values.every(({ value }) => LOOPBACK_HOSTS.has(parseUrl(value)?.hostname ?? ""));
+}
+
+/**
+ * E2E_ALLOW_BASE_URL_OVERRIDES=true, honoured only on this computer (the Playwright servers): in an installation with a
+ * public address it never lets the services' addresses change nor the HTTP tools into the local network.
+ */
+export function baseUrlOverridesAllowed(env: Env = process.env): boolean {
+  return env[E2E_OVERRIDES_FLAG]?.trim() === "true" && isLoopbackAppUrl(env);
+}
+
+/** `worker`: `pnpm worker` follows the rules of a published app whatever NODE_ENV says (a VPS may not set it). */
+export type ConfigCheckOptions = { worker?: boolean };
+
+const followsProductionRules = (env: Env, options: ConfigCheckOptions) => options.worker === true || env.NODE_ENV === "production";
+
 /**
  * An absolute https:// address without user or password, or plain http on this machine: `pnpm build && pnpm start` in
  * the same computer (the browser only talks to itself, and Better Auth refuses sign-ins from any other origin).
@@ -67,17 +97,17 @@ function isAcceptedAppUrl(value: string): boolean {
 }
 
 /**
- * Why a published app (NODE_ENV=production) must not start, in Spanish; empty when it may. Names the variables,
- * never their values. Without an https address Better Auth would build sign-in and reset links from whatever host a
- * request claims and would not mark the cookies Secure; a changed *_BASE_URL would send the business's keys and its
- * customers' messages to another server.
+ * Why a published app (NODE_ENV=production, or `pnpm worker` always) must not start, in Spanish; empty when it may.
+ * Names the variables, never their values. Without an https address Better Auth would build sign-in and reset links
+ * from whatever host a request claims and would not mark the cookies Secure; a changed *_BASE_URL would send the
+ * business's keys and its customers' messages to another server.
  */
-export function productionConfigProblems(env: Env = process.env): string[] {
-  if (env.NODE_ENV !== "production") return [];
-  const e2e = env[E2E_OVERRIDES_FLAG]?.trim() === "true";
+export function productionConfigProblems(env: Env = process.env, options: ConfigCheckOptions = {}): string[] {
+  if (!followsProductionRules(env, options)) return [];
+  const e2e = baseUrlOverridesAllowed(env);
   const problems: string[] = [];
 
-  const urls = APP_URL_VARIABLES.map((name) => ({ name, value: env[name]?.trim() ?? "" })).filter((entry) => entry.value !== "");
+  const urls = appUrlValues(env);
   if (urls.length === 0) {
     problems.push(
       "Falta APP_URL: pon en APP_URL y en BETTER_AUTH_URL la dirección pública de la app, con https:// (docs/guia-despliegue.md).",
@@ -90,6 +120,12 @@ export function productionConfigProblems(env: Env = process.env): string[] {
           "https://agentes.tunegocio.es). Solo en tu propio ordenador sirve http://localhost.",
       );
     }
+  }
+  // Better Auth decides the cookies (Secure or not) and its links by BETTER_AUTH_URL: it must be the app's address
+  // (an https app with an http BETTER_AUTH_URL would send its session cookie without Secure).
+  const origins = new Set(urls.map(({ value }) => parseUrl(value)?.origin ?? value));
+  if (origins.size > 1 && urls.every(({ value }) => isAcceptedAppUrl(value))) {
+    problems.push("APP_URL y BETTER_AUTH_URL tienen que ser la misma dirección de la app, las dos con https:// (docs/guia-despliegue.md).");
   }
 
   const overrides = BASE_URL_OVERRIDE_VARIABLES.filter((name) => (env[name]?.trim() ?? "") !== "");
@@ -111,11 +147,11 @@ export function productionConfigProblems(env: Env = process.env): string[] {
 }
 
 /**
- * What a compiled app that may start should still say when it starts (NODE_ENV=production): with http://localhost it
- * only works in this computer. Names the variables, never their values.
+ * What a compiled app that may start should still say when it starts (NODE_ENV=production, or `pnpm worker`): with
+ * http://localhost it only works in this computer. Names the variables, never their values.
  */
-export function productionConfigWarnings(env: Env = process.env): string[] {
-  if (env.NODE_ENV !== "production" || env[E2E_OVERRIDES_FLAG]?.trim() === "true") return [];
+export function productionConfigWarnings(env: Env = process.env, options: ConfigCheckOptions = {}): string[] {
+  if (!followsProductionRules(env, options) || baseUrlOverridesAllowed(env)) return [];
   const local = APP_URL_VARIABLES.filter((name) => {
     const url = parseUrl(env[name]?.trim() ?? "");
     return url !== null && isLoopbackHttp(url);
@@ -135,7 +171,7 @@ export class ProductionConfigError extends Error {
 }
 
 /** Throws ProductionConfigError when productionConfigProblems() finds anything. */
-export function assertProductionConfig(env: Env = process.env): void {
-  const problems = productionConfigProblems(env);
+export function assertProductionConfig(env: Env = process.env, options: ConfigCheckOptions = {}): void {
+  const problems = productionConfigProblems(env, options);
   if (problems.length > 0) throw new ProductionConfigError(problems);
 }

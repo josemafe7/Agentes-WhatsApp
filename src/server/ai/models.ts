@@ -1,6 +1,7 @@
 // Model catalogue ([MOD-01]–[MOD-08], docs/integracion-openrouter.md §2): fetched with the business's key
-// (/models/user, falling back to /models), normalized, kept 12 h in app_kv and refreshed on demand. The pickers
-// only offer what passes the rules of §2.5; models already in use that expire or disappear are flagged.
+// (/models/user, falling back to /models), normalized, kept 12 h in app_kv and refreshed on demand and every 12 h in the
+// background. The pickers only offer what passes the rules of §2.5; after every download, models already in use that
+// expire or disappear are flagged and the team is told once (src/server/ai/model-retirement.ts, [MOD-06]).
 import "server-only";
 import { recordAiRun } from "@/data/ai-runs";
 import type { OpenRouterClient } from "@/lib/openrouter/client";
@@ -8,11 +9,16 @@ import { isOpenRouterError, OpenRouterError, type OpenRouterErrorCode } from "@/
 import { MODEL_ID_HINT, MODEL_ID_PATTERN, providerOf } from "@/lib/openrouter/model-id";
 import type { ModelEndpoint, OpenRouterModel } from "@/lib/openrouter/schemas";
 import { REASONING_EFFORTS, type ModelSupport, type ReasoningEffort } from "@/lib/openrouter/types";
-import { DEFAULT_TIMEZONE, formatDateTime } from "@/lib/format";
+import { DEFAULT_TIMEZONE } from "@/lib/format";
 import { EMBEDDING_DIMENSIONS } from "@/db/schema/columns";
+import { getJobQueue } from "@/server/adapters/job-queue";
 import { deleteKv, getKv, setKv } from "@/server/kv";
+import { safeErrorMessage } from "@/server/redact";
 import { AiNotConfiguredError } from "./errors";
+import { formatExpiration, warnAboutModelsInUse } from "./model-retirement";
 import { getOpenRouterClient, type OpenRouterDeps } from "./openrouter";
+
+export { modelWarnings, type ModelWarning } from "./model-retirement";
 
 export const MODEL_CATALOG_KV_KEY = "ai.model_catalog";
 /** «Se guarda 12 horas» ([MOD-01]). */
@@ -20,6 +26,8 @@ export const MODEL_CATALOG_TTL_MS = 12 * 60 * 60 * 1000;
 /** After a failed download the list is not asked again for a while; only «Actualizar lista» asks at once. */
 export const MODEL_CATALOG_RETRY_KV_KEY = "ai.model_catalog_retry";
 export const MODEL_CATALOG_RETRY_AFTER_MS = 5 * 60 * 1000;
+/** Recurring job that downloads the list again every 12 h (src/server/jobs/handlers/model-catalog.ts). */
+export const MODEL_CATALOG_REFRESH_JOB = "ai.model_catalog_refresh";
 /** Bump when ModelInfo changes: an older cached shape is fetched again. */
 const CATALOG_FORMAT = 1;
 const PER_MILLION = 1_000_000;
@@ -192,12 +200,12 @@ export async function getModelCatalog(options: OpenRouterDeps & { refresh?: bool
       throw new OpenRouterError(failure.status, failure.code);
     }
   }
+  let catalog: ModelCatalog;
   try {
     const { models, source } = await client.listModels();
-    const catalog: ModelCatalog = { format: CATALOG_FORMAT, fetchedAt: now.toISOString(), source, models: models.map(normalizeModel) };
+    catalog = { format: CATALOG_FORMAT, fetchedAt: now.toISOString(), source, models: models.map(normalizeModel) };
     await setKv(MODEL_CATALOG_KV_KEY, catalog);
     await deleteKv(MODEL_CATALOG_RETRY_KV_KEY);
-    return catalog;
   } catch (error) {
     if (isOpenRouterError(error)) {
       const retryAt = new Date(Date.now() + MODEL_CATALOG_RETRY_AFTER_MS);
@@ -206,6 +214,29 @@ export async function getModelCatalog(options: OpenRouterDeps & { refresh?: bool
     if (cached) return cached;
     throw error;
   }
+  // `client` is a key only being tried, or one the caller already holds: only the installation's own key keeps the list
+  // refreshed in the background.
+  await afterDownload(catalog, { keepRefreshing: !options.client });
+  return catalog;
+}
+
+/**
+ * After each download: the team hears once about models in use that retire or left the list ([MOD-06], [AJU-08]) and,
+ * with the installation's key, the list keeps being downloaded every 12 h. It never stops the list from loading.
+ */
+async function afterDownload(catalog: ModelCatalog, options: { keepRefreshing: boolean }): Promise<void> {
+  try {
+    await warnAboutModelsInUse(catalog.models);
+    if (options.keepRefreshing) await ensureModelCatalogRefreshJob();
+  } catch (error) {
+    console.warn(`[modelos] No se han podido revisar los modelos en uso: ${safeErrorMessage(error)}`);
+  }
+}
+
+/** System: the recurring job that downloads the list again 12 h after each run (idempotent) ([MOD-01], [MOD-06]). */
+export async function ensureModelCatalogRefreshJob(): Promise<void> {
+  const firstRunAt = new Date(Date.now() + MODEL_CATALOG_TTL_MS);
+  await getJobQueue().ensureRecurring({ type: MODEL_CATALOG_REFRESH_JOB, key: MODEL_CATALOG_REFRESH_JOB, intervalMs: MODEL_CATALOG_TTL_MS, firstRunAt });
 }
 
 /**
@@ -246,10 +277,6 @@ const CHOICE_MESSAGES = {
   alias: "Este nombre es un alias que cambia de modelo: elige el modelo concreto.",
   router: "Los enrutadores automáticos no se pueden usar: elige un modelo concreto.",
 } as const;
-
-function formatExpiration(date: string, timeZone: string): string {
-  return formatDateTime(`${date}T12:00:00Z`, timeZone, { preset: "date" });
-}
 
 function catalogProblem(model: ModelInfo | null, timeZone: string): string | null {
   if (!model) return CHOICE_MESSAGES.missing;
@@ -293,27 +320,6 @@ export function validateModelChoice(
     if (fallbackProblem) add("fallbackModel", fallbackProblem);
   }
   return Object.keys(errors).length > 0 ? errors : null;
-}
-
-export type ModelWarning = { modelId: string; kind: "expiring" | "missing"; expirationDate: string | null; message: string };
-
-/** Models in use that announce a retirement date or left the list ([MOD-06]). */
-export function modelWarnings(models: readonly ModelInfo[], inUse: readonly string[], timeZone: string = DEFAULT_TIMEZONE): ModelWarning[] {
-  const warnings: ModelWarning[] = [];
-  for (const id of new Set(inUse.filter(Boolean))) {
-    const model = findModel(models, id);
-    if (!model) {
-      warnings.push({ modelId: id, kind: "missing", expirationDate: null, message: `El modelo ${id} ya no aparece en la lista de OpenRouter. Elige otro.` });
-    } else if (model.expirationDate) {
-      warnings.push({
-        modelId: id,
-        kind: "expiring",
-        expirationDate: model.expirationDate,
-        message: `El modelo ${model.name} se retira a partir del ${formatExpiration(model.expirationDate, timeZone)}. Elige otro antes.`,
-      });
-    }
-  }
-  return warnings;
 }
 
 // ─── Transcription privacy ([AJU-04], [CUM-10], docs/integracion-openrouter.md §9) ──────────────────────

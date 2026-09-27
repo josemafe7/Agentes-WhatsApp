@@ -163,7 +163,12 @@ lateral: logo, stepper y una columna.
   - WhatsApp (fase 3): ventana de 24 h («Ventana abierta hasta … · quedan …») y, si está cerrada, solo plantillas
     aprobadas con «Elegir plantilla»: diálogo con idioma y categoría, un campo por variable y vista previa; bajo
     cada mensaje enviado, su coste estimado («≈ 0,02 US$ estimado · Utilidad», «Gratis · Servicio» o «Sin estimar»).
-  - Correo (fase 6): hilo con asunto y borradores para aprobar.
+  - Correo (fase 6): hilo con asunto y borradores para aprobar. Un correo cuyo remitente no verificó el servidor que
+    lo recibió lleva «Remitente no verificado», y uno que pedía las respuestas en otra dirección (Reply-To) lo dice:
+    se responde solo a quien lo envió ([COR-25]).
+  - Bajas (fase 7): si el cliente se ha dado de baja en ese canal, sobre el cuadro de escribir: «Este cliente se ha
+    dado de baja en este canal: la IA, los recordatorios y las plantillas están parados.»; una persona puede seguir
+    escribiéndole ([CUM-04]).
   - Fuentes de la IA (fase 4): «Ver fuentes» / «¿Por qué respondió esto?».
   - Conservación (fase 7): un archivo que la limpieza diaria ya borró dice «El archivo se borró por la política de
     conservación»; una nota de voz dice «El audio se borró por la política de conservación» y sigue enseñando su
@@ -466,7 +471,7 @@ apartado en Ayuda ([AJU-17]).
 | Recordatorios | `/ajustes/recordatorios` | 5 | Recordatorios de citas: activar (desactivados por defecto), antelación y canal (plantilla de utilidad de WhatsApp con sus variables, o email con su texto) ([AGD-24]); también enlazado desde Agenda › Configuración | Agenda |
 | Notificaciones | `/ajustes/notificaciones` | 2 | Qué sucesos avisan (traspaso, conversación nueva —desactivado por defecto—, conversación asignada, canal con error, calidad de WhatsApp, modelo que se retira y, desde la fase 5, cita pendiente de confirmar) y a quién por defecto ([AJU-08]); desde la fase 7, «Instalar la app» y «Activar avisos» en este dispositivo; «Bandeja y traspasos»: horas de pausa de la IA cuando responde una persona ([BAN-11]) y traspasos por turnos o sin asignar ([TRA-04]); cada persona elige después en Mi cuenta por dónde le llegan | Traspaso, PWA |
 | Registro de actividad | `/ajustes/actividad` | 7 | Tabla de acciones de personas e IA con filtros | Seguridad (trazabilidad) |
-| Diagnóstico | `/ajustes/diagnostico` | 2 | Base de datos, cola (pendientes y fallidos con «Reintentar»), errores recientes de la IA (hora, tipo, canal, modelo, error y «Ver la conversación»), último webhook por canal (y, de los avisos para números que no son de ningún canal, cuántos, cuándo y el número del último, [WA-34]), correos ignorados de cada buzón por motivo ([COR-16]), correos del sistema, pruebas | Ajustes (diagnóstico) |
+| Diagnóstico | `/ajustes/diagnostico` | 2 | Base de datos, cola (pendientes y fallidos con «Reintentar»), errores recientes de la IA (hora, tipo, canal, modelo, error y «Ver la conversación»), último webhook por canal (y, de los avisos para números que no son de ningún canal, cuántos, cuándo y el número del último, [WA-34]), correos ignorados de cada buzón por motivo ([COR-16]), correos del sistema y pruebas de conexión (la clave de OpenRouter, el correo de prueba del sistema y la prueba de cada canal conectado, con su resultado en español, [AJU-11]) | Ajustes (diagnóstico) |
 | Simulador de canales | `/ajustes/diagnostico/simulador` | 2 | Elegir canal, contacto y tipo (texto, audio, imagen o documento), escribir y «Enviar»; «Ver conversación» | Demo, Simulador |
 | Acerca de | `/ajustes/acerca` | 0 | Versión y enlaces a Ayuda | Ajustes |
 

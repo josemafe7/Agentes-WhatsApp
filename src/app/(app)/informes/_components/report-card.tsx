@@ -1,8 +1,8 @@
 "use client";
 
-// One block of Informes: title and description, «Descargar CSV», the chart (or «Todavía no hay datos de este periodo»
-// inside its frame) and «Ver datos», which shows the same information as a table (DESIGN.md «Informes (gráficos)»).
-// A block without a chart shows its table straight away.
+// One block of Informes: title and description, «Descargar CSV» (owner and admin only, [INF-09]; the server checks it
+// again), the chart (or «Todavía no hay datos de este periodo» inside its frame) and «Ver datos», which shows the same
+// information as a table (DESIGN.md «Informes (gráficos)»). A block without a chart shows its table straight away.
 import { ChartColumn } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,8 @@ type ReportCardProps = {
   table: ReportTableModel;
   description: string;
   filter: ReportFilter;
+  /** «Descargar CSV» is offered ([INF-09]). */
+  canExport: boolean;
   /** The chart; without it the table is shown at once. */
   chart?: ReactNode;
   /** Text inside the chart's frame when there is nothing to draw. */
@@ -25,7 +27,7 @@ type ReportCardProps = {
   className?: string;
 };
 
-export function ReportCard({ table, description, filter, chart, empty = null, note, className }: ReportCardProps) {
+export function ReportCard({ table, description, filter, canExport, chart, empty = null, note, className }: ReportCardProps) {
   const id = useId();
   const [showData, setShowData] = useState(false);
   const titleId = `${id}-title`;
@@ -40,7 +42,7 @@ export function ReportCard({ table, description, filter, chart, empty = null, no
           </h3>
           <p className="text-sm text-muted-foreground">{description}</p>
         </div>
-        <ExportCsvButton table={table.key} title={table.title} filter={filter} />
+        {canExport ? <ExportCsvButton table={table.key} title={table.title} filter={filter} /> : null}
       </div>
       {chart === undefined ? (
         <ReportTable table={table} />

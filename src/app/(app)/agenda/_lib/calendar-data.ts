@@ -225,7 +225,8 @@ export function panelBooking(detail: BookingDetail, context: PanelContext) {
       notes: detail.notes,
       contactId: detail.contactId,
       contactName: detail.contactName,
-      canNotify: !detail.isTest && detail.conversationId !== null,
+      // Only who may reply in its conversation is offered «Avisar al cliente» (the server checks it again, [AGD-23]).
+      canNotify: detail.canNotify,
     },
   };
 }

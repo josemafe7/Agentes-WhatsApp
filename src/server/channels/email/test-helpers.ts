@@ -27,6 +27,20 @@ export type RawEmailInput = {
   date?: Date;
 };
 
+/**
+ * What the receiving server does ([COR-25]): its Authentication-Results goes on top of the message, above everything the
+ * sender wrote. `results` is the value, e.g. «mx.google.com; dmarc=pass header.from=cliente.test».
+ */
+export function receivedWith(raw: Buffer, results: string): Buffer {
+  return Buffer.concat([Buffer.from(`Authentication-Results: ${results}\r\n`), raw]);
+}
+
+/** A customer email that passed DMARC at the receiving server (the From of buildRawEmail's default, or `from`). */
+export async function verifiedEmail(input: RawEmailInput = {}): Promise<Buffer> {
+  const domain = (input.from ?? "ana@cliente.test").split("@")[1];
+  return receivedWith(await buildRawEmail(input), `mx.google.com; dkim=pass header.i=@${domain}; spf=pass smtp.mailfrom=${input.from ?? "ana@cliente.test"}; dmarc=pass (p=NONE) header.from=${domain}`);
+}
+
 export async function buildRawEmail(input: RawEmailInput = {}): Promise<Buffer> {
   const composer = new MailComposer({
     from: { name: input.fromName ?? "Ana Cliente", address: input.from ?? "ana@cliente.test" },

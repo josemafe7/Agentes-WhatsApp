@@ -45,11 +45,19 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
 - Nunca llegan al navegador: como mucho «••••1234», y solo para propietario y administrador. Un campo
   vacío al guardar conserva el valor ([AJU-16], [PER-07]).
 - Un secreto guardado solo vuelve a donde se guardó: si cambia a dónde se envía (servidor, puerto, seguridad o
-  usuario del SMTP del sistema y de un buzón IMAP/SMTP; el Client ID de la app de Google o de Microsoft; el servidor de
-  la dirección de una herramienta HTTP, para sus cabeceras secretas), hay que volver a escribirlo. Si no, quien tenga una sesión de administrador podría mandar la contraseña real del negocio a un
-  servidor suyo. Y una contraseña nunca viaja sin cifrar (SMTP «Sin cifrar» solo sin contraseña).
+  usuario del SMTP del sistema y de un buzón IMAP/SMTP; el Client ID de la app de Google o de Microsoft; la dirección
+  de una herramienta HTTP, para sus cabeceras secretas), hay que volver a escribirlo. Si no, quien tenga una sesión de
+  administrador podría mandar la contraseña real del negocio a un servidor suyo. En una herramienta HTTP cuenta
+  cualquier cambio de la dirección (esquema, servidor, puerto, ruta o parámetros), no solo el de servidor: en un
+  servidor compartido, otra ruta puede ser de otra persona (`src/data/custom-tools.ts`). Y una contraseña nunca viaja
+  sin cifrar (SMTP «Sin cifrar» solo sin contraseña).
 - Nunca aparecen en los logs ni en los errores que se guardan o se muestran, tampoco dentro de una URL (la
-  de descarga de archivos de Telegram lleva el token del bot).
+  de descarga de archivos de Telegram lleva el token del bot). Tampoco en lo que devuelve una herramienta HTTP: si su
+  respuesta repite el valor de una cabecera secreta (tal cual, escapado para JSON, también con `\/` o todo en `\u…`,
+  codificado para una URL, o cada palabra suya de 8 caracteres o más, como el token de un «Bearer …»), se cambia por
+  «[redactado]» antes de dárselo al modelo o a «Probar», y otra vez después de decodificarla (cada texto del JSON,
+  claves incluidas, y el HTML ya pasado a texto), por si un escape o una entidad lo escondían ([HER-12],
+  `src/server/ai/tools/http-tool.ts`).
 - Sin clave de cifrado la app no arranca; si cambia o se pierde, los secretos se marcan ilegibles y sus
   canales piden reconexión, sin romper el resto ([SEG-03]).
 
@@ -115,6 +123,10 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
 - Además de quién es, se comprueba si puede tocar ese registro concreto: que sea suyo o que su rol lo
   permita. Lo que permite cada rol está en «Quién puede hacer qué» de `docs/spec.md`: lo que no aparece
   ahí se deniega y, si falta algo, se pregunta en vez de suponerlo.
+- «Descargar CSV» de Informes es solo de propietario y administrador ([INF-09]): las tablas llevan los motivos de los
+  traspasos, texto libre que puede nombrar a clientes. Supervisor y lector ven los informes sin ese botón, y la Server
+  Action y `src/data/reports.ts` lo vuelven a comprobar; cada descarga queda en el registro de actividad con la tabla y
+  el periodo, sin datos personales.
 - Los roles se guardan en la tabla `user_roles`, que solo cambia `src/data/` con los permisos de
   «Usuarios», nunca en campos que el usuario pueda editar (como su perfil de Better Auth). Se leen en cada
   petición.
@@ -173,12 +185,27 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
   pública (IPv4 e IPv6, incluidas `169.254.169.254` y las `::ffff:` mapeadas) y se vuelve a comprobar al
   conectar (contra el cambio de DNS) y en cada una de las 3 redirecciones como máximo; 10 s y 2 MB como
   máximo, y solo los tipos de contenido esperados.
+- Los avisos push salen hacia la dirección (`endpoint`) que da el navegador de alguien con sesión, así que solo se
+  guarda la de un servicio de push de los navegadores: `fcm.googleapis.com` (Google) o un nombre bajo
+  `push.services.mozilla.com` (Mozilla), `notify.windows.com` (Microsoft) o `push.apple.com` (Apple), nunca el dominio
+  suelto, con HTTPS en el puerto de siempre y sin usuario ni contraseña; las direcciones IP del nombre tienen que ser
+  públicas y se comprueban al conectar. Cada envío va por su propia conexión, con 10 s para todo (de conectar al
+  último byte de la respuesta) y solo 8 KB de respuesta leídos: un servicio lento o que responde de más se corta sin
+  retener el trabajo en segundo plano (`src/server/notifications/push.ts`, `docs/notificaciones-push.md`). Las
+  direcciones `.invalid` de las pruebas de Playwright solo se aceptan con `E2E_ALLOW_BASE_URL_OVERRIDES=true` y la app
+  en este ordenador («Configuración»).
+- Un correo se mide antes de descargarlo (IMAP, su tamaño; Gmail, `sizeEstimate` con `format=metadata`; Outlook, la
+  propiedad `PR_MESSAGE_SIZE`), y uno de más de 40 MB se guarda solo con sus cabeceras, sin leerlo entero; si Outlook no
+  da el tamaño, la lectura de su MIME se corta al pasar de ese límite ([COR-19]).
 - Lo que llega de fuera (webs, mapas del sitio, documentos, respuestas del OCR) no puede dejar parado el
   servidor: se lee sin patrones que puedan retroceder sin límite (los encabezados, los `<loc>` de un mapa del
   sitio, las frases y enlaces del resumen, los espacios al final de las líneas van con bucles o patrones
   lineales, con pruebas que miden el tiempo con textos hostiles), del mapa del sitio se leen como mucho cuatro
   direcciones por página que se añade, y un DOCX o XLSX se descomprime primero con tope (100 MB en total, 10.000
-  entradas) antes de dárselo a su lector, sin fiarse de los tamaños que declara el archivo.
+  entradas) antes de dárselo a su lector, sin fiarse de los tamaños que declara el archivo: cada uno (en el índice, en
+  la cabecera de cada entrada y en su descriptor) tiene que ser exactamente el real, y las entradas tienen que ir
+  seguidas desde el principio, sin nada que el índice no liste, porque el lector de XLSX reserva la memoria de cada
+  entrada según lo que declara su cabecera (`src/server/knowledge/extract/zip.ts`).
 - Los archivos que llegan por WhatsApp se descargan solo de los servidores de Meta (`src/lib/meta/client.ts`):
   cada redirección, 3 como máximo, se vuelve a comprobar, y el token solo va a la primera dirección. Cada tipo tiene
   el tope de `docs/integracion-whatsapp-mensajes.md` §10.3 (audio y vídeo 16 MB, imagen 5 MB, sticker 500 KB,
@@ -203,8 +230,10 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
   `*`. El chat web responde solo a los dominios permitidos de su canal ([WEB-10]). La propia app cuenta como
   dominio permitido solo mientras esa lista está vacía; un chat pensado para la web del negocio solo funciona en la
   app en `/widget-demo` (la API lo sabe por el `Referer`, que las páginas de la app mandan entero a la propia app y que
-  otra web no puede falsear desde el navegador). Fuera de la demo, `/widget-demo` pide sesión y solo ofrece los
-  chats activos; en la demo, que solo corre en local, es pública.
+  otra web no puede falsear desde el navegador). `/widget-demo` solo ofrece los chats activos y pide sesión; solo es
+  pública con `DEMO_MODE=true` y la app en este ordenador (`APP_URL`, y `BETTER_AUTH_URL` si está, en `localhost`,
+  `127.0.0.1` o `[::1]`), así que una demo que se quedara encendida en una dirección pública no la abre a nadie
+  (`src/app/widget-demo/_lib/access.ts`).
 
 ## Límites y errores
 
@@ -253,7 +282,8 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
 - En Vercel se pueden añadir, además, reglas del firewall.
 - Las llamadas a la IA tienen tope de tokens por respuesta (longitud máxima de cada agente), 6 pasos de
   herramientas como mucho y topes por cliente (por visitante en el chat web; respuestas por hilo y
-  remitente en el correo). La clave de OpenRouter lleva límite de gasto, y el panel, alertas.
+  remitente en el correo, y 200 al día por buzón aunque escriban muchos remitentes, comprobados al llegar cada correo
+  y otra vez justo antes de enviar, [COR-17]). La clave de OpenRouter lleva límite de gasto, y el panel, alertas.
 - Next.js ya oculta en producción los errores de los Server Components; las Server Actions y los Route
   Handlers nunca devuelven `error.message`, trazas ni detalles de la base de datos. Los errores de Meta,
   OpenRouter y demás se traducen al español sin tokens ni cabeceras.
@@ -289,18 +319,24 @@ cada servicio (límites, cabeceras, planes), en `docs/plataforma-despliegue.md` 
   negocio vive con la de esa web. Zod, que compilaría sus validaciones con `new Function`, va sin compilar en el
   navegador (`z.config({ jitless: true })` en `src/instrumentation-client.ts`, antes de crear ningún esquema): la
   política nunca tiene que admitir `eval`.
-- La versión compilada (`NODE_ENV=production`) no arranca sin `APP_URL` (o `BETTER_AUTH_URL`) con `https://` y sin
-  usuario ni contraseña, porque con ella se hacen los enlaces de los correos y Better Auth decide las cookies
-  `Secure`. La única excepción es `http://localhost` (o `127.0.0.1`, `[::1]`), para probar `pnpm build && pnpm start`
-  en el propio ordenador: arranca avisando de que solo funciona ahí, y Better Auth rechaza entrar desde cualquier otro
-  origen. Tampoco arranca con una dirección de servicio externo cambiada (`*_BASE_URL`), que mandaría las claves del
-  negocio y los mensajes de sus clientes a otro servidor, ni con `ALLOW_LOCAL_HTTP_TOOLS`, que dejaría a las
-  herramientas HTTP llegar a la red interna del servidor ([HER-14]). Solo los servidores de Playwright las cambian, con
-  `E2E_ALLOW_BASE_URL_OVERRIDES=true`. Las mismas comprobaciones las hace `pnpm worker` al arrancar
-  (`src/server/startup-checks.ts`, que usan `src/instrumentation.ts` y `scripts/worker.ts`). El error dice en español
+- La versión compilada (`NODE_ENV=production`) no arranca sin `APP_URL` (o `BETTER_AUTH_URL`), ni si alguna de las
+  dos no empieza por `https://` o lleva usuario o contraseña, porque con ellas se hacen los enlaces de los correos y
+  Better Auth decide las cookies `Secure`. La única excepción es `http://localhost` (o `127.0.0.1`, `[::1]`), para
+  probar `pnpm build && pnpm start` en el propio ordenador: arranca, pero avisa en el registro de que solo funciona ahí,
+  y Better Auth rechaza entrar desde cualquier otro origen. Si están las dos, tienen que ser la misma dirección (Better
+  Auth hace sus enlaces con `BETTER_AUTH_URL`): con `APP_URL` en `https://` y `BETTER_AUTH_URL` en `http://`, aunque
+  sea `localhost`, no arranca. Tampoco arranca con una dirección de servicio externo cambiada (`*_BASE_URL`),
+  que mandaría las claves del negocio y los mensajes de sus clientes a otro servidor, ni con `ALLOW_LOCAL_HTTP_TOOLS`,
+  que dejaría a las herramientas HTTP llegar a la red interna del servidor ([HER-14]). Solo los servidores de
+  Playwright las cambian, con `E2E_ALLOW_BASE_URL_OVERRIDES=true`, que solo cuenta con la app en este ordenador
+  (`APP_URL`, y `BETTER_AUTH_URL` si está, en `localhost`, `127.0.0.1` o `[::1]`): en una instalación con dirección
+  pública no deja cambiar nada. `pnpm worker` hace las mismas comprobaciones al arrancar y aplica siempre las de la
+  versión compilada, diga lo que diga `NODE_ENV`, que un servidor propio puede no poner (`src/server/app-url.ts` y
+  `src/server/startup-checks.ts`, que usan `src/instrumentation.ts` y `scripts/worker.ts`). El error dice en español
   qué variable falla, nunca su valor.
-- Cookies de sesión `HttpOnly`, `SameSite=Lax` y `Secure` con HTTPS (Better Auth lo decide por la URL de
-  la app, `BETTER_AUTH_URL`).
+- Cookies de sesión `HttpOnly`, `SameSite=Lax` y, con HTTPS, `Secure` y con el prefijo `__Secure-`: en cuanto
+  `APP_URL` o `BETTER_AUTH_URL` empiezan por `https://` y, sin ninguna de las dos, en producción (`usesSecureCookies`
+  de `src/server/auth.ts`).
 - Los despliegues de prueba no usan datos reales, y en producción no hay rutas de prueba ni de depuración.
   La demo (`DEMO_MODE`) solo se activa en local y nunca se carga al arrancar una app publicada ([ARR-18]).
 - El simulador de canales solo lo usan propietario y administrador, y lo que «envía» nunca sale a Meta,
@@ -366,6 +402,24 @@ cuenta.
   el canal, nunca el email o el teléfono del formulario del chat web ([CAN-06]).
 - La IA nunca tiene más permisos que la persona que la usa. Aquí los agentes no son usuarios: solo actúan
   con sus herramientas y sobre el contacto de su conversación ([PER-08]).
+- El remitente de un correo (From) lo escribe quien lo envía, así que nadie se hace pasar por un cliente con solo
+  poner su dirección ([COR-25]): un correo cuenta como suyo solo si el servidor que lo recibió lo dice en la cabecera
+  Authentication-Results de más arriba, la que ese servidor añade (DMARC superado o, sin resultado de DMARC, SPF o DKIM
+  superados y alineados con el dominio del remitente; un correo con más de un remitente nunca cuenta; las de más abajo
+  ya venían en el mensaje y las puede escribir cualquiera, `src/server/channels/email/auth-results.ts`). Se guarda en
+  el mensaje (`metadata.email.senderVerified`). Sin verificar, o si quien escribe en el hilo no es el contacto de la
+  conversación, esa respuesta va sin las herramientas que leen o cambian lo que el contacto ya tiene
+  (`ver_citas_del_cliente`, `cancelar_cita`, `reprogramar_cita` y `guardar_datos_contacto`): la IA sigue respondiendo a
+  preguntas generales y puede dar una cita nueva, y para lo demás se le dice que ofrezca una persona
+  (`src/server/engine/email-sender.ts`). La bandeja lo marca «Remitente no verificado». Los mensajes del simulador y los
+  buzones de la demo, que nunca leen correo real, no pasan por esta comprobación. Gmail y Outlook ponen esa cabecera a
+  todo lo que llega de fuera; con «Otro (IMAP/SMTP)» depende del servidor del buzón (la mayoría lo hace): si alguno no
+  la pusiera, la de más arriba sería la del remitente, así que conviene mirar un correo recibido antes de dar
+  herramientas de citas a un agente de correo.
+- Una respuesta por correo va solo a la dirección del remitente, nunca a las de «Responder a» (Reply-To), que también
+  las escribe quien envía: así nadie desvía hacia otra dirección la respuesta (con datos del cliente). En Outlook, que
+  respondería al Reply-To por su cuenta, el borrador se deja con el remitente como único destinatario. La bandeja avisa
+  cuando un correo pedía las respuestas en otra dirección.
 - Lo que borra, paga o envía algo pide confirmación a la persona: la IA confirma con el cliente antes de
   crear, cambiar o cancelar una cita, y en el correo deja por defecto un borrador que aprueba una persona.
 - En las instrucciones de la IA no hay claves ni datos que el usuario no deba ver, y se le envían solo los
@@ -379,7 +433,10 @@ cuenta.
 ## Datos personales
 
 - Se guardan los mínimos, y la app explica qué guarda y para qué en sus páginas legales ([CUM-08]). Cada
-  persona puede pedir que se borren sus datos, y la app permite exportarlos y borrarlos ([CUM-07]).
+  persona puede pedir que se borren sus datos, y la app permite exportarlos y borrarlos ([CUM-07]). Borrar un contacto
+  se lleva también lo que lo nombra fuera de sus conversaciones: los avisos del equipo, el asunto de los correos de
+  aviso en el registro del correo del sistema (y sus copias `.eml` de `data/outbox`), sus recordatorios y lo que
+  guardaban de él los trabajos en segundo plano (uno pendiente se cancela; uno terminado solo guarda que se borró).
 - La conservación se configura, con borrado o anonimización cada día; los avisos en bruto de los canales,
   pocos días ([CUM-05]).
 - Con clientes en Europa, los datos en la Unión Europea: Turso y Vercel Blob en una región de la UE y, en
@@ -453,6 +510,8 @@ Una app publicada se queda vieja aunque nadie la toque. Cuando pida el mantenimi
 | D4 · ESLint 9.39.5, sin soporte desde el 06-08-2026 | `eslint-config-next` 16.3 no funciona con ESLint 10 (vercel/next.js#89764, abierta). ESLint solo se usa en desarrollo y nunca llega a producción. Pasar a ESLint 10 cuando `eslint-config-next` lo admita | Permiso general del propietario, 2026-09-26 |
 | La Content Security Policy de las páginas admite estilos en línea (`style-src 'self' 'unsafe-inline'`) | React escribe atributos `style` (anchos, colores de marca, alturas que calcula Radix), Radix, sonner e input-otp añaden etiquetas `<style>` sin nonce, y el color del negocio es un bloque `<style>` del layout. Un estilo no ejecuta código: los scripts siguen solo con el nonce de cada petición y `'strict-dynamic'`, sin `'unsafe-inline'` ni `eval`. Quitarla exigiría reescribir componentes de terceros | Permiso general del propietario, 2026-09-26 |
 | D5 · TypeScript 6.0.3 en vez de 7 | typescript-eslint 8.70 solo admite TypeScript < 6.1 y TypeScript 7 no trae la API de JavaScript que usa. `tsconfig.json` lleva `"types": ["node"]` porque TypeScript 6 ya no carga los tipos por defecto | Permiso general del propietario, 2026-09-26 |
+| Las herramientas HTTP pueden llamar por `http` y a este ordenador o a la red privada (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 y `::1`) solo en desarrollo local (`pnpm dev`, `NODE_ENV=development`) o con `ALLOW_LOCAL_HTTP_TOOLS=true` | Sirve para probar una herramienta contra un n8n o una API de pruebas del propio ordenador o de la red local, y para que Playwright llame a su simulador. Nunca en una instalación publicada: la versión compilada no arranca con `ALLOW_LOCAL_HTTP_TOOLS` salvo en los servidores de Playwright («Configuración», [HER-14]). Ni siquiera así llega a las direcciones link-local (169.254.0.0/16, donde están los metadatos de la nube), a las de CGNAT ni a las IPv6 locales únicas (`fd00:ec2::254` es la de metadatos de AWS) (`src/server/ai/tools/http-tool.ts`) | Permiso general del propietario, 2026-09-26 |
+| `ALLOW_PRIVATE_MAIL_HOSTS=true` deja conectar un buzón «Otro (IMAP/SMTP)» a un servidor de correo con dirección privada | Solo para una instalación en un servidor propio con su servidor de correo al lado, en la misma red. Sin ella, la app solo se conecta a servidores de correo con dirección pública. Con ella tampoco llega nunca a las direcciones link-local, donde están los metadatos de la nube (169.254.0.0/16, también escrita como `::ffff:169.254.…`, y `fe80::/10`), ni a la de metadatos de AWS en IPv6 (`fd00:ec2::254`): el nombre del servidor se resuelve igual que sin ella y la app se conecta a la dirección comprobada, así que un cambio de DNS no la lleva a otra. Siguen valiendo las demás reglas: nunca el puerto 25, siempre con TLS y nunca una contraseña sin cifrar (`src/server/channels/email/imap/connection.ts`) | Permiso general del propietario, 2026-09-26 |
 
 ## Fuentes
 

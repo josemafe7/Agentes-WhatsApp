@@ -1,5 +1,6 @@
 // «Descargar CSV» of Informes called directly, as the browser would, with the real data layer and database ([SEG-04],
-// [PER-01] «Informes»). The clock is fixed on Sunday 2026-09-27 10:00 (Madrid): only Date is faked (docs/testing.md).
+// [PER-01] «Informes», [INF-09]: only owner and admin download a table). The clock is fixed on Sunday 2026-09-27 10:00
+// (Madrid): only Date is faked (docs/testing.md).
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,7 +16,7 @@ import { createChannel, createContactWithIdentity, createConversation, createMes
 import { exportReportTableAction } from "./actions";
 
 const FORBIDDEN = { ok: false, error: "No tienes permiso para hacer esto." };
-const READERS = ["owner", "admin", "supervisor", "viewer"] as const;
+const EXPORTERS = ["owner", "admin"] as const;
 
 const signInAs = (person: TestUser) => {
   state.session = { session: { id: `s-${person.userId}` }, user: { id: person.userId } };
@@ -48,8 +49,8 @@ beforeEach(() => {
   state.session = null;
 });
 
-describe("«Descargar CSV» [PER-01] «Informes»", () => {
-  it.each(READERS)("[PER-03] the %s downloads a table of the period, as the screen shows it", async (role) => {
+describe("«Descargar CSV» [PER-01] «Informes» [INF-09]", () => {
+  it.each(EXPORTERS)("[INF-09] the %s downloads a table of the period, as the screen shows it", async (role) => {
     await signInWithRole(role);
     const result = await exportReportTableAction({ table: "canales", filter: { month: "2026-09" } });
     expect(result).toMatchObject({ ok: true, data: { fileName: "informe-conversaciones-por-canal-2026-09.csv" } });
@@ -61,17 +62,18 @@ describe("«Descargar CSV» [PER-01] «Informes»", () => {
   });
 
   it("[INF-04] exports the reasons of the hand-offs of a custom range", async () => {
-    await signInWithRole("supervisor");
+    await signInWithRole("admin");
     const result = await exportReportTableAction({ table: "motivos", filter: { from: "2026-09-20", to: "2026-09-20" } });
     expect(result).toMatchObject({ ok: true, data: { fileName: "informe-motivos-de-los-traspasos-2026-09-20_2026-09-20.csv" } });
     if (!result.ok || !result.data) return;
     expect(result.data.csv.split("\r\n")[1]).toBe('"Cristina Herrero pide su factura";"La IA, con su herramienta";"1"');
   });
 
-  it("[PER-02] the agent gets «No tienes permiso» and nothing is exported or logged", async () => {
-    const agent = await signInWithRole("agent");
+  it.each(["supervisor", "viewer", "agent"] as const)("[INF-09] the %s gets «No tienes permiso» and nothing is exported or logged", async (role) => {
+    const person = await signInWithRole(role);
     expect(await exportReportTableAction({ table: "canales", filter: {} })).toEqual(FORBIDDEN);
-    expect(await exportsOf(agent.userId)).toHaveLength(0);
+    expect(await exportReportTableAction({ table: "motivos", filter: { month: "2026-09" } })).toEqual(FORBIDDEN);
+    expect(await exportsOf(person.userId)).toHaveLength(0);
   });
 
   it("[SEG-04] without a session nothing is exported", async () => {
@@ -79,9 +81,9 @@ describe("«Descargar CSV» [PER-01] «Informes»", () => {
   });
 
   it("[SEG-10] each export is written in the activity log with the table and the period, and nothing personal", async () => {
-    const viewer = await signInWithRole("viewer");
+    const admin = await signInWithRole("admin");
     await exportReportTableAction({ table: "motivos", filter: { month: "2026-09" } });
-    const [entry] = await exportsOf(viewer.userId);
+    const [entry] = await exportsOf(admin.userId);
     expect(entry).toMatchObject({ actorType: "user", targetType: "report" });
     expect(entry.metadata).toEqual({ table: "motivos", firstDay: "2026-09-01", lastDay: "2026-09-30", channelFiltered: false });
     expect(JSON.stringify(entry.metadata)).not.toContain("Cristina");

@@ -217,17 +217,29 @@ test.describe("as the owner", () => {
 });
 
 test.describe("[PER-01] «Informes»: owner, admin, supervisor and viewer; never the agent", () => {
-  for (const role of ["admin", "supervisor", "viewer"] as const) {
+  test.describe("as the demo admin", () => {
+    test.use({ storageState: authStatePath("admin") });
+
+    test("[PER-01][INF-09] the admin reads the reports and downloads a table", async ({ page }) => {
+      await page.goto(REPORTS_PATH);
+      await expect(periodHeading(page)).toHaveText(monthPeriodLabel(localToday()));
+      await expect(indicator(page, "Resueltas por la IA")).toBeVisible();
+      const file = await downloadCsv(page, "Costes por mes");
+      expect(file.name).toMatch(/^informe-costes-por-mes-\d{4}-\d{2}\.csv$/);
+      expect(file.text.split("\r\n")[0]).toBe('﻿"Mes";"Coste de IA (US$)";"IA en «Probar agente» (US$)";"WhatsApp estimado (US$)";"Mensajes sin tarifa"');
+    });
+  });
+
+  for (const role of ["supervisor", "viewer"] as const) {
     test.describe(`as the demo ${role}`, () => {
       test.use({ storageState: authStatePath(role) });
 
-      test(`[PER-01][PER-03] the ${role} reads the reports and downloads a table`, async ({ page }) => {
+      test(`[PER-01][PER-03][INF-09] the ${role} reads the reports but is not offered «Descargar CSV»`, async ({ page }) => {
         await page.goto(REPORTS_PATH);
         await expect(periodHeading(page)).toHaveText(monthPeriodLabel(localToday()));
         await expect(indicator(page, "Resueltas por la IA")).toBeVisible();
-        const file = await downloadCsv(page, "Costes por mes");
-        expect(file.name).toMatch(/^informe-costes-por-mes-\d{4}-\d{2}\.csv$/);
-        expect(file.text.split("\r\n")[0]).toBe('﻿"Mes";"Coste de IA (US$)";"IA en «Probar agente» (US$)";"WhatsApp estimado (US$)";"Mensajes sin tarifa"');
+        await expect(block(page, "Costes por mes")).toBeVisible();
+        await expect(page.getByRole("button", { name: /^Descargar CSV/ })).toHaveCount(0);
       });
     });
   }

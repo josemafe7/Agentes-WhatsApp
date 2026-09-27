@@ -2,6 +2,9 @@
 // Ajustes › Privacidad y legal leaves a text empty, filled with the business data. Simple format of
 // src/lib/markdown.ts (# headings, - lists, **bold**); never HTML. Orientative: to be reviewed by the
 // business with an adviser (the settings page says so).
+// «BAJA» is promised only where the app reads it: a conversation of a channel ([CUM-03]). A reminder by email may come
+// from the system mail, whose answers a person reads outside the app ([AGD-24]): for email the texts say to answer it
+// or to write to the business, never to write «BAJA».
 import "server-only";
 import type { RetentionSettings } from "@/db/schema";
 
@@ -21,9 +24,15 @@ export type LegalBusinessData = {
 
 const FALLBACK_NAME = "Este negocio";
 
+/** Goes after «escríbenos a»: «hola@negocio.es o al 600 000 000». */
 function contactLine(data: LegalBusinessData): string {
   const ways = [data.contactEmail, data.contactPhone].filter((value): value is string => Boolean(value));
-  return ways.length > 0 ? ways.join(" o al ") : "el mismo canal por el que nos escribiste";
+  return ways.length > 0 ? ways.join(" o al ") : "través del mismo canal por el que nos escribiste";
+}
+
+/** How to stop the reminders of each channel ([CUM-03], [AGD-24]). */
+function remindersOptOut(data: LegalBusinessData): string {
+  return `Por WhatsApp, deja de recibirlos escribiendo BAJA en nuestra conversación. Si te llegan por correo, responde al recordatorio pidiéndolo o escríbenos a ${contactLine(data)}.`;
 }
 
 function privacyText(data: LegalBusinessData, name: string): string {
@@ -44,7 +53,7 @@ Los que nos das al escribirnos por WhatsApp, por correo o por el chat de nuestra
 - Gestionar tus citas y recordártelas.
 - Pasarte con una persona del equipo cuando lo pidas o cuando haga falta.
 
-Los tratamos porque nos lo pides y, cuando reservas, para prestarte el servicio. Los recordatorios se basan en nuestro interés en que no pierdas tu cita: puedes dejar de recibirlos escribiendo BAJA.
+Los tratamos porque nos lo pides y, cuando reservas, para prestarte el servicio. Los recordatorios se basan en nuestro interés en que no pierdas tu cita, y puedes dejar de recibirlos cuando quieras. ${remindersOptOut(data)}
 
 # Asistente con inteligencia artificial
 
@@ -85,7 +94,7 @@ Una cita está reservada cuando te la confirmamos por este mismo canal. Si no pu
 
 # Mensajes y bajas
 
-Solo te escribimos para atender tus consultas y recordarte tus citas. Si no quieres recibir más mensajes por un canal, escribe BAJA o STOP en esa conversación.
+Solo te escribimos para atender tus consultas y recordarte tus citas. Si no quieres recibir más mensajes por un canal, escribe BAJA o STOP en esa conversación. Si un recordatorio te llega por correo, responde al recordatorio pidiéndolo o escríbenos a ${contactLine(data)}.
 
 # Uso correcto
 
@@ -110,7 +119,7 @@ Comprobamos que la petición es tuya y borramos tus datos en un plazo máximo de
 
 # Dejar de recibir mensajes
 
-Si solo quieres dejar de recibir mensajes por un canal, escribe BAJA o STOP en esa conversación.
+Si solo quieres dejar de recibir mensajes por un canal, escribe BAJA o STOP en esa conversación. Si un recordatorio te llega por correo, responde al recordatorio pidiéndolo o escríbenos a ${contactLine(data)}.
 
 # Si nos escribiste por WhatsApp
 

@@ -1,11 +1,11 @@
 "use server";
-// Server Action of Informes: «Descargar CSV» of one table ([INF-01]–[INF-07]). Thin: session and permission here, then
-// src/data/reports.ts, which checks the permission again and validates the period and the channel ([SEG-04],
-// [SEG-05]). The CSV is the same table «Ver datos» shows. Every export goes to the activity log, with the table and the
-// period and nothing personal ([SEG-10]).
+// Server Action of Informes: «Descargar CSV» of one table ([INF-01]–[INF-07]), only for owner and admin ([INF-09]).
+// Thin: session and permission here, then src/data/reports.ts, which checks the permission again and validates the
+// period and the channel ([SEG-04], [SEG-05]). The CSV is the same table «Ver datos» shows. Every export goes to the
+// activity log, with the table and the period and nothing personal ([SEG-10]).
 import { z } from "zod";
 import { writeAudit } from "@/data/audit";
-import { getReport } from "@/data/reports";
+import { getReportForExport } from "@/data/reports";
 import { ok, type ActionResult } from "@/lib/action-result";
 import { PERMISSIONS } from "@/lib/permissions";
 import { parseInput, toActionFailure } from "@/server/errors";
@@ -25,9 +25,9 @@ const exportSchema = z
 
 export async function exportReportTableAction(input: unknown): Promise<ActionResult<ReportCsv>> {
   try {
-    const actor = await requirePermission(PERMISSIONS.reports.view);
+    const actor = await requirePermission(PERMISSIONS.reports.export);
     const { table, filter } = parseInput(exportSchema, input);
-    const report = await getReport(actor, filter ?? {});
+    const report = await getReportForExport(actor, filter ?? {});
     const csv = tableToCsv(buildReportTable(report, table));
     await writeAudit({
       actor,

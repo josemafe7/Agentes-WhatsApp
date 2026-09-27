@@ -24,6 +24,8 @@ export type EmailDeps = {
   now?: () => Date;
   storage?: FileStorage;
   queue?: JobQueue;
+  /** Largest message read whole (MAX_EMAIL_BYTES); tests make it small instead of sending 40 MB. */
+  maxEmailBytes?: number;
 };
 
 export type SyncReport = {

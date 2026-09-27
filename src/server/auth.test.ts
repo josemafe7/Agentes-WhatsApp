@@ -23,7 +23,7 @@ import { jobs, session, user, verification } from "@/db/schema";
 import { createBusiness, createUser, TEST_PASSWORD } from "@/test/factories";
 import { ConflictError, ValidationError } from "./errors";
 import { createFirstOwner, createUserWithPassword, EmailInUseError } from "./accounts";
-import { auth } from "./auth";
+import { auth, usesSecureCookies } from "./auth";
 import { SYSTEM_EMAIL_JOB } from "./jobs/handlers/system-email";
 import { tick } from "./jobs/tick";
 
@@ -87,7 +87,7 @@ describe("sign-in with accounts created by the app [USU-01]", () => {
 });
 
 describe("closed sign-up [USU-03]", () => {
-  it("the sign-up endpoint does not exist and the server API refuses too", async () => {
+  it("the sign-up endpoint does not exist and the server API refuses too [USU-04]", async () => {
     const response = await http("POST", "/sign-up/email", { body: { email: "intruso@example.com", password: TEST_PASSWORD, name: "X" } });
     expect(response.status).toBe(404);
     await expect(
@@ -271,5 +271,16 @@ describe("createFirstOwner only while there are no users [ASI-02]", () => {
     await expect(createFirstOwner({ name: "Otro", email: "otro-owner@example.com", password: TEST_PASSWORD })).rejects.toBeInstanceOf(
       ConflictError,
     );
+  });
+});
+
+describe("secure session cookies [SEG-11]", () => {
+  it("whenever the app is served over https, even when only one of APP_URL or BETTER_AUTH_URL says so", () => {
+    expect(usesSecureCookies({ APP_URL: "https://agentes.mipeluqueria.es", BETTER_AUTH_URL: "https://agentes.mipeluqueria.es" })).toBe(true);
+    // The start-up checks refuse this pair (src/server/app-url.ts); the cookies stay Secure anyway.
+    expect(usesSecureCookies({ APP_URL: "https://agentes.mipeluqueria.es", BETTER_AUTH_URL: "http://localhost:3000" })).toBe(true);
+    expect(usesSecureCookies({ APP_URL: "http://localhost:3000", BETTER_AUTH_URL: "http://localhost:3000" })).toBe(false);
+    expect(usesSecureCookies({ NODE_ENV: "production" })).toBe(true);
+    expect(usesSecureCookies({ NODE_ENV: "development" })).toBe(false);
   });
 });

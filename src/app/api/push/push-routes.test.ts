@@ -96,6 +96,14 @@ describe("/api/push/subscriptions [PWA-03]", () => {
     expect(await db.select().from(pushSubscriptions)).toHaveLength(0);
   });
 
+  it("only takes a subscription of a browser's push service: the server would POST to it", async () => {
+    signIn(agent);
+    for (const endpoint of ["https://push.example.com/fcm/send/abc", "https://push.invalid/e2e/abc", "https://attacker.example.org/w/?token=abc"]) {
+      expect((await post({ ...browserSubscription(), endpoint })).status, endpoint).toBe(400);
+    }
+    expect(await db.select().from(pushSubscriptions)).toHaveLength(0);
+  });
+
   it("stores the device for the signed-in person and answers without the endpoint", async () => {
     signIn(agent);
     const subscription = browserSubscription();

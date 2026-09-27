@@ -218,8 +218,9 @@ Muestra real (recortada) del 2026-09-26:
 | Enrutadores | Precio `"-1"` en `prompt` y `completion` (`tokenizer: "Router"`) | `openrouter/auto`, `openrouter/auto-beta`, `openrouter/fusion`, `openrouter/pareto-code`, `openrouter/bodybuilder`, `typesafe/jev-router` |
 | Con fecha de retirada | `expiration_date` distinto de `null` (30 hoy) | `google/gemini-2.5-flash` (2026-10-20), `deepseek/deepseek-v3.2` (2026-09-28) |
 
-- Si un modelo **en uso** aparece con `expiration_date`, o deja de aparecer, aviso en el agente y en
-  Diagnóstico con la fecha.
+- Si un modelo **en uso** aparece con `expiration_date`, o deja de aparecer, aviso con la fecha en el agente y en
+  Ajustes › IA, y una notificación («Modelo que se retira») al propietario y a los administradores una sola vez por
+  modelo y cambio, tras cada descarga de la lista (también la automática de cada 12 h) ([MOD-06]).
 - Sufijos de enrutado (`:nitro`, `:floor`, `:exacto`) no aparecen en el catálogo y no los ofrecemos. Un
   sufijo de catálogo inexistente (`:free` en un modelo sin versión gratis) no cae al modelo base: falla.
 

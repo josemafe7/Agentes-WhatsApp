@@ -9,6 +9,7 @@ import { and, eq, gt, inArray, lt } from "drizzle-orm";
 import { db, type Executor, type Transaction } from "@/db";
 import { bookingEvents, bookings, contacts, reminderSettings, resources, resourceTimeOff } from "@/db/schema";
 import type { BookingSource, BookingStatus, TimeOffKind } from "@/lib/enums";
+import { toSingleLine } from "@/lib/format";
 import { AppError, NotFoundError, ValidationError } from "@/server/errors";
 import {
   type AvailableSlot,
@@ -78,6 +79,14 @@ function assertPeople(value: number | undefined): void {
 function cleanText(text: string | null | undefined, max: number): string | null {
   const value = text?.trim();
   return value ? value.slice(0, max) : null;
+}
+
+/**
+ * A name on one line: it goes into notices, reminders and the agent's prompt, where a line break written by a model or
+ * a customer must never start a line of its own ([HER-09]).
+ */
+function cleanName(text: string | null | undefined): string | null {
+  return toSingleLine(text ?? "", MAX_NAME) || null;
 }
 
 /** A booking write transaction, queued behind the other booking writes of this process (./write-queue.ts). */
@@ -208,11 +217,11 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingV
   const outcome = await bookingTransaction(async (tx): Promise<TxOutcome> => {
     const service = await loadService(tx, input.serviceId);
     if (!service) throw new NotFoundError("No se ha encontrado el servicio.");
-    let contactName = cleanText(input.contactName, MAX_NAME);
+    let contactName = cleanName(input.contactName);
     if (input.contactId) {
       const [contact] = await tx.select({ name: contacts.name }).from(contacts).where(eq(contacts.id, input.contactId));
       if (!contact) throw new NotFoundError("No se ha encontrado el contacto.");
-      contactName ??= cleanText(contact.name, MAX_NAME);
+      contactName ??= cleanName(contact.name);
     }
     const request: SlotRequest = {
       serviceId: service.row.id,
@@ -320,10 +329,20 @@ async function reminderLeadMinutes(tx: Executor): Promise<number | null> {
  * that moment is still ahead ([AGD-25]).
  */
 export async function rescheduleBooking(input: RescheduleBookingInput): Promise<BookingView> {
+  return (await rescheduleBookingReporting(input)).booking;
+}
+
+/** What a change did: `changed` false when the booking already was so (nothing saved, nothing to tell anyone). */
+export type BookingChange = { booking: BookingView; changed: boolean };
+
+/** rescheduleBooking, saying whether the start really moved (`moved`) and whether anything changed at all. */
+export async function rescheduleBookingReporting(input: RescheduleBookingInput): Promise<BookingChange & { moved: boolean }> {
   const now = input.now ?? new Date();
   assertMinutes(input.durationMin, "Duración");
   assertPeople(input.people);
   const settings = await loadAgendaSettings();
+  let moved = false;
+  let changed = false;
   const outcome = await bookingTransaction(async (tx): Promise<TxOutcome> => {
     const current = await loadForChange(tx, input.bookingId, input.scope);
     if (!isOccupying(current.status)) throw new ValidationError("Solo se pueden cambiar las citas pendientes o confirmadas.");
@@ -336,29 +355,31 @@ export async function rescheduleBooking(input: RescheduleBookingInput): Promise<
       people: input.people ?? current.people,
       durationMin: input.durationMin ?? Math.round((current.endsAt.getTime() - current.startsAt.getTime()) / MINUTE_MS),
     };
-    const moved = request.start.getTime() !== current.startsAt.getTime();
-    const check = await checkSlot(tx, settings, service, { ...request, now, excludeBookingId: current.id, ignoreAdvance: !moved });
+    const startMoved = request.start.getTime() !== current.startsAt.getTime();
+    const check = await checkSlot(tx, settings, service, { ...request, now, excludeBookingId: current.id, ignoreAdvance: !startMoved });
     if (!("resourceId" in check)) return { ok: false, reason: check.reason, request };
     const times = bookingTimes(request.start, service.row, request.durationMin);
     const lead = await reminderLeadMinutes(tx);
     // «Si la cita se mueve, se recalcula»: a new reminder only if its new moment is still ahead.
-    const resetReminder = moved && current.reminderSentAt !== null && lead !== null && request.start.getTime() - lead * MINUTE_MS > now.getTime();
+    const resetReminder = startMoved && current.reminderSentAt !== null && lead !== null && request.start.getTime() - lead * MINUTE_MS > now.getTime();
     await tx
       .update(bookings)
       .set({ ...times, resourceId: check.resourceId, people: request.people, ...(resetReminder ? { reminderSentAt: null } : {}), updatedAt: now })
       .where(eq(bookings.id, current.id));
     const changes: Record<string, unknown> = {};
-    if (moved) changes.startsAt = { from: current.startsAt.toISOString(), to: request.start.toISOString() };
+    if (startMoved) changes.startsAt = { from: current.startsAt.toISOString(), to: request.start.toISOString() };
     if (check.resourceId !== current.resourceId) changes.resourceId = { from: current.resourceId, to: check.resourceId };
     if (times.endsAt.getTime() !== current.endsAt.getTime()) changes.endsAt = { from: current.endsAt.toISOString(), to: times.endsAt.toISOString() };
     if (request.people !== current.people) changes.people = { from: current.people, to: request.people };
     if (Object.keys(changes).length > 0) {
-      await recordBookingEvent(tx, current.id, input.actor, moved || changes.resourceId ? "moved" : "updated", changes, now);
+      await recordBookingEvent(tx, current.id, input.actor, startMoved || changes.resourceId ? "moved" : "updated", changes, now);
     }
+    moved = startMoved;
+    changed = Object.keys(changes).length > 0;
     return { ok: true, id: current.id };
   });
   if (!outcome.ok) return unavailable(outcome, now, input.bookingId);
-  return viewOrThrow(outcome.id, settings.timezone);
+  return { booking: await viewOrThrow(outcome.id, settings.timezone), moved, changed };
 }
 
 // ─── Status ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -380,9 +401,16 @@ export type ChangeBookingStatusInput = {
  * booking checks its slot again, since it may have been taken meanwhile ([AGD-13]).
  */
 export async function changeBookingStatus(input: ChangeBookingStatusInput): Promise<BookingView> {
+  return (await changeBookingStatusReporting(input)).booking;
+}
+
+/** changeBookingStatus, saying whether the status really changed (the same status again saves nothing). */
+export async function changeBookingStatusReporting(input: ChangeBookingStatusInput): Promise<BookingChange> {
   const now = input.now ?? new Date();
   const settings = await loadAgendaSettings();
+  let changed = false;
   const outcome = await bookingTransaction(async (tx): Promise<TxOutcome> => {
+    changed = false;
     const current = await loadForChange(tx, input.bookingId, input.scope);
     if (current.status === input.status) return { ok: true, id: current.id };
     if (input.allowedFrom && !input.allowedFrom.includes(current.status)) {
@@ -407,15 +435,21 @@ export async function changeBookingStatus(input: ChangeBookingStatusInput): Prom
       .set({ status: input.status, cancelledAt: cancelled ? now : null, cancelReason: cancelled ? cleanText(input.reason, MAX_REASON) : null, updatedAt: now })
       .where(eq(bookings.id, current.id));
     await recordBookingEvent(tx, current.id, input.actor, cancelled ? "cancelled" : "status_changed", { status: { from: current.status, to: input.status } }, now);
+    changed = true;
     return { ok: true, id: current.id };
   });
   if (!outcome.ok) return unavailable(outcome, now, input.bookingId);
-  return viewOrThrow(outcome.id, settings.timezone);
+  return { booking: await viewOrThrow(outcome.id, settings.timezone), changed };
 }
 
 /** Cancels a pending or confirmed booking; the slot is free again at once ([AGD-09], [AGD-26]). */
 export async function cancelBooking(input: Omit<ChangeBookingStatusInput, "status" | "allowedFrom">): Promise<BookingView> {
-  return changeBookingStatus({ ...input, status: "cancelled", allowedFrom: OCCUPYING_STATUSES });
+  return (await cancelBookingReporting(input)).booking;
+}
+
+/** cancelBooking, saying whether it really changed (a booking already cancelled saves nothing). */
+export function cancelBookingReporting(input: Omit<ChangeBookingStatusInput, "status" | "allowedFrom">): Promise<BookingChange> {
+  return changeBookingStatusReporting({ ...input, status: "cancelled", allowedFrom: OCCUPYING_STATUSES });
 }
 
 // ─── Details that do not touch availability ──────────────────────────────────────────────────────────────
@@ -442,10 +476,10 @@ export async function updateBookingDetails(input: UpdateBookingDetailsInput): Pr
       if (input.contactId) {
         const [contact] = await tx.select({ name: contacts.name }).from(contacts).where(eq(contacts.id, input.contactId));
         if (!contact) throw new NotFoundError("No se ha encontrado el contacto.");
-        values.contactName = cleanText(input.contactName, MAX_NAME) ?? cleanText(contact.name, MAX_NAME);
+        values.contactName = cleanName(input.contactName) ?? cleanName(contact.name);
       }
     }
-    if (input.contactName !== undefined && values.contactName === undefined) values.contactName = cleanText(input.contactName, MAX_NAME);
+    if (input.contactName !== undefined && values.contactName === undefined) values.contactName = cleanName(input.contactName);
     if (Object.keys(values).length === 0) return;
     await tx.update(bookings).set({ ...values, updatedAt: now }).where(eq(bookings.id, current.id));
     // The history keeps which fields changed, not the text of the notes.

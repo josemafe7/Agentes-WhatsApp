@@ -340,7 +340,7 @@ export function ToolForm({ tool }: { tool: ToolFormValues }) {
           </h2>
           <p className="text-sm text-muted-foreground">
             Para la clave del servicio (por ejemplo, Authorization o X-Api-Key). Se guardan cifradas, nunca se vuelven a mostrar enteras y solo se envían a
-            esta dirección: si cambias de servidor, hay que volver a escribirlas.
+            esta dirección: si la cambias, hay que volver a escribirlas.
           </p>
         </div>
         {!tool.headersReadable ? (

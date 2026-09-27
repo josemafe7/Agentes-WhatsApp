@@ -29,6 +29,8 @@ export type ParsedEmail = {
   references: string[];
   subject: string;
   from: MailAddress | null;
+  /** From addresses (and From headers) the email carries: more than one is never a verified sender ([COR-25]). */
+  fromCount: number;
   replyTo: MailAddress[];
   to: MailAddress[];
   cc: MailAddress[];
@@ -90,6 +92,21 @@ function isSignatureImage(attachment: Attachment): boolean {
   return inline && attachment.contentType.startsWith("image/") && attachment.size < MIN_INLINE_IMAGE_BYTES;
 }
 
+/** The start of a raw message up to its blank line: its headers only, for one too big to read whole ([COR-19]). */
+export function headerPart(raw: Buffer): Buffer {
+  const end = raw.indexOf("\r\n\r\n");
+  return end >= 0 ? raw.subarray(0, end + 4) : raw;
+}
+
+/**
+ * A header-only message from the name/value pairs an API gives (Gmail's metadata, Graph's internetMessageHeaders),
+ * in their order, so it parses like any other ([COR-19]). A name that is not a header name is left out.
+ */
+export function headerBlock(pairs: readonly { name: string; value: string }[]): Buffer {
+  const lines = pairs.filter((pair) => /^[!-9;-~]{1,100}$/.test(pair.name)).map((pair) => `${pair.name}: ${pair.value.replace(/[\r\n]+/g, " ")}`);
+  return Buffer.from(`${lines.join("\r\n")}\r\n\r\n`);
+}
+
 export async function parseRawEmail(raw: Buffer | Uint8Array | string): Promise<ParsedEmail> {
   const source = typeof raw === "string" ? raw : Buffer.from(raw);
   const mail = await simpleParser(source, {
@@ -100,17 +117,20 @@ export async function parseRawEmail(raw: Buffer | Uint8Array | string): Promise<
   });
   const kept = mail.attachments.filter((attachment) => !isSignatureImage(attachment));
   const references = splitMessageIds(mail.references ?? null);
+  const fromAddresses = addresses(mail.from);
+  const headers = rawHeaders(mail.headerLines);
   return {
     messageId: normalizeMessageId(mail.messageId),
     inReplyTo: splitMessageIds(mail.inReplyTo ?? null)[0] ?? null,
     references,
     subject: (mail.subject ?? "").replace(/[\r\n]+/g, " ").trim(),
-    from: addresses(mail.from)[0] ?? null,
+    from: fromAddresses[0] ?? null,
+    fromCount: Math.max(fromAddresses.length, headers.from?.length ?? 0),
     replyTo: addresses(mail.replyTo),
     to: addresses(mail.to),
     cc: addresses(mail.cc),
     date: mail.date && !Number.isNaN(mail.date.getTime()) ? mail.date : null,
-    headers: rawHeaders(mail.headerLines),
+    headers,
     text: (mail.text ?? "").trim(),
     attachments: kept.slice(0, MAX_ATTACHMENTS).map((attachment) => ({
       fileName: attachment.filename ?? null,

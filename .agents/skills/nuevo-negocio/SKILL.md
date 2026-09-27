@@ -33,7 +33,7 @@ Pregunta, de una en una, y apunta las respuestas en la conversación:
 
 ## 2. Dejar la instalación vacía
 
-- **En local, con la demo cargada:** pide a la persona que pare `pnpm dev` y `pnpm worker` si están en marcha. Explica que `pnpm db:fresh` borra la demo y sus usuarios y deja la app vacía. Lánzalo solo tras su sí; como tu terminal no puede preguntar, con `--yes` (o que lo lance ella en la suya). Después, que cambie ella en `.env.local` `DEMO_MODE=true` por `DEMO_MODE=false`, y arranca `pnpm dev`. Comprueba que `http://localhost:3000/api/health` responde `"status":"ok"`.
+- **En local, con la demo cargada:** pide a la persona que pare `pnpm dev` y `pnpm worker` si están en marcha. Explica que `pnpm db:fresh` borra la demo y sus usuarios y deja la app vacía. Lánzalo solo tras su sí; como tu terminal no puede preguntar, con `--yes` (o que lo lance ella en la suya). Después, que cambie ella en `.env.local` `DEMO_MODE=true` por `DEMO_MODE=false`. Con datos reales nunca se usa `pnpm dev` (es el modo de desarrollo): arranca `pnpm build` y después `pnpm start`, y en otra terminal `pnpm worker` para el trabajo en segundo plano. Comprueba que `http://localhost:3000/api/health` responde `"status":"ok"`.
 - **Publicada con una base nueva:** ya está vacía; no hace falta `pnpm db:fresh`.
 - Recuerda que desde ahora `pnpm seed` se niega en esa base, para no mezclar la demo con datos reales.
 

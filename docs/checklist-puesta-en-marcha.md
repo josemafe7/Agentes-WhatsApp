@@ -21,6 +21,9 @@ Si trabajas con un agente de código, la skill `nuevo-negocio` recorre esta list
 - **Dónde va a funcionar.** En un ordenador (en local) sirve para preparar y probar, pero no recibe WhatsApp ni
   correos reales. Vercel Hobby, solo para pruebas. Un negocio real con clientes: Vercel Pro o, más adelante, un
   servidor propio.
+- **Nunca con `pnpm dev`.** `pnpm dev` es el modo de desarrollo, para construir y probar la demo: es más lento y
+  más permisivo (por ejemplo, deja a las herramientas HTTP llamar a la red local). Un negocio real usa la app
+  publicada o, si se instala en un ordenador, la versión compilada con `pnpm build && pnpm start`.
 - **Las claves van en un gestor de contraseñas**, nunca en un chat, un documento ni un correo.
 - **Nunca subas datos de clientes** al conocimiento ni a las instrucciones de los agentes.
 
@@ -64,10 +67,13 @@ Cómo: guía «Publicar la app en Vercel», apartados 1 a 8.
 
 ## 3. Instalación vacía y asistente de arranque
 
-- [ ] **Si trabajas en local con la demo:** para la app y ejecuta `pnpm db:fresh`. Te pide confirmación, borra todo (la
-  demo y sus usuarios) y deja la instalación vacía. Nunca lo hagas donde ya hay datos reales. Después, en
-  `.env.local`, cambia `DEMO_MODE=true` por `DEMO_MODE=false` y arranca con `pnpm dev`.
 - [ ] **Si has publicado con una base nueva,** ya está vacía: no hace falta `pnpm db:fresh`.
+- [ ] **Si lo instalas en un ordenador que tenía la demo:** para la app (`pnpm dev`) y ejecuta `pnpm db:fresh`. Te pide
+  confirmación, borra todo (la demo y sus usuarios) y deja la instalación vacía. Nunca lo hagas donde ya hay datos
+  reales. Después, en `.env.local`, cambia `DEMO_MODE=true` por `DEMO_MODE=false` y pon en `SETUP_TOKEN` un código
+  largo al azar (se crea como dice la guía «Publicar la app en Vercel», apartado «4. Las variables de entorno»).
+  Arranca la versión compilada con `pnpm build && pnpm start` y, en otra terminal, `pnpm worker`, que hace el trabajo
+  en segundo plano (respuestas de la IA, correo y recordatorios). Nunca `pnpm dev` con un negocio real.
 - [ ] Abre la app: aparece el asistente de arranque.
 - [ ] Paso 1: tu cuenta de propietario y, en una app publicada, el código de instalación (`SETUP_TOKEN`).
 - [ ] Pasos 2 a 7: negocio y sector, horario, clave de OpenRouter, primer agente, chat web de prueba y canales. Al
@@ -171,7 +177,11 @@ Cómo: guía «Conectar WhatsApp», apartados «Número de prueba de Meta» y «
 ## 11. Los recordatorios
 
 - [ ] **Ajustes › Recordatorios** (vienen desactivados): cuándo y por dónde. Por WhatsApp, con una plantilla de
-  utilidad aprobada por Meta (cada recordatorio se cobra); por email, con el correo del sistema.
+  utilidad aprobada por Meta (cada recordatorio se cobra). Por email: si el cliente ya escribió a un buzón conectado
+  del negocio, sale por ese buzón en su mismo hilo y su respuesta llega a la Bandeja; si no, sale del correo del
+  sistema y las respuestas van al buzón conectado o, si no hay ninguno, al email de contacto de Ajustes › Negocio.
+- [ ] Si no conectas ningún buzón, pon en Ajustes › Negocio un email de contacto que alguien lea: ahí llegan las
+  respuestas a los recordatorios por email (para cancelar la cita o pedir no recibir más), y las atiende una persona.
 - [ ] Una cita de prueba a tu nombre recibe su recordatorio.
 
 Cómo: guía «La agenda: citas, servicios, recursos y recordatorios», apartado «10. Recordatorios».
@@ -206,6 +216,9 @@ Cómo: guía «La agenda: citas, servicios, recursos y recordatorios», apartado
   ficha de contacto.
 - [ ] «Ver fuentes», bajo una respuesta de la IA, abre «¿Por qué respondió esto?». Prueba también «Convertir en FAQ».
 - [ ] **Ajustes › Diagnóstico:** sin trabajos fallidos ni errores de la IA, y con el último aviso de cada canal.
+- [ ] **Ajustes › Diagnóstico › Pruebas de conexión:** «Probar clave» de OpenRouter, «Enviar correo de prueba» y la
+  prueba de cada canal (revalidar WhatsApp con Meta, el acceso a Gmail u Outlook, «Probar conexión» de otro buzón),
+  todas correctas.
 
 [Captura: Ajustes › Diagnóstico, con la «Última ronda» reciente y sin trabajos fallidos]
 
@@ -240,7 +253,8 @@ Cómo: guía «La agenda: citas, servicios, recursos y recordatorios», apartado
 - [ ] Las claves que caducan: el Client Secret de Microsoft (la app avisa 30 días antes) y la clave de OpenRouter, si
   tiene fecha.
 - [ ] **Ajustes › Usuarios:** quita a quien ya no trabaja con vosotros y revisa los roles.
-- [ ] Los avisos de modelos que se retiran: cambia el modelo del agente antes de la fecha.
+- [ ] Los avisos «Modelo que se retira» (en la campana y, si lo tienes así en Mi cuenta, por email): cambia el modelo
+  del agente, o el de Ajustes › IA, antes de la fecha.
 - [ ] Las versiones nuevas y los parches de seguridad se instalan siempre con una copia de seguridad antes (guía
   «Publicar la app en Vercel», apartado «9. Publicar una versión nueva»).
 - [ ] Los textos legales y los plazos de conservación siguen siendo correctos.

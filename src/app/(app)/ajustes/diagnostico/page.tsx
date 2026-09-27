@@ -13,13 +13,14 @@ import {
   SimulatorCard,
   WebhooksSection,
 } from "./_components/sections";
+import { ConnectionTestsSection } from "./_components/connection-tests";
 import { loadDiagnosticsView } from "./_lib/view";
 
 export const metadata: Metadata = { title: "Diagnóstico" };
 
 /**
  * Ajustes › Diagnóstico ([AJU-11]): database, background work, recent AI errors, channel webhooks, the mail each mailbox
- * ignored ([COR-16]), realtime and system emails.
+ * ignored ([COR-16]), realtime, system emails, the connection tests and the channel simulator.
  */
 export default async function DiagnosticsPage() {
   const actor = await requirePageActor({ next: "/ajustes/diagnostico" });
@@ -37,6 +38,7 @@ export default async function DiagnosticsPage() {
       <IgnoredMailSection mailboxes={view.ignoredMail} />
       <RealtimeSection realtime={view.realtime} />
       <EmailsSection emails={view.emails} />
+      <ConnectionTestsSection items={view.connectionTests} />
       <SimulatorCard />
     </div>
   );

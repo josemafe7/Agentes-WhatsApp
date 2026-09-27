@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { NoPermission } from "@/components/no-permission";
+import { isConversationOptedOut } from "@/data/consents";
 import { getEmailThread, isEmailChannelType } from "@/data/email-drafts";
 import { getWhatsAppInboxState } from "@/data/whatsapp-send";
 import { can, PERMISSIONS } from "@/lib/permissions";
@@ -12,6 +13,7 @@ import { ConversationLive } from "../_components/conversation-live";
 import { HandoffNotice } from "../_components/handoff-notice";
 import { MessageTimeline } from "../_components/message-timeline";
 import { ConversationBookings } from "./_bookings/conversation-bookings";
+import { OptOutNotice } from "./_compliance/opt-out-notice";
 import { sendEmailAttachmentAction, sendEmailReplyAction } from "./_email/actions";
 import { EmailReplyInfo } from "./_email/reply-info";
 import { EmailThreadProvider } from "./_email/thread-context";
@@ -48,6 +50,9 @@ export default async function ConversationPage({ params }: PageProps) {
   const email = isEmailChannelType(conversation.channel.type)
     ? await getEmailThread(actor, { conversationId: conversation.id, messageIds: screen.messages.map((message) => message.id) })
     : null;
+  // A customer who opted out of this channel: a person may still write, warned that the AI, reminders and templates
+  // are stopped ([CUM-03], [CUM-04]). Only for who may reply.
+  const optedOut = permissions.reply && (await isConversationOptedOut(actor, conversation.id));
   return (
     <ContactPanelProvider>
       <div className="flex min-h-0 flex-1">
@@ -89,16 +94,22 @@ export default async function ConversationPage({ params }: PageProps) {
             conversationId={conversation.id}
             channelDisabled={conversation.channel.status === "disabled"}
             window={whatsapp?.window ?? conversation.window}
+            // The notices over the composer: the opt-out one in every channel, and WhatsApp's window.
             whatsapp={
-              whatsapp ? (
-                <WindowNotice
-                  conversationId={conversation.id}
-                  state={whatsapp}
-                  canReply={permissions.reply}
-                  channelDisabled={conversation.channel.status === "disabled"}
-                  timezone={timezone}
-                  initialNow={now}
-                />
+              optedOut || whatsapp ? (
+                <>
+                  {optedOut ? <OptOutNotice /> : null}
+                  {whatsapp ? (
+                    <WindowNotice
+                      conversationId={conversation.id}
+                      state={whatsapp}
+                      canReply={permissions.reply}
+                      channelDisabled={conversation.channel.status === "disabled"}
+                      timezone={timezone}
+                      initialNow={now}
+                    />
+                  ) : null}
+                </>
               ) : null
             }
             ai={{ aiMode: conversation.aiMode, aiPausedUntil: conversation.aiPausedUntil }}

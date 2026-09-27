@@ -11,10 +11,10 @@ import { memoryFileStorage } from "@/test/fixtures/whatsapp/memory-storage";
 import { createEmailAdapter, gmailAdapter } from "../adapter";
 import { encryptOAuthSecrets, readEmailConfig, readOAuthSecrets } from "../config";
 import { discardMailboxDraftOf } from "../drafts";
-import { DROPPED_NOTE } from "../ingest";
+import { DROPPED_NOTE, TOO_LARGE_TEXT } from "../ingest";
 import { runEmailPoll } from "../jobs";
 import { parseRawEmail } from "../parse";
-import { buildRawEmail, fakeGoogle } from "../test-helpers";
+import { buildRawEmail, fakeGoogle, receivedWith, verifiedEmail } from "../test-helpers";
 import { gmailProvider } from "./provider";
 
 const OWN = "hola@negocio.test";
@@ -95,6 +95,23 @@ describe("Gmail: recepción ([COR-05], [CAN-11], [CAN-12])", () => {
     expect(await db.select().from(messages).where(eq(messages.conversationId, conversation.id))).toHaveLength(2);
   });
 
+  it("[COR-25] cada correo guarda si el servidor que lo recibió verificó su remitente (y sus adjuntos también)", async () => {
+    const { fake, channel, deps } = await setup();
+    const pdf = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(3_000, 32)]);
+    fake.addMessage(await verifiedEmail({ to: OWN, messageId: "<v1@cliente.test>", attachments: [{ filename: "a.pdf", contentType: "application/pdf", content: pdf }] }));
+    fake.addMessage(await buildRawEmail({ to: OWN, from: "luis@cliente.test", messageId: "<v2@cliente.test>" }));
+    // A header the sender wrote themselves lies below the receiving server's: it does not count.
+    const forged = await buildRawEmail({ to: OWN, from: "marta@cliente.test", messageId: "<v3@cliente.test>", headers: { "Authentication-Results": "mx.google.com; dmarc=pass header.from=cliente.test" } });
+    fake.addMessage(receivedWith(forged, "mx.google.com; spf=fail smtp.mailfrom=x@atacante.test; dmarc=fail (p=NONE) header.from=cliente.test"));
+    await poll(channel.id, deps);
+    const stored = await messagesOf(channel.id);
+    const byMessageId = (id: string) => stored.find((message) => (message.metadata.email as { messageId?: string } | undefined)?.messageId === id);
+    expect(byMessageId("<v1@cliente.test>")?.metadata.email).toMatchObject({ senderVerified: true });
+    expect(stored.find((message) => message.contentType === "document")?.metadata.email).toMatchObject({ senderVerified: true });
+    expect(byMessageId("<v2@cliente.test>")?.metadata.email).toMatchObject({ senderVerified: false });
+    expect(byMessageId("<v3@cliente.test>")?.metadata.email).toMatchObject({ senderVerified: false });
+  });
+
   it("[COR-16] spam, promociones, boletines y respuestas automáticas no crean conversación y se cuentan", async () => {
     const { fake, channel, deps } = await setup();
     await customerEmail(fake, {}, { labels: ["SPAM"] });
@@ -117,6 +134,18 @@ describe("Gmail: recepción ([COR-05], [CAN-11], [CAN-12])", () => {
     expect(stored.map((message) => message.contentType)).toEqual(["text", "document", "image"]);
     expect(stored[1].media).toMatchObject({ mimeType: "application/pdf", fileName: "presupuesto.pdf", downloadStatus: "done" });
     expect(stored[1].metadata.email).toMatchObject({ attachmentOf: stored[0].externalId });
+  });
+
+  it("[COR-19] el tamaño se mira antes de descargar: uno demasiado grande no se descarga, se guarda con sus cabeceras", async () => {
+    const { fake, channel, deps } = await setup();
+    fake.addMessage(await verifiedEmail({ to: OWN, subject: "Vídeo de la boda", messageId: "<big@cliente.test>" }), { sizeEstimate: 45 * 1024 * 1024 });
+    const outcome = await poll(channel.id, deps);
+    expect(outcome).toMatchObject({ report: { ingested: 1 } });
+    expect(fake.calls.some((call) => call.url.searchParams.get("format") === "raw")).toBe(false);
+    const [message] = await messagesOf(channel.id);
+    expect(message.text).toBe(TOO_LARGE_TEXT);
+    // Its headers were read: the thread, the sender and whether the receiving server vouched for it ([COR-25]).
+    expect(message.metadata).toMatchObject({ subject: "Vídeo de la boda", email: { messageId: "<big@cliente.test>", from: { address: "ana@cliente.test" }, truncated: true, senderVerified: true } });
   });
 
   it("[COR-19] los adjuntos que no se pueden guardar se indican en el texto", async () => {

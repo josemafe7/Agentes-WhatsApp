@@ -293,6 +293,31 @@ describe("errors reach the model in Spanish and without the secret headers [HER-
     expect(outcome.data).toMatchObject({ suelto: "el token es [redactado]." });
   });
 
+  it("a secret hidden behind JSON escapes (\\u…, \\/) or HTML entities is removed once the answer is decoded", async () => {
+    const slashed = "clave/con/barras-1234";
+    const escaped = [...SECRET].map((char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`).join("");
+    const half = `${SECRET.slice(0, 6)}\\u${SECRET.charCodeAt(6).toString(16).padStart(4, "0")}${SECRET.slice(7)}`;
+    const jsonText = `{"eco":"${escaped}","medio":"${half}","barras":"${slashed.replaceAll("/", "\\/")}"}`;
+    const jsonService = fakeService(() => new Response(jsonText, { headers: { "content-type": "application/json" } }));
+    const fromJson = await executeHttpTool(target({ headers: { "X-Api-Key": SECRET, "X-Otra": slashed } }), { numero: "1" }, deps(jsonService));
+    expect(fromJson.data).toEqual({ eco: "[redactado]", medio: "[redactado]", barras: "[redactado]" });
+
+    const entities = [...SECRET].map((char) => `&#${char.charCodeAt(0)};`).join("");
+    const html = `<html><body><p>Tu clave: ${entities}</p><p>Otra: ${SECRET.replaceAll("-", "&#x2d;")}</p></body></html>`;
+    const htmlService = fakeService(() => new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } }));
+    const fromHtml = await executeHttpTool(target(), { numero: "1" }, deps(htmlService));
+    expect(JSON.stringify(fromHtml.data)).not.toContain(SECRET);
+    expect(String(fromHtml.data)).toContain("[redactado]");
+
+    // An answer cut short is not decoded as JSON: its escaped forms are removed as they are.
+    const long = `{"eco":"${slashed.replaceAll("/", "\\/")}","relleno":"${"x".repeat(300 * 1024)}"}`;
+    const longService = fakeService(() => new Response(long, { headers: { "content-type": "application/json" } }));
+    const cut = await executeHttpTool(target({ headers: { "X-Otra": slashed } }), { numero: "1" }, deps(longService));
+    expect(cut.truncated).toBe(true);
+    expect(String(cut.data)).not.toContain(slashed.replaceAll("/", "\\/"));
+    expect(String(cut.data)).toContain("[redactado]");
+  });
+
   it("a network error never shows the address, the headers or Node's text", async () => {
     const service = fakeService(() => {
       throw new Error(`connect ECONNREFUSED 10.0.0.1:443 X-Api-Key: ${SECRET}`);

@@ -177,11 +177,12 @@ async function ingestInbound(channel: ChannelRecord, event: InboundMessageEvent,
       { channelType: channel.type, executor: tx },
     );
 
-    // «BAJA» or «STOP» opts the customer out of this channel, with this message; its one confirmation goes through the
-    // queue instead of an AI reply ([CUM-03]).
+    // «BAJA» or «STOP» opts the sender of this message out of this channel (in an email thread, whoever wrote it, not the
+    // thread's first contact); its one confirmation goes through the queue instead of an AI reply ([CUM-03]).
+    const subject = typeof event.metadata?.subject === "string" ? event.metadata.subject : null;
     const optOut = event.noReply
       ? null
-      : await recordKeywordOptOut(tx, { channel, contactId, conversationId: conversation.id, contentType: event.contentType, text: event.text, now });
+      : await recordKeywordOptOut(tx, { channel, contactId, conversationId: conversation.id, contentType: event.contentType, text: event.text, subject, now });
     let schedule: InboundOutcome["schedule"] = null;
     if (!event.noReply && !optOut) {
       const [first] = await pendingInbound(conversation.id, tx);

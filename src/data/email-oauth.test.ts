@@ -45,14 +45,24 @@ describe("[COR-23] vuelta de Google: solo una conexión iniciada desde la app", 
     await expect(completeGoogleOAuth(owner.actor, { code: "c", state: "inventado" }, google.deps)).resolves.toMatchObject({ ok: false, reason: "state_invalid" });
     const admin = await createUser("admin");
     await expect(completeGoogleOAuth(admin.actor, { code: "c", state }, google.deps)).resolves.toMatchObject({ ok: false, reason: "state_invalid" });
-    // Consumed by the attempt above: it never works again, not even for its owner.
-    await expect(completeGoogleOAuth(owner.actor, { code: "c", state }, google.deps)).resolves.toMatchObject({ ok: false, reason: "state_invalid" });
+    // Who it belongs to is checked before it is used up: another person's attempt does not spoil it for its owner.
+    const [unused] = await db.select().from(oauthStates).where(eq(oauthStates.stateHash, hashToken(state)));
+    expect(unused.usedAt).toBeNull();
     const second = await gmailSetup();
     await db.update(oauthStates).set({ expiresAt: new Date(Date.now() - 1_000) }).where(eq(oauthStates.stateHash, hashToken(second.state)));
     await expect(completeGoogleOAuth(second.owner.actor, { code: "c", state: second.state }, google.deps)).resolves.toMatchObject({ ok: false, reason: "state_expired" });
     expect(google.calls).toHaveLength(0);
     expect(readOAuthSecrets(await loadChannel(channelId))?.refreshToken).toBeNull();
     expect((await loadChannel(channelId)).status).toBe("draft");
+  });
+
+  it("la persona que empezó la conexión la termina aunque otra lo intentara antes, y el state solo vale una vez", async () => {
+    const { owner, channelId, state } = await gmailSetup();
+    const google = fakeGoogle();
+    const intruder = await createUser("admin");
+    await expect(completeGoogleOAuth(intruder.actor, { code: "c", state }, google.deps)).resolves.toMatchObject({ ok: false, reason: "state_invalid" });
+    await expect(completeGoogleOAuth(owner.actor, { code: "c", state }, google.deps)).resolves.toMatchObject({ ok: true, channelId });
+    await expect(completeGoogleOAuth(owner.actor, { code: "c", state }, google.deps)).resolves.toMatchObject({ ok: false, reason: "state_invalid" });
   });
 
   it("sin sesión no se consume nada", async () => {

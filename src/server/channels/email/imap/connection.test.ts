@@ -33,11 +33,21 @@ describe("[SEG-05] servidores de correo: solo direcciones públicas", () => {
     await expect(resolveMailHost("mail.trampa.test", 993, { resolveHost: resolveTo("93.184.216.34", "10.0.0.1") })).rejects.toThrow(/red privada/);
   });
 
-  it("ALLOW_PRIVATE_MAIL_HOSTS=true permite un servidor propio en la red local", async () => {
+  it("ALLOW_PRIVATE_MAIL_HOSTS=true permite un servidor propio en la red local, por la IP comprobada", async () => {
     process.env.ALLOW_PRIVATE_MAIL_HOSTS = "true";
     await expect(resolveMailHost("192.168.1.10", 993, { resolveHost: resolveTo("192.168.1.10") })).resolves.toEqual({ address: "192.168.1.10", servername: null });
-    await expect(resolveMailHost("mail.local.lan", 993)).resolves.toEqual({ address: "mail.local.lan", servername: "mail.local.lan" });
+    await expect(resolveMailHost("mail.local.lan", 993, { resolveHost: resolveTo("192.168.1.20") })).resolves.toEqual({ address: "192.168.1.20", servername: "mail.local.lan" });
   });
+
+  it.each([["169.254.169.254"], ["169.254.0.1"], ["fd00:ec2::254"], ["fe80::1"], ["::ffff:169.254.169.254"], ["::ffff:a9fe:a9fe"]])(
+    "ALLOW_PRIVATE_MAIL_HOSTS=true nunca permite %s (link-local o metadatos de la nube)",
+    async (address) => {
+      process.env.ALLOW_PRIVATE_MAIL_HOSTS = "true";
+      await expect(resolveMailHost(address, 993, { resolveHost: resolveTo(address) })).rejects.toThrow(/red privada/);
+      await expect(resolveMailHost("mail.trampa.test", 993, { resolveHost: resolveTo(address) })).rejects.toThrow(/red privada/);
+      await expect(resolveMailHost("mail.trampa.test", 993, { resolveHost: resolveTo("192.168.1.20", address) })).rejects.toThrow(/red privada/);
+    },
+  );
 
   it("nunca el puerto 25, ni puertos imposibles, ni nombres raros", async () => {
     await expect(resolveMailHost("smtp.ionos.es", 25, { resolveHost: resolveTo("212.227.15.1") })).rejects.toThrow(/nunca el 25/);

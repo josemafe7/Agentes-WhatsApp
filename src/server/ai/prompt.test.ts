@@ -136,7 +136,7 @@ describe("business profile: data, hours and services [MOT-07]", () => {
 });
 
 describe("agent instructions [AGE-04]", () => {
-  it("has the guided fields, the free text, the name, language and tone", () => {
+  it("has the guided fields, the free text, the name, language and tone [AGE-17]", () => {
     const instructions = buildPrompt(input()).sections[2].content;
     for (const text of [
       "Te llamas Asistente de citas",

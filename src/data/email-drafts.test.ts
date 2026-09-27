@@ -158,18 +158,36 @@ describe("the email thread in the inbox [BAN-09]", () => {
     expect(thread?.messages[pdf.id]).toBeUndefined();
   });
 
-  it("the next reply goes to Reply-To (else From), never to the mailbox itself, with «Re:» and the same subject [COR-06]", async () => {
+  it("[COR-06] [COR-25] the next reply goes only to the From of the newest email (never to its Reply-To nor the mailbox), with «Re:» and the same subject", async () => {
     const { conversation, subject } = await storedThread();
     await createMessage(conversation, { createdAt: new Date(Date.now() - 2 * HOUR), metadata: { subject, email: emailMeta({}) } });
     let thread = await getEmailThread(owner.actor, { conversationId: conversation.id, messageIds: [] });
     expect(thread?.reply).toEqual({ to: [{ address: "ana@cliente.test", name: "Ana López" }], subject: `Re: ${subject}` });
 
-    await createMessage(conversation, {
+    const asking = await createMessage(conversation, {
       createdAt: new Date(Date.now() - HOUR),
       metadata: { subject: `Re: ${subject}`, email: emailMeta({ replyTo: [{ address: OWN, name: null }, { address: "pedidos@cliente.test", name: "Pedidos" }] }) },
     });
-    thread = await getEmailThread(owner.actor, { conversationId: conversation.id, messageIds: [] });
-    expect(thread?.reply).toEqual({ to: [{ address: "pedidos@cliente.test", name: "Pedidos" }], subject: `Re: ${subject}` });
+    thread = await getEmailThread(owner.actor, { conversationId: conversation.id, messageIds: [asking.id] });
+    expect(thread?.reply).toEqual({ to: [{ address: "ana@cliente.test", name: "Ana López" }], subject: `Re: ${subject}` });
+    // The thread says the email asked for replies elsewhere, and that they go to its sender.
+    expect(thread?.messages[asking.id].replyToIgnored).toEqual([{ address: "pedidos@cliente.test", name: "Pedidos" }]);
+  });
+
+  it("[COR-25] a customer email the receiving server did not vouch for is «Remitente no verificado»; ours and the demo ones never are", async () => {
+    const { conversation, subject } = await storedThread();
+    const verified = await createMessage(conversation, { metadata: { subject, email: emailMeta({ extra: { senderVerified: true } }) } });
+    const unverified = await createMessage(conversation, { metadata: { subject, email: emailMeta({ extra: { senderVerified: false } }) } });
+    const older = await createMessage(conversation, { metadata: { subject, email: emailMeta({}) } });
+    const ours = await createMessage(conversation, { direction: "outbound", senderType: "ai", status: "sent", sentAt: new Date() });
+    const thread = await getEmailThread(owner.actor, { conversationId: conversation.id, messageIds: [verified.id, unverified.id, older.id, ours.id] });
+    expect(thread?.messages[verified.id]).toMatchObject({ senderVerified: true, replyToIgnored: [] });
+    expect(thread?.messages[unverified.id].senderVerified).toBe(false);
+    expect(thread?.messages[older.id].senderVerified).toBe(false);
+    expect(thread?.messages[ours.id].senderVerified).toBeNull();
+    const demo = await storedThread({ isDemo: true });
+    const simulated = await createMessage(demo.conversation, { metadata: { subject } });
+    expect((await getEmailThread(owner.actor, { conversationId: demo.conversation.id, messageIds: [simulated.id] }))?.messages[simulated.id].senderVerified).toBeNull();
   });
 
   it("the AI's draft comes from the mailbox, to the customer, and shows the signature it will carry once a person approves it [COR-21]", async () => {
@@ -351,7 +369,8 @@ describe("approving the AI's draft from the inbox [BAN-09] [COR-15] [COR-18]", (
     const [email] = await sentEmails(fake);
     expect(email.inReplyTo).toBe("<p1@cliente.test>");
     expect(email.subject).toBe("Re: Precio");
-    expect(email.to).toEqual([{ address: "pedidos@cliente.test", name: "Pedidos" }]);
+    // [COR-25] Only to its sender, although the email asked for replies at «Pedidos».
+    expect(email.to).toEqual([{ address: "ana@cliente.test", name: "Ana Cliente" }]);
     expect(email.headers["auto-submitted"]).toBeUndefined();
     expect(email.headers["x-dominia-agente"]).toEqual(["1"]);
     expect(email.text).toContain(AI_NOTICE_REVIEWED);

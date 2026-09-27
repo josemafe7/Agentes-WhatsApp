@@ -4,7 +4,7 @@
 import "server-only";
 
 export { createEmailAdapter, emailProviderFor, forgetMailboxDraft, gmailAdapter, imapAdapter, outlookAdapter, sendEmail } from "./adapter";
-export { businessDayBounds, CAP_REASON_SENDER, CAP_REASON_THREAD, countAiReplies, enforceDailyCaps, reachedCap } from "./caps";
+export { businessDayBounds, CAP_REASON_CHANNEL, CAP_REASON_SENDER, CAP_REASON_THREAD, countAiReplies, dailyCapReached, enforceDailyCaps, reachedCap, type DailyCap } from "./caps";
 export {
   EMAIL_CHANNEL_TYPES,
   emailConfigSchema,

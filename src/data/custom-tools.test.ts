@@ -181,14 +181,22 @@ describe("secret headers: encrypted, never whole, replaced only with «Cambiar»
     expect((await storedRow(id)).secretHeadersEnc).toBeNull();
   });
 
-  it("a saved secret only goes back where it was saved: another server needs it typed again (docs/security.md)", async () => {
+  it("a saved secret only goes back to the address it was saved for: any change of the address needs it typed again (docs/security.md)", async () => {
     const { id } = await createCustomTool(users.owner.actor, input());
-    const moved = input({ url: "https://atacante.example.org/pedidos/{numero}", headers: [{ name: "X-Api-Key", keep: "X-Api-Key" }] });
-    expect((await fieldErrors(updateCustomTool(users.owner.actor, id, moved)))["headers.0.value"]?.[0]).toMatch(/vuelve a escribir/);
-    expect((await storedRow(id)).url).toBe("https://crm.example.com/pedidos/{numero}");
-    // Same server, another path: the value is kept.
-    await updateCustomTool(users.owner.actor, id, input({ url: "https://crm.example.com/v2/pedidos/{numero}", headers: [{ name: "X-Api-Key", keep: "X-Api-Key" }] }));
-    // Another server with the value typed again: saved.
+    const keep = [{ name: "X-Api-Key", keep: "X-Api-Key" }];
+    for (const url of [
+      "https://atacante.example.org/pedidos/{numero}",
+      // Same server, another path: on a shared host (a webhook service, an n8n) that may be someone else's endpoint.
+      "https://crm.example.com/v2/pedidos/{numero}",
+      "https://crm.example.com/pedidos/{numero}?origen=web",
+    ]) {
+      expect((await fieldErrors(updateCustomTool(users.owner.actor, id, input({ url, headers: keep }))))["headers.0.value"]?.[0], url).toMatch(/vuelve a escribir/);
+      expect((await storedRow(id)).url).toBe("https://crm.example.com/pedidos/{numero}");
+    }
+    // The same address: the value is kept.
+    await updateCustomTool(users.owner.actor, id, input({ description: "Otra descripción.", headers: keep }));
+    expect(JSON.parse(decryptSecret((await storedRow(id)).secretHeadersEnc ?? ""))).toEqual({ "X-Api-Key": SECRET });
+    // Another address with the value typed again: saved.
     await updateCustomTool(users.owner.actor, id, input({ url: "https://crm2.example.com/pedidos/{numero}", headers: [{ name: "X-Api-Key", value: OTHER_SECRET }] }));
     expect(JSON.parse(decryptSecret((await storedRow(id)).secretHeadersEnc ?? ""))).toEqual({ "X-Api-Key": OTHER_SECRET });
   });

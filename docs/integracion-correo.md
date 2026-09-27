@@ -127,7 +127,10 @@ Flujo:
    - `metadata`: solo id, etiquetas y cabeceras (con `metadataHeaders[]` para filtrar cuáles).
    - `minimal`: solo id y etiquetas.
 
-   Como `messages.get` cuesta 20 unidades con cualquier formato [F11], pedir `raw` directamente.
+   Como `messages.get` cuesta 20 unidades con cualquier formato [F11], lo más barato sería pedir `raw` directamente.
+   Decisión de diseño (revisión de seguridad, 2026-09-27): primero `metadata` (tamaño `sizeEstimate` y cabeceras) y
+   `raw` solo si no pasa de 40 MB. Cuesta el doble, pero un correo enorme nunca se descarga entero: se guarda con sus
+   cabeceras ([COR-19]).
 
 Decisión de diseño sobre `labelId`: `history.list` solo admite **un** `labelId`. Filtrar por `INBOX` pierde
 los mensajes enviados desde Gmail por una persona (necesarios para «humano en el hilo», spec §6.3). Se
@@ -272,7 +275,12 @@ Lotes: no más de 50 peticiones por batch [F21].
    tipo `syncStateNotFound` → misma acción [F40].
 7. **Delta es por carpeta** [F39]: para «humano en el hilo» hace falta una segunda consulta delta sobre
    `sentitems` (decisión de diseño).
-8. **Detalle de cada mensaje nuevo**: `GET /me/messages/{id}` con
+8. **Tamaño antes de leer**: el recurso `message` no trae su tamaño; se pide la propiedad extendida
+   `PR_MESSAGE_SIZE` (`PidTagMessageSize`, 0x0E08, entero de 32 bits) con
+   `GET /me/messages/{id}?$select=id&$expand=singleValueExtendedProperties($filter=id eq 'Integer 0x0E08')`. Por encima
+   de 40 MB solo se leen sus cabeceras (`$select=internetMessageHeaders`); sin tamaño, la lectura del MIME se corta al
+   pasar de ese límite (decisión de diseño, revisión de seguridad 2026-09-27, [COR-19]).
+9. **Detalle de cada mensaje nuevo**: `GET /me/messages/{id}` con
    `$select=internetMessageHeaders,uniqueBody,...` y `Prefer: outlook.body-content-type="text"` [F44][F46].
    - `internetMessageHeaders` solo se devuelve si se pide en `$select` [F44].
    - `uniqueBody`: la parte del cuerpo propia de ese mensaje, sin el historial citado [F44]. Es la mejor fuente
@@ -292,7 +300,9 @@ Lotes: no más de 50 peticiones por batch [F21].
 | Enviar borrador | `POST /me/messages/{id}/send` (`Content-Length: 0`) [F43] | `Mail.Send` | `202 Accepted` |
 
 - `reply` y `createReply` en JSON aceptan `comment` **o** `message.body`; los dos a la vez → `400` [F41][F42].
-  Si el original tiene `replyTo`, la respuesta debe ir a esos destinatarios y no al `from` [F41].
+  Si el original tiene `replyTo`, la respuesta debe ir a esos destinatarios y no al `from` [F41]. Decisión de diseño
+  ([COR-25]): la app responde solo al `from` (el Reply-To lo escribe quien envía), así que el `PATCH` del borrador fija
+  `toRecipients` con ese único destinatario (en un borrador se pueden cambiar [F46]).
 - Lo enviado con `reply` o `send` se guarda en **Elementos enviados**; los borradores, en **Borradores**
   [F41][F43][F46].
 - El hilo lo mantiene Exchange: la respuesta comparte `conversationId` («The ID of the conversation the email
@@ -309,6 +319,9 @@ Lotes: no más de 50 peticiones por batch [F21].
   - `Auto-Submitted` **no** empieza por `x-`: no se puede poner en JSON. La única vía posible es la variante
     MIME de `createReply`/`reply` (cuerpo MIME en base64 con `Content-Type: text/plain`) [F41][F42]; que
     Exchange conserve `Auto-Submitted` al enviar: **no verificado**, requiere prueba real.
+  - Decisión de diseño ([COR-18]): primero `createReply` en JSON con la cabecera; si Graph la rechaza (400), la misma
+    respuesta se crea por la vía MIME (nuestro mensaje entero, con sus cabeceras, el texto, el adjunto y las cabeceras
+    de hilo) y después solo se fija el destinatario. Si tampoco la acepta, no se envía: todo lo que sale lleva la marca.
 - **Límites** [F44][F48]: 500 destinatarios por mensaje; por app y buzón, 10.000 peticiones cada 10 minutos,
   4 peticiones concurrentes y 150 MB de subida cada 5 minutos.
 
@@ -471,6 +484,20 @@ para respondedores personales [F80]. Nuestro tope diario por hilo y remitente (s
   detectar fallos.
 - En Outlook, ver las limitaciones de §2.4: `Auto-Submitted` solo es posible por la vía MIME, sin verificar.
 
+### 4.3 Remitente verificado ([COR-25])
+
+- El `From` lo escribe quien envía. El servidor que recibe el correo (Gmail, Exchange Online y la mayoría de los
+  servidores IMAP) comprueba SPF, DKIM y DMARC y lo anota en una cabecera `Authentication-Results` (RFC 8601) que
+  añade **encima** del mensaje; las que hay más abajo ya venían en el correo y las puede escribir cualquiera. Solo se lee
+  la de más arriba. Gmail escribe `mx.google.com; dkim=pass header.i=@dominio; spf=pass smtp.mailfrom=…; dmarc=pass
+  (p=…) header.from=dominio`; Microsoft la escribe sin identificador del servidor (`spf=pass (sender IP is …)
+  smtp.mailfrom=dominio; dkim=pass … header.d=dominio;dmarc=pass action=none header.from=dominio;compauth=pass`).
+- Verificado: `dmarc=pass` para el dominio del `From`; sin resultado de DMARC (o `dmarc=none`, el dominio no publica
+  política), `dkim=pass` o `spf=pass` de un dominio alineado con el del `From` (el mismo, o uno dentro del otro). Más de
+  un `From`, ninguna cabecera o cualquier otro resultado: no verificado.
+- Con «Otro (IMAP/SMTP)» depende de que el servidor del buzón añada esa cabecera: si no la añadiera, la de más arriba
+  sería la del remitente. Conviene mirarlo en un correo recibido.
+
 ---
 
 ## 5. Parseo y preprocesado (mailparser)
@@ -483,8 +510,8 @@ mailparser es del proyecto Nodemailer. Versión 3.9.28 (15-09-2026); depende de 
   `subject`, `from`, `to`, `cc`, `date`, `messageId`, `inReplyTo`, `text`, `html`, `textAsHtml` y
   `attachments` (con `filename`, `contentType`, `size`, `checksum` y `content` como Buffer).
 - `simpleParser` guarda todo el mensaje, adjuntos incluidos, en memoria [F73]. Decisión de diseño: comprobar el
-  tamaño antes de descargar (`size` en IMAP, `sizeEstimate` en Gmail) y rechazar o truncar por encima del
-  límite configurado.
+  tamaño antes de descargar (`size` en IMAP, `sizeEstimate` en Gmail, `PR_MESSAGE_SIZE` en Outlook, §2.3) y rechazar o
+  truncar por encima del límite configurado.
 - **Charsets**: los decodifica con `iconv-lite`; la opción `Iconv` añade juegos de caracteres extra [F73].
 - **HTML a texto**: si solo hay HTML, `text` se genera con html-to-text salvo `skipHtmlToText`;
   `maxHtmlLengthToParse` limita el trabajo con HTML enorme [F73].

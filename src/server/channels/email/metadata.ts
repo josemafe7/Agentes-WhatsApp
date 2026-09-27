@@ -32,6 +32,11 @@ export const emailMetadataSchema = z.object({
   imap: z.object({ folder: z.string().max(500), uid: z.number().int().nonnegative(), uidValidity: z.string().max(40) }).nullish(),
   /** A person wrote it from the mailbox (Gmail, Outlook or their own email program) ([COR-20]). */
   fromMailbox: z.boolean().optional(),
+  /**
+   * A customer's email: the server that received it vouched for its From (Authentication-Results, [COR-25]). Missing
+   * (older emails) counts as not verified.
+   */
+  senderVerified: z.boolean().optional(),
 });
 export type EmailMetadata = z.infer<typeof emailMetadataSchema>;
 export type EmailMetadataInput = z.input<typeof emailMetadataSchema>;

@@ -26,6 +26,14 @@ describe("[COR-19] lectura del correo con mailparser", () => {
     expect(parsed.headers["auto-submitted"]).toEqual(["no"]);
   });
 
+  it("[COR-25] cuenta las direcciones y cabeceras From: más de una nunca es un remitente verificado", async () => {
+    expect((await parseRawEmail(await buildRawEmail({}))).fromCount).toBe(1);
+    const twoAddresses = Buffer.from("From: ana@cliente.test, luis@cliente.test\r\nTo: hola@negocio.test\r\nSubject: x\r\n\r\nhola\r\n");
+    expect((await parseRawEmail(twoAddresses)).fromCount).toBe(2);
+    const twoHeaders = Buffer.from("From: ana@cliente.test\r\nFrom: jefe@banco.test\r\nTo: hola@negocio.test\r\nSubject: x\r\n\r\nhola\r\n");
+    expect((await parseRawEmail(twoHeaders)).fromCount).toBe(2);
+  });
+
   it("respeta el juego de caracteres (ISO-8859-1 en quoted-printable)", async () => {
     const raw = Buffer.from(
       [
@@ -47,7 +55,7 @@ describe("[COR-19] lectura del correo con mailparser", () => {
     expect(parsed.text).toBe("¿Tenéis cita mañana?");
   });
 
-  it("convierte a texto un correo que solo trae HTML", async () => {
+  it("convierte a texto un correo que solo trae HTML [SEG-12]", async () => {
     const parsed = await parseRawEmail(await buildRawEmail({ html: "<p>Hola <b>equipo</b>,</p><p>¿Hacéis <i>mechas</i>?</p><script>alert(1)</script>" }));
     expect(parsed.text).toContain("Hola equipo");
     expect(parsed.text).toContain("¿Hacéis mechas?");

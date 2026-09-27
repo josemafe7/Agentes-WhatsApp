@@ -18,7 +18,8 @@ export const SYSTEM_EMAIL_HEADER = "X-DominIA-System";
 const SMTP_CONNECTION_TIMEOUT_MS = 15_000;
 const SMTP_SOCKET_TIMEOUT_MS = 30_000;
 
-export type SystemEmail = { kind: SystemEmailKind; to: string; subject: string; text: string; html?: string };
+/** `replyTo`: where the recipient's answer goes (a booking reminder: the business's mailbox, [AGD-26]). */
+export type SystemEmail = { kind: SystemEmailKind; to: string; subject: string; text: string; html?: string; replyTo?: string };
 export type MailSender = { sendMail(options: SendMailOptions): Promise<unknown> };
 export type SendSystemEmailResult =
   | { ok: true; via: "smtp"; logId: string }
@@ -61,6 +62,7 @@ function message(email: SystemEmail, from: SendMailOptions["from"]): SendMailOpt
   return {
     from,
     to: email.to,
+    ...(email.replyTo ? { replyTo: email.replyTo } : {}),
     subject: email.subject,
     text: email.text,
     ...(email.html ? { html: email.html } : {}),
@@ -106,8 +108,9 @@ async function saveToOutbox(email: SystemEmail, outboxDir: string): Promise<stri
 /** Sends a system email. Never throws for delivery problems: the result says what happened. */
 export async function sendSystemEmail(email: SystemEmail, options: MailerOptions = {}): Promise<SendSystemEmailResult> {
   const to = emailSchema.parse(email.to);
+  const replyTo = email.replyTo ? emailSchema.parse(email.replyTo) : undefined;
   // Header injection guard: a subject is one line.
-  const safeEmail: SystemEmail = { ...email, to, subject: email.subject.replace(/[\r\n]+/g, " ").trim() };
+  const safeEmail: SystemEmail = { ...email, to, replyTo, subject: email.subject.replace(/[\r\n]+/g, " ").trim() };
   const smtp = options.smtp !== undefined ? options.smtp : await getSmtpConfig();
 
   if (smtp) {

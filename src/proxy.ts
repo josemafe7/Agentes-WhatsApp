@@ -73,7 +73,8 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Not for API routes (each checks its own caller), Next's assets or files with an extension (icons,
-  // widget.js, sw.js, manifest): none of them is a page. next.config.ts gives /sw.js its own policy.
-  matcher: ["/((?!api/|_next/static|_next/image|favicon\\.ico|.*\\.[A-Za-z0-9]+$).*)"],
+  // Every page, also a path with a dot (a page not found is HTML too): only the API routes (each checks its own caller),
+  // Next's assets and the app's static files (the icon, the manifest, sw.js and widget.js) are left out.
+  // next.config.ts gives /sw.js its own policy.
+  matcher: ["/((?!api/|_next/static|_next/image|favicon\\.ico$|manifest\\.webmanifest$|sw\\.js$|widget\\.js$).*)"],
 };

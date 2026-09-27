@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
+import https from "node:https";
 import os from "node:os";
 import path from "node:path";
+import { Duplex } from "node:stream";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,13 +26,17 @@ import {
   deletePushSubscription,
   deliverPush,
   getPushPublicKey,
+  guardPushSocket,
+  isKnownPushService,
   listMyPushDevices,
   loadVapidKeys,
   MAX_PUSH_DEVICES,
+  MAX_PUSH_RESPONSE_BYTES,
   PUSH_TTL_SECONDS,
   PUSH_WRITE_LIMIT,
   removePushDevice,
   savePushSubscription,
+  sendPushToUser,
   vapidSubject,
 } from "./push";
 
@@ -71,6 +77,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("VAPID keys of the installation [PWA-03]", () => {
@@ -193,6 +200,10 @@ describe("each person's devices [PWA-03]", () => {
     ["another port", { endpoint: "https://fcm.googleapis.com:8443/fcm/send/abc" }],
     ["credentials in the address", { endpoint: "https://user:secret@fcm.googleapis.com/fcm/send/abc" }],
     ["not an address", { endpoint: "fcm.googleapis.com" }],
+    ["a server that is not a known push service", { endpoint: "https://push.example.com/fcm/send/abc" }],
+    ["a name that only starts like a push service", { endpoint: "https://fcm.googleapis.com.example.org/fcm/send/abc" }],
+    ["a name that only ends like one", { endpoint: "https://evilfcm.googleapis.com/fcm/send/abc" }],
+    ["the bare domain of a wildcard", { endpoint: "https://notify.windows.com/w/?token=abc" }],
     ["a short P-256 key", { keys: { p256dh: randomBytes(33).toString("base64url"), auth: randomBytes(16).toString("base64url") } }],
     ["a long auth secret", { keys: { p256dh: Buffer.concat([Buffer.from([4]), randomBytes(64)]).toString("base64url"), auth: randomBytes(32).toString("base64url") } }],
     ["no keys", { keys: undefined }],
@@ -200,6 +211,25 @@ describe("each person's devices [PWA-03]", () => {
     await expect(savePushSubscription(agent.actor, { ...browserSubscription(), ...override }, device)).rejects.toBeInstanceOf(ValidationError);
     expect(await db.select().from(pushSubscriptions)).toHaveLength(0);
   });
+
+  it("the reserved .invalid addresses of the Playwright runs are taken only there (the app on this computer with its flag)", async () => {
+    const simulated = browserSubscription({ host: "push.invalid" });
+    await expect(savePushSubscription(agent.actor, simulated, device)).rejects.toBeInstanceOf(ValidationError);
+    vi.stubEnv("E2E_ALLOW_BASE_URL_OVERRIDES", "true");
+    vi.stubEnv("APP_URL", "https://agentes.mipeluqueria.es");
+    await expect(savePushSubscription(agent.actor, simulated, device)).rejects.toBeInstanceOf(ValidationError);
+    vi.stubEnv("APP_URL", "http://localhost:3100");
+    await expect(savePushSubscription(agent.actor, simulated, device)).resolves.toBeDefined();
+    vi.unstubAllEnvs();
+  });
+
+  it.each([["fcm.googleapis.com"], ["updates.push.services.mozilla.com"], ["autopush.prod.push.services.mozilla.com"], ["wns2-by3p.notify.windows.com"], ["web.push.apple.com"], ["api.push.apple.com"]])(
+    "accepts the push service of a browser: %s",
+    async (host) => {
+      await expect(savePushSubscription(agent.actor, browserSubscription({ host }), device)).resolves.toBeDefined();
+      expect(isKnownPushService(host)).toBe(true);
+    },
+  );
 });
 
 describe("sending a notice to the person's devices [PWA-04] [PWA-05]", () => {
@@ -275,6 +305,60 @@ describe("sending a notice to the person's devices [PWA-04] [PWA-05]", () => {
       expect(logged).not.toContain(new URL(subscription.endpoint).pathname);
       expect(logged).not.toContain(subscription.keys.auth);
     }
+  });
+
+  it("a push service that does not answer is cut at the deadline: the job goes on and the device stays", async () => {
+    const silent = browserSubscription();
+    const working = browserSubscription({ host: "web.push.apple.com" });
+    await savePushSubscription(agent.actor, silent, device);
+    await savePushSubscription(agent.actor, working, device);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    webPush.sendNotification.mockImplementation(async (subscription: { endpoint: string }) =>
+      subscription.endpoint === silent.endpoint ? new Promise(() => undefined) : delivered(),
+    );
+
+    const started = Date.now();
+    expect(await sendPushToUser(agent.userId, { title: "Traspaso: Ana", body: null, link: null }, { deadlineMs: 50 })).toBe("sent");
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(await db.select().from(pushSubscriptions)).toHaveLength(2);
+    const logged = errors.mock.calls.flat().map(String).join("\n");
+    expect(logged).toContain("no ha respondido a tiempo");
+    expect(logged).not.toContain(new URL(silent.endpoint).pathname);
+  });
+
+  it("every push has its own connection, only to public addresses and bounded in time and size", async () => {
+    await savePushSubscription(agent.actor, browserSubscription(), device);
+    await savePushSubscription(agent.actor, browserSubscription(), device);
+    webPush.sendNotification.mockResolvedValue(delivered());
+    await deliverPush(agent.userId, { title: "Traspaso: Ana", body: null, link: null });
+    const agents = webPush.sendNotification.mock.calls.map(([, , options]) => (options as { agent?: unknown }).agent);
+    expect(agents).toHaveLength(2);
+    for (const connection of agents) expect(connection).toBeInstanceOf(https.Agent);
+    expect(agents[0]).not.toBe(agents[1]);
+  });
+
+  it("the push service's answer is read only up to a short size, and not past the deadline", async () => {
+    const socket = () => new Duplex({ read() {}, write(_chunk, _encoding, done) { done(); } });
+    const chatty = socket();
+    chatty.on("error", () => undefined);
+    guardPushSocket(chatty, new AbortController().signal);
+    chatty.push(Buffer.alloc(MAX_PUSH_RESPONSE_BYTES));
+    chatty.push(Buffer.alloc(1));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(chatty.destroyed).toBe(true);
+
+    const short = socket();
+    guardPushSocket(short, new AbortController().signal);
+    short.push(Buffer.from("HTTP/1.1 201 Created\r\n\r\n"));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(short.destroyed).toBe(false);
+
+    const late = socket();
+    late.on("error", () => undefined);
+    const deadline = new AbortController();
+    guardPushSocket(late, deadline.signal);
+    deadline.abort();
+    expect(late.destroyed).toBe(true);
   });
 
   it("nothing goes out when the person has no devices", async () => {

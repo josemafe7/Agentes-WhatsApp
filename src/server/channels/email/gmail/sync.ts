@@ -2,13 +2,15 @@
 // WITHOUT labelId, and every new message classified by its labels (INBOX → customer, SENT → a person or us, SPAM /
 // TRASH → ignored, DRAFT → nothing). A 404 means the historyId is too old: full sync of the last two days of INBOX
 // and SENT, never duplicating (each Gmail id is stored once, [CAN-11]). The first poll only stores where to start.
+// Each message is read in two steps: its size and headers (format=metadata), then the whole of it only if it is not too
+// big to read ([COR-19]).
 import "server-only";
 import { fromGmailRaw, GmailApiError, type GmailClient, type GmailMessageRef } from "@/lib/google/gmail";
 import type { ChannelRecord } from "../../types";
 import { readEmailConfig, updateEmailConfig } from "../config";
 import { MAX_EMAIL_BYTES } from "../constants";
 import { isEmailStored, type IncomingEmail } from "../ingest";
-import { parseRawEmail } from "../parse";
+import { headerBlock, headerPart, parseRawEmail } from "../parse";
 import { processIncomingEmail } from "../process";
 import { emptyReport, type SyncContext, type SyncReport } from "../provider";
 import { countIgnored } from "../status";
@@ -20,7 +22,6 @@ const FULL_SYNC_MAX = 100;
 const MAX_HISTORY_PAGES = 20;
 /** Time kept for the rest of the poll after each message. */
 const MIN_REMAINING_MS = 5_000;
-const HEADER_END = Buffer.from("\r\n\r\n");
 
 type Changes = { refs: GmailMessageRef[]; historyId: string };
 
@@ -56,11 +57,8 @@ function unique(refs: readonly GmailMessageRef[]): GmailMessageRef[] {
   return [...seen.values()];
 }
 
-/** Headers only, for a message too big to read whole ([COR-19]). */
-function headerPart(raw: Buffer): Buffer {
-  const end = raw.indexOf(HEADER_END);
-  return end >= 0 ? raw.subarray(0, end + HEADER_END.length) : raw;
-}
+/** A deleted message (404) is simply not there any more. */
+const gone = (error: unknown) => error instanceof GmailApiError && error.httpStatus === 404;
 
 async function readMessage(channel: ChannelRecord, client: GmailClient, ref: GmailMessageRef, report: SyncReport, context: SyncContext): Promise<void> {
   const known = ref.labelIds;
@@ -78,24 +76,36 @@ async function readMessage(channel: ChannelRecord, client: GmailClient, ref: Gma
     report.skipped += 1;
     return;
   }
-  let message;
+  // Its size and headers first: a message too big to read whole is never downloaded ([COR-19]).
+  const max = context.deps.maxEmailBytes ?? MAX_EMAIL_BYTES;
+  let message: { id: string; threadId: string; labelIds: string[]; internalDate?: string };
+  let source: Buffer;
+  let tooLarge: boolean;
   try {
-    message = await client.getRawMessage(ref.id);
+    const metadata = await client.getMessageMetadata(ref.id);
+    message = metadata;
+    tooLarge = (metadata.sizeEstimate ?? 0) > max;
+    if (tooLarge) {
+      source = headerBlock(metadata.headers);
+    } else {
+      const full = await client.getRawMessage(ref.id);
+      if (!full.raw) {
+        report.skipped += 1;
+        return;
+      }
+      const raw = fromGmailRaw(full.raw);
+      tooLarge = raw.byteLength > max;
+      source = tooLarge ? headerPart(raw) : raw;
+    }
   } catch (error) {
     // Deleted between the change and now: nothing to read.
-    if (error instanceof GmailApiError && error.httpStatus === 404) {
+    if (gone(error)) {
       report.skipped += 1;
       return;
     }
     throw error;
   }
-  if (!message.raw) {
-    report.skipped += 1;
-    return;
-  }
-  const raw = fromGmailRaw(message.raw);
-  const tooLarge = (message.sizeEstimate ?? raw.byteLength) > MAX_EMAIL_BYTES;
-  const parsed = await parseRawEmail(tooLarge ? headerPart(raw) : raw);
+  const parsed = await parseRawEmail(source);
   const internal = Number(message.internalDate);
   const email: IncomingEmail = {
     providerId: message.id,

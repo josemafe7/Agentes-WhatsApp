@@ -78,6 +78,8 @@ export const PERMISSIONS = {
   },
   reports: {
     view: "reports.view",
+    /** Descargar cada tabla en CSV ([INF-09]). */
+    export: "reports.export",
   },
   settings: {
     /** Negocio, Horario, Privacidad y legal, Notificaciones y Tarifas. */
@@ -144,6 +146,7 @@ const RULES: Record<Action, readonly [Rule, Rule, Rule, Rule, Rule]> = {
   "channels.view": [Y, Y, N, N, Y],
   "channels.manage": [Y, Y, N, N, N],
   "reports.view": [Y, Y, Y, N, Y],
+  "reports.export": [Y, Y, N, N, N],
   "settings.business": [Y, Y, N, N, N],
   "settings.integrations": [Y, Y, N, N, N],
   "settings.users": [Y, "notOwner", N, N, N],

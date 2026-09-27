@@ -116,6 +116,7 @@ describe("Agenda: the reminder on the booking's card [AGD-25]", () => {
     cancelReason: null,
     createdAt: new Date("2026-09-20T08:00:00Z"),
     history,
+    canNotify: false,
   });
   const event = (action: string, changes: Record<string, unknown>) => ({ id: action, action, actorType: "system" as const, actorName: null, changes, createdAt: sentAt });
 

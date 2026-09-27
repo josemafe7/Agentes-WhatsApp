@@ -7,6 +7,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { contactSearchText } from "@/data/contacts-search";
 import { db } from "@/db";
 import { agents, contacts, resources, services } from "@/db/schema";
+import { toSingleLine } from "@/lib/format";
 import { idSchema } from "@/lib/validation";
 import { type AvailableSlot } from "./availability";
 import { BOOKING_STATUS_LABELS, bookingDayText, bookingTimeText } from "./format";
@@ -112,14 +113,15 @@ const MAX_NOTES = 4_000;
 /**
  * Writes what the customer gave into the conversation's contact (never another one, [HER-04]). `onlyEmpty` fills
  * blanks without replacing what the team wrote (a booking's name may be someone else's); notes are always added
- * below the existing ones. Returns the fields that changed. The phone is data, never a key ([CAN-13]).
+ * below the existing ones. Returns the fields that changed. The phone is data, never a key ([CAN-13]). The name, phone
+ * and email are saved on one line: the name goes into the agent's prompt and the team's notices ([HER-09]).
  */
 export async function writeContactData(contactId: string, data: ContactData, options: { onlyEmpty?: boolean; now?: Date } = {}): Promise<string[]> {
   const [current] = await db.select({ name: contacts.name, phone: contacts.phone, email: contacts.email, notes: contacts.notes }).from(contacts).where(eq(contacts.id, contactId));
   if (!current) return [];
   const values: Partial<typeof contacts.$inferInsert> = {};
   for (const field of ["name", "phone", "email"] as const) {
-    const value = data[field]?.trim();
+    const value = toSingleLine(data[field] ?? "");
     if (!value || value === current[field]) continue;
     if (options.onlyEmpty && current[field]) continue;
     values[field] = value;

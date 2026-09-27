@@ -1,11 +1,12 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { db } from "@/db";
-import { conversations, jobs } from "@/db/schema";
+import { conversations, jobs, messages } from "@/db/schema";
 import { getJobQueue } from "@/server/adapters/job-queue";
 import { replyDedupeKey } from "@/server/engine/schedule";
 import { createBusiness, createChannel, createContactWithIdentity, createConversation, createMessage } from "@/test/factories";
-import { businessDayBounds, CAP_REASON_SENDER, CAP_REASON_THREAD, enforceDailyCaps, reachedCap } from "./caps";
+import { businessDayBounds, CAP_REASON_CHANNEL, CAP_REASON_SENDER, CAP_REASON_THREAD, dailyCapReached, enforceDailyCaps, reachedCap } from "./caps";
+import { DAILY_CAP_PER_CHANNEL } from "./constants";
 
 describe("[COR-17] tope diario de respuestas de la IA por hilo y por remitente", () => {
   it("5 por hilo y 10 por remitente por defecto", () => {
@@ -56,6 +57,35 @@ describe("[COR-17] tope diario de respuestas de la IA por hilo y por remitente",
     await expect(enforceDailyCaps(channel, current.id, { now })).resolves.toBe("sender");
     const [paused] = await db.select().from(conversations).where(eq(conversations.id, current.id));
     expect(paused.pauseReason).toBe(CAP_REASON_SENDER);
+  });
+
+  it(`además, ${DAILY_CAP_PER_CHANNEL} respuestas de la IA al día por buzón, sumando todos sus hilos y remitentes`, async () => {
+    expect(reachedCap({ thread: 0, sender: 0, channel: DAILY_CAP_PER_CHANNEL - 1 }, { perThread: 5, perSender: 10, perChannel: DAILY_CAP_PER_CHANNEL })).toBeNull();
+    expect(reachedCap({ thread: 0, sender: 0, channel: DAILY_CAP_PER_CHANNEL }, { perThread: 5, perSender: 10, perChannel: DAILY_CAP_PER_CHANNEL })).toBe("channel");
+
+    await createBusiness();
+    const channel = await createChannel({ type: "email_imap", config: { dailyCapPerThread: 5, dailyCapPerSender: 10 } });
+    const today = new Date("2026-09-27T09:00:00Z");
+    const now = new Date("2026-09-27T10:00:00Z");
+    // Many senders, one reply each: none reaches its own cap, the mailbox does.
+    const others = await Promise.all(
+      Array.from({ length: 4 }, async (_, index) => {
+        const { contact } = await createContactWithIdentity("email_imap", { externalId: `cliente-${index}-${crypto.randomUUID()}@cliente.test` });
+        return createConversation(channel.id, contact.id, { externalThreadId: `<m${index}-${crypto.randomUUID()}@x>` });
+      }),
+    );
+    const values = others.flatMap((conversation) =>
+      Array.from({ length: DAILY_CAP_PER_CHANNEL / 4 }, () => ({ conversationId: conversation.id, channelId: channel.id, direction: "outbound" as const, senderType: "ai" as const, status: "sent" as const, createdAt: today, updatedAt: today })),
+    );
+    for (let start = 0; start < values.length; start += 100) await db.insert(messages).values(values.slice(start, start + 100));
+    const { contact } = await createContactWithIdentity("email_imap", { externalId: `nuevo-${crypto.randomUUID()}@cliente.test` });
+    const fresh = await createConversation(channel.id, contact.id, { externalThreadId: `<n-${crypto.randomUUID()}@x>` });
+
+    await expect(dailyCapReached(channel, fresh.id, now)).resolves.toBe("channel");
+    // Checking alone changes nothing; enforcing pauses with the reason.
+    expect((await db.select().from(conversations).where(eq(conversations.id, fresh.id)))[0].aiPausedUntil).toBeNull();
+    await expect(enforceDailyCaps(channel, fresh.id, { now })).resolves.toBe("channel");
+    expect((await db.select().from(conversations).where(eq(conversations.id, fresh.id)))[0].pauseReason).toBe(CAP_REASON_CHANNEL);
   });
 
   it("una conversación ya en manos de una persona no se toca", async () => {

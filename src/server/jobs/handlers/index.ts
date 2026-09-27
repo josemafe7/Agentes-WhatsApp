@@ -7,6 +7,7 @@ import "./demo-status";
 import "./notifications";
 import "./summary";
 import "./retention";
+import "./model-catalog";
 import "@/server/compliance/jobs";
 import "@/server/knowledge/jobs";
 import "@/server/channels/whatsapp/jobs";

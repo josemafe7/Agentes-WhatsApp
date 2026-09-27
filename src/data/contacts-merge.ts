@@ -3,7 +3,9 @@
 // (Propietario, Administrador and Supervisor) picks two, sees what moves and confirms: the kept contact gets the
 // identities, conversations, bookings, consents, labels and custom fields of both; the conversations of both in the same
 // WhatsApp, web chat or Telegram channel become one, with the messages in date order; and the merge goes to the activity
-// log. The pure rules are in contacts-merge-plan.ts.
+// log. The pure rules are in contacts-merge-plan.ts. The simulator's customers stay apart from real ones ([AJU-13]):
+// a simulated customer is never suggested with a real one nor merged with it (its replies would leave the app, or a real
+// customer's would stay inside it).
 import "server-only";
 import { and, asc, count, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -15,7 +17,7 @@ import { idSchema } from "@/lib/validation";
 import { getJobQueue, type JobQueue } from "@/server/adapters/job-queue";
 import { replyDedupeKey } from "@/server/engine/schedule";
 import { summaryDedupeKey } from "@/server/engine/summary";
-import { AuthError, parseInput } from "@/server/errors";
+import { AuthError, ConflictError, parseInput } from "@/server/errors";
 import { publishConversationEvent } from "@/server/realtime/events";
 import { writeAudit } from "./audit";
 import { contactDisplayName } from "./contacts";
@@ -34,6 +36,11 @@ import {
   type MergedValues,
 } from "./contacts-merge-plan";
 import { assertCan } from "./guard";
+import { SIMULATED_IDENTITY_PREFIX } from "./simulator";
+
+/** An identity of the simulator: a space of its own that no channel ever gives ([AJU-13]). */
+const isSimulatedIdentity = (externalId: string) => externalId.startsWith(SIMULATED_IDENTITY_PREFIX);
+const SIMULATED_WITH_REAL = "Un cliente del simulador no se puede fusionar con un cliente real.";
 
 // ─── Possible duplicates ([CTO-04]) ─────────────────────────────────────────────────────────────────────
 
@@ -72,6 +79,7 @@ export async function listDuplicateSuggestions(actor: Actor, options: { contactI
     if (identity.channelType.startsWith("email_")) add("email", emailKey(identity.externalId), identity.contactId);
     add("phone", phoneKey(identity.phone), identity.contactId);
   }
+  const simulated = new Set(identities.filter((identity) => isSimulatedIdentity(identity.externalId)).map((identity) => identity.contactId));
 
   const pairs = new Map<string, Set<DuplicateReason>>();
   for (const [groupKey, members] of shared) {
@@ -81,6 +89,8 @@ export async function listDuplicateSuggestions(actor: Actor, options: { contactI
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
         if (options.contactId && ids[i] !== options.contactId && ids[j] !== options.contactId) continue;
+        // A simulated customer and a real one are never the same person ([AJU-13]).
+        if (simulated.has(ids[i]) !== simulated.has(ids[j])) continue;
         const pairKey = `${ids[i]}|${ids[j]}`;
         pairs.set(pairKey, (pairs.get(pairKey) ?? new Set()).add(reason));
       }
@@ -126,6 +136,8 @@ export type MergeSide = ContactBrief & {
   conversations: { id: string; channel: ChannelRef; createdAt: Date; lastMessageAt: Date | null; messages: number }[];
   bookings: number;
   consents: number;
+  /** A customer of the simulator ([AJU-13]). */
+  simulated: boolean;
 };
 
 export type MergePreview = {
@@ -148,7 +160,15 @@ async function loadSide(executor: Executor, contactId: string): Promise<MergeSid
     .where(eq(contactIdentities.contactId, contact.id))
     .orderBy(asc(contactIdentities.createdAt));
   const conversationRows = await executor
-    .select({ id: conversations.id, channelId: channels.id, channelName: channels.name, channelType: channels.type, createdAt: conversations.createdAt, lastMessageAt: conversations.lastMessageAt })
+    .select({
+      id: conversations.id,
+      channelId: channels.id,
+      channelName: channels.name,
+      channelType: channels.type,
+      createdAt: conversations.createdAt,
+      lastMessageAt: conversations.lastMessageAt,
+      metadata: conversations.metadata,
+    })
     .from(conversations)
     .innerJoin(channels, eq(channels.id, conversations.channelId))
     .where(and(eq(conversations.contactId, contact.id), eq(conversations.isTest, false)))
@@ -188,7 +208,13 @@ async function loadSide(executor: Executor, contactId: string): Promise<MergeSid
     })),
     bookings: bookingCount?.n ?? 0,
     consents: consentCount?.n ?? 0,
+    simulated: identities.some((identity) => isSimulatedIdentity(identity.externalId)) || conversationRows.some((row) => row.metadata.simulated === true),
   };
+}
+
+/** A simulated customer only joins another simulated one ([AJU-13]). */
+function assertSameWorld(keep: MergeSide, merge: MergeSide): void {
+  if (keep.simulated !== merge.simulated) throw new ConflictError(SIMULATED_WITH_REAL);
 }
 
 function planFolds(keep: MergeSide, merge: MergeSide): MergePreview["joined"] {
@@ -207,6 +233,7 @@ export async function previewContactMerge(actor: Actor, input: unknown): Promise
   const data = parseInput(mergeContactsSchema, input);
   const [keep, merge] = await Promise.all([loadSide(db, data.keepId), loadSide(db, data.mergeId)]);
   if (!keep || !merge) throw new AuthError("forbidden");
+  assertSameWorld(keep, merge);
   return { keep, merge, choices: { ...defaultChoices(keep, merge), ...data.choices }, result: mergedValues(keep, merge, data.choices), joined: planFolds(keep, merge) };
 }
 
@@ -249,6 +276,7 @@ export async function mergeContacts(actor: Actor, input: unknown, options: { que
     const keep = await loadSide(tx, data.keepId);
     const merge = await loadSide(tx, data.mergeId);
     if (!keep || !merge) throw new AuthError("forbidden");
+    assertSameWorld(keep, merge);
     const plan = planFolds(keep, merge);
     for (const fold of plan) await foldConversations(tx, fold, keep.id, now);
     const moved = await tx.update(conversations).set({ contactId: keep.id, updatedAt: now }).where(eq(conversations.contactId, merge.id)).returning({ id: conversations.id });

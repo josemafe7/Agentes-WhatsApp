@@ -5,9 +5,15 @@ import { and, asc, eq } from "drizzle-orm";
 import { simpleParser } from "mailparser";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
-import { bookingEvents, bookings, channels, consents, contactIdentities, contacts, conversations, jobs, messages, reminderSettings, whatsappTemplates } from "@/db/schema";
+import { bookingEvents, bookings, businessSettings, channels, consents, contactIdentities, contacts, conversations, jobs, messages, reminderSettings, whatsappTemplates } from "@/db/schema";
+import { createEmailAdapter } from "@/server/channels/email/adapter";
+import { encryptMailPasswords } from "@/server/channels/email/config";
+import { imapProvider } from "@/server/channels/email/imap/provider";
+import { fakeMailServers } from "@/server/channels/email/test-helpers";
+import { registerChannelAdapter } from "@/server/channels/registry";
 import { getJobRegistration } from "@/server/jobs/registry";
-import { createChannel, createContactWithIdentity, createUser } from "@/test/factories";
+import type { MailSender } from "@/server/mailer";
+import { createChannel, createContactWithIdentity, createConversation, createMessage, createUser } from "@/test/factories";
 import { templateComponents } from "@/test/fixtures/whatsapp/fake-meta";
 import { BOOKING_REMINDERS_JOB, runBookingReminders, syncBookingReminderJob } from "./reminders";
 import { cancelBooking, createBooking, rescheduleBooking, type BookingActor } from "./service";
@@ -171,6 +177,28 @@ describe("booking reminders [AGD-24] [AGD-25]", () => {
     expect(await runBookingReminders({ now: at("2026-09-29T09:00"), mailer })).toEqual({ sent: 0, failed: 2 });
   });
 
+  it("a booking cancelled while the round is running gets no reminder, and could get one again if it came back [AGD-25]", async () => {
+    await db.insert(reminderSettings).values({ enabled: true, leadMinutes: 120, channel: "email" });
+    const { booking: first } = await bookFor({ start: "2026-09-29T10:00", email: "primera@example.com" });
+    const { booking: second } = await bookFor({ start: "2026-09-29T10:30", email: "segunda@example.com" });
+    const sentTo: string[] = [];
+    // The first reminder is on its way when a person cancels the second booking.
+    const transport: MailSender = {
+      async sendMail(options) {
+        sentTo.push(String(options.to));
+        if (sentTo.length === 1) await cancelBooking({ bookingId: second.id, actor: person, now: at("2026-09-29T08:45") });
+        return {};
+      },
+    };
+    const smtp = { host: "smtp.example.com", port: 465, security: "tls" as const, fromEmail: "avisos@example.com", password: null };
+    expect(await runBookingReminders({ now: at("2026-09-29T08:45"), mailer: { smtp, createTransport: () => transport } })).toEqual({ sent: 1, failed: 0 });
+    expect(sentTo).toEqual(["primera@example.com"]);
+    expect(await historyOf(first.id)).toEqual(["created", "reminder_sent"]);
+    expect(await historyOf(second.id)).toEqual(["created", "cancelled"]);
+    const [row] = await db.select({ reminderSentAt: bookings.reminderSentAt }).from(bookings).where(eq(bookings.id, second.id));
+    expect(row.reminderSentAt).toBeNull();
+  });
+
   it("the recurring job runs while reminders are on and stops when they go off", async () => {
     expect(getJobRegistration(BOOKING_REMINDERS_JOB)).toBeDefined();
     await syncBookingReminderJob(true);
@@ -181,5 +209,138 @@ describe("booking reminders [AGD-24] [AGD-25]", () => {
     await syncBookingReminderJob(false);
     const [after] = await db.select().from(jobs).where(eq(jobs.type, BOOKING_REMINDERS_JOB));
     expect(after.status).toBe("cancelled");
+  });
+});
+
+describe("email reminders the customer can answer to cancel [AGD-26] [CUM-03]", () => {
+  const MAILBOX = "hola@peluqueria.test";
+  const CUSTOMER = "lucia@example.com";
+  const THREAD = "<pregunta-1@example.com>";
+
+  async function connectMailbox() {
+    const servers = fakeMailServers();
+    const channel = await createChannel({
+      type: "email_imap",
+      name: "Buzón",
+      status: "connected",
+      config: {
+        emailAddress: MAILBOX,
+        imap: { imapHost: "imap.hosting.test", imapPort: 993, imapSecurity: "tls", smtpHost: "smtp.hosting.test", smtpPort: 465, smtpSecurity: "tls" },
+      },
+      secretsEnc: encryptMailPasswords({ password: "contraseña-buzón", smtpPassword: null }),
+    });
+    registerChannelAdapter(createEmailAdapter(imapProvider, { mailConnectors: servers.connectors }));
+    return { servers, channel };
+  }
+
+  /** A customer who wrote by email: their thread in the mailbox, with the email they sent. */
+  async function customerWhoWrote(channelId: string) {
+    const { contact } = await createContactWithIdentity("email_imap", { name: "Lucía", email: CUSTOMER, externalId: CUSTOMER });
+    const conversation = await createConversation(channelId, contact.id, { externalThreadId: THREAD });
+    await createMessage(conversation, {
+      text: "¿Tenéis hueco el martes?",
+      createdAt: at("2026-09-20T10:00"),
+      externalId: THREAD,
+      metadata: {
+        subject: "Cita para el martes",
+        email: { providerId: THREAD, messageId: THREAD, from: { address: CUSTOMER, name: "Lucía" }, to: [{ address: MAILBOX, name: null }] },
+      },
+    });
+    return { contact, conversation };
+  }
+
+  const bookContact = (contactId: string) =>
+    createBooking({ serviceId: cutId, resourceId: "any", start: at("2026-09-29T10:00"), contactId, source: "human", actor: person, now: NOW });
+
+  const newEmails = (before: Set<string>) => fs.readdirSync(outboxDir).filter((file) => !before.has(file));
+
+  beforeEach(async () => {
+    await db.insert(reminderSettings).values({ enabled: true, leadMinutes: 120, channel: "email" });
+  });
+
+  it("with a connected mailbox where the customer wrote, it goes as a reply in that thread, so the answer comes back to the inbox", async () => {
+    const { servers, channel } = await connectMailbox();
+    const { contact, conversation } = await customerWhoWrote(channel.id);
+    const booking = await bookContact(contact.id);
+    const before = new Set(fs.readdirSync(outboxDir));
+
+    expect(await runBookingReminders({ now: at("2026-09-29T08:30"), mailer })).toEqual({ sent: 1, failed: 0 });
+
+    expect(newEmails(before)).toEqual([]);
+    expect(servers.state.smtpSent).toHaveLength(1);
+    const [sent] = servers.state.smtpSent;
+    expect(sent.envelope).toEqual({ from: MAILBOX, to: [CUSTOMER] });
+    const email = await simpleParser(sent.raw);
+    expect(email.from?.text).toContain(MAILBOX);
+    expect(email.inReplyTo).toBe(THREAD);
+    expect(email.subject).toBe("Re: Cita para el martes");
+    expect(email.text).toContain("Te recordamos tu cita de Corte el martes 29 de septiembre a las 10:00.");
+    // The reminder is in the conversation, where the customer's answer lands.
+    const outbound = await db.select().from(messages).where(and(eq(messages.conversationId, conversation.id), eq(messages.direction, "outbound")));
+    expect(outbound).toEqual([expect.objectContaining({ senderType: "system", status: "sent" })]);
+    expect(await historyOf(booking.id)).toEqual(["created", "reminder_sent"]);
+  });
+
+  it("with a connected mailbox but no thread with the customer, the system mail answers to that mailbox (Reply-To)", async () => {
+    await connectMailbox();
+    const { contact } = await createContactWithIdentity("whatsapp", { name: "Lucía", email: CUSTOMER });
+    await bookContact(contact.id);
+    const before = new Set(fs.readdirSync(outboxDir));
+
+    expect(await runBookingReminders({ now: at("2026-09-29T08:30"), mailer })).toEqual({ sent: 1, failed: 0 });
+
+    const [file] = newEmails(before);
+    const email = await simpleParser(fs.readFileSync(path.join(outboxDir, file)));
+    expect(email.to).toMatchObject({ text: CUSTOMER });
+    expect(email.replyTo).toMatchObject({ text: MAILBOX });
+  });
+
+  it("without a connected mailbox, the system mail answers to the business's email and says how to cancel without promising «BAJA» by email", async () => {
+    await db.update(businessSettings).set({ contactEmail: "recepcion@peluqueria.test" });
+    // The demo's mailbox never sends anything: it does not count.
+    await createChannel({ type: "email_gmail", name: "Correo demo", isDemo: true, status: "connected", config: { emailAddress: "demo@peluqueria.test" } });
+    const { contact } = await createContactWithIdentity("whatsapp", { name: "Lucía", email: CUSTOMER });
+    await bookContact(contact.id);
+    const before = new Set(fs.readdirSync(outboxDir));
+
+    expect(await runBookingReminders({ now: at("2026-09-29T08:30"), mailer })).toEqual({ sent: 1, failed: 0 });
+
+    const [file] = newEmails(before);
+    const email = await simpleParser(fs.readFileSync(path.join(outboxDir, file)));
+    expect(email.replyTo).toMatchObject({ text: "recepcion@peluqueria.test" });
+    expect(email.text).toContain("Si no puedes venir, responde a este correo o llámanos para cancelarla");
+    expect(email.text).not.toMatch(/baja/i);
+  });
+
+  it("a thread where someone else wrote last is not used: the reply would reach them, so the system mail goes to the customer", async () => {
+    const { servers, channel } = await connectMailbox();
+    const { contact, conversation } = await customerWhoWrote(channel.id);
+    await createContactWithIdentity("email_imap", { name: "Otra persona", email: "otra@example.com", externalId: "otra@example.com" });
+    const later = "<respuesta-de-otra@example.com>";
+    await createMessage(conversation, {
+      text: "Yo también quiero cita.",
+      createdAt: at("2026-09-21T10:00"),
+      externalId: later,
+      metadata: { email: { providerId: later, messageId: later, inReplyTo: THREAD, references: [THREAD], from: { address: "otra@example.com", name: "Otra" } } },
+    });
+    await bookContact(contact.id);
+    const before = new Set(fs.readdirSync(outboxDir));
+
+    expect(await runBookingReminders({ now: at("2026-09-29T08:30"), mailer })).toEqual({ sent: 1, failed: 0 });
+
+    expect(servers.state.smtpSent).toHaveLength(0);
+    const [file] = newEmails(before);
+    const email = await simpleParser(fs.readFileSync(path.join(outboxDir, file)));
+    expect(email.to).toMatchObject({ text: CUSTOMER });
+    expect(email.replyTo).toMatchObject({ text: MAILBOX });
+  });
+
+  it("never to a customer who opted out in a mailbox, not even in their thread", async () => {
+    const { servers, channel } = await connectMailbox();
+    const { contact } = await customerWhoWrote(channel.id);
+    await db.insert(consents).values({ contactId: contact.id, channelId: channel.id, channelType: "email_imap", type: "opt_out", source: "keyword" });
+    await bookContact(contact.id);
+    expect(await runBookingReminders({ now: at("2026-09-29T08:30"), mailer })).toEqual({ sent: 0, failed: 1 });
+    expect(servers.state.smtpSent).toHaveLength(0);
   });
 });
