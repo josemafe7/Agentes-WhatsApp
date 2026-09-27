@@ -71,14 +71,17 @@ export function resolveDatabaseTarget(url: string = databaseUrlFromEnv()): Datab
 
 /**
  * postgres.js options for a server. `prepare: false` is required by Supabase's transaction pooler (port 6543, the
- * one for Vercel); from a VPS use the session pooler (port 5432). TLS always, except to this same machine. No
- * search_path here: Supabase's default one already includes the `extensions` schema of the migrations.
+ * one for Vercel); from a VPS use the session pooler (port 5432). `max_pipeline: 0`: one query at a time on each
+ * connection. Queued behind another one, a query with parameters (sent in two steps) could be cut in half by that
+ * pooler when the first one ends, and it waited forever. TLS always, except to this same machine. No search_path
+ * here: Supabase's default one already includes the `extensions` schema of the migrations.
  */
-export function serverConnectionOptions(url: string): postgres.Options<Record<string, postgres.PostgresType>> {
+export function serverConnectionOptions(url: string): postgres.Options<Record<string, postgres.PostgresType>> & { max_pipeline: number } {
   return {
     prepare: false,
     ssl: isLocalHost(url) ? false : "require",
     max: 5,
+    max_pipeline: 0,
     idle_timeout: 20,
     connect_timeout: 15,
     onnotice: () => {},

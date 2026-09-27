@@ -245,12 +245,13 @@ describe("DATABASE_URL", () => {
     expect(isServerDatabase()).toBe(true);
   });
 
-  it("postgres.js: no prepared statements (Supabase transaction pooler) and TLS except to this machine", () => {
+  it("postgres.js: no prepared statements nor pipelining (Supabase transaction pooler) and TLS except to this machine", () => {
     const options = serverConnectionOptions("postgresql://postgres.ref:pw@aws-0-eu-west-1.pooler.supabase.com:6543/postgres");
     expect(options).toMatchObject({
       prepare: false,
       ssl: "require",
       max: 5,
+      max_pipeline: 0,
       idle_timeout: 20,
       connect_timeout: 15,
       connection: { application_name: "dominia-agentes" },
