@@ -72,8 +72,8 @@ Salen del encargo y se cumplen siempre, como las de «Seguridad».
 - Nunca se llama a la IA dentro de un webhook: se responde enseguida y la IA trabaja después.
 - Código portable de Vercel a un VPS: el SQL propio de Postgres, solo en los adaptadores y las migraciones.
 - La demo funciona siempre desde un clon limpio.
-- WhatsApp, solo con la API oficial de Meta: nunca APIs no oficiales, Embedded Signup, coexistencia con la
-  app del móvil ni `override_callback_uri`.
+- WhatsApp: tres vías a elegir, Meta directo (recomendada), YCloud (coexistencia) o QR con Baileys (no oficial: con
+  aviso, nunca por defecto). Nunca Embedded Signup propio, otras APIs no oficiales ni `override_callback_uri`.
 - Nunca respuestas duplicadas ni troceadas en varios mensajes.
 - Nunca el teléfono como clave de un contacto.
 - Nunca Gmail en modo «Testing» ni apps de Google o Microsoft compartidas entre negocios.

@@ -169,7 +169,7 @@ function unsupported(base: Omit<InboundMessageEvent, "contentType">, kind: strin
   return { ...base, contentType: "unsupported", text: UNSUPPORTED_TEXT, noReply: true, metadata: { ...base.metadata, unsupported: { type: kind, codes } } };
 }
 
-type MessageOutcome = { event: InboundMessageEvent | null; download: WhatsAppMediaDownload | null; identity: IdentityChange | null };
+export type MessageOutcome = { event: InboundMessageEvent | null; download: WhatsAppMediaDownload | null; identity: IdentityChange | null };
 
 function systemOutcome(message: WebhookMessage, sentAt: Date): MessageOutcome {
   const system = message.system;
@@ -257,6 +257,16 @@ function messageOutcome(message: WebhookMessage, contacts: WebhookContact[]): Me
       return { event: { ...base, contentType: "text", text: null, reaction: { targetExternalId: message.reaction.message_id, emoji: clean(message.reaction.emoji) } }, ...none };
   }
   return { event: unsupported(base, message.unsupported?.type ?? message.type, message), ...none };
+}
+
+/**
+ * One message with the Cloud API's shape and its contacts → its event, the file to download and an identity change.
+ * For the channels that deliver the same message inside an envelope of their own (YCloud, [YC-06]); null when it is
+ * not such a message.
+ */
+export function normalizeWhatsAppMessage(rawMessage: unknown, rawContacts: readonly unknown[] = []): MessageOutcome | null {
+  const message = webhookMessageSchema.safeParse(rawMessage);
+  return message.success ? messageOutcome(message.data, parseEach(webhookContactSchema, rawContacts)) : null;
 }
 
 function statusOf(status: WebhookStatus): StatusUpdateEvent | null {

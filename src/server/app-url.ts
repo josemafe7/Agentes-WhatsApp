@@ -19,6 +19,20 @@ export function appUrl(path: string): string {
   return `${getAppUrl()}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+/**
+ * Whether an outside service (Meta, Telegram, YCloud) can call `url`: https and not this computer. Locally a channel can
+ * be validated, but no webhook arrives ([WA-16], [TG-06]).
+ */
+export function isPublicHttpsUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    return parsed.protocol === "https:" && host !== "localhost" && !host.endsWith(".localhost") && !/^127\./.test(host) && host !== "[::1]";
+  } catch {
+    return false;
+  }
+}
+
 // ─── Start-up checks of a published app (src/instrumentation.ts) ──────────────────────────────────────────
 
 /** Where the clients of the external services send their requests; only the tests point them at their mock. */
@@ -31,6 +45,7 @@ export const BASE_URL_OVERRIDE_VARIABLES = [
   "MS_GRAPH_BASE_URL",
   "MISTRAL_BASE_URL",
   "TELEGRAM_API_BASE_URL",
+  "YCLOUD_API_BASE_URL",
 ] as const;
 
 /**

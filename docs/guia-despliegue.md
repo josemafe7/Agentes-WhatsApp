@@ -336,6 +336,11 @@ código.
 Después, sigue la «Lista de puesta en marcha» (en Ayuda) para dejar el negocio listo. Puedes dejar `SETUP_TOKEN`
 puesto: con el propietario creado, el asistente ya no se abre.
 
+**WhatsApp en Vercel.** De las tres formas de conectar un número (Canales › Añadir canal), en Vercel funcionan dos:
+la API oficial de Meta y YCloud. El código QR no: necesita que la app esté siempre encendida para mantener la
+conexión con WhatsApp, y en Vercel la app solo vive mientras atiende una petición. El asistente lo dice y no deja
+crear el canal.
+
 [Captura: el primer paso del asistente con el campo «Código de instalación»]
 
 ## 8. Un dominio propio
@@ -480,6 +485,9 @@ apartado paso a paso. Esto es lo que ya está decidido:
   (`web` y `worker`).
 - **Dominio propio con HTTPS**, con su certificado. Nunca los dominios `traefik.me` que genera Dokploy: no tienen HTTPS
   y Meta los rechaza.
+- **WhatsApp por código QR** sí funciona en un servidor propio, con dos condiciones: **una sola copia de `web`**
+  (la conexión con WhatsApp la mantiene ese servicio, y dos copias se la quitarían la una a la otra) y el mismo
+  `CRON_SECRET` en `web` y en `worker`, porque el trabajador pide al servicio `web` los envíos de esa vía.
 - **Actualiza Dokploy nada más instalarlo** y mantenlo al día: en julio de 2026 publicó decenas de fallos de seguridad
   críticos. Su panel lleva verificación en dos pasos, se cierra su puerto 3000 cuando tenga dominio y nunca se da al
   negocio: quien lo maneja puede controlar el servidor entero.

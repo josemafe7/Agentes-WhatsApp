@@ -22,6 +22,13 @@
       "when": 1790521240463,
       "tag": "0002_json_key_order",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791553235066,
+      "tag": "0003_whatsapp_qr_keys",
+      "breakpoints": true
     }
   ]
 }

@@ -8,7 +8,7 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
-import { jobs, notifications, systemEmails } from "@/db/schema";
+import { jobs, notifications, systemEmails, webhookEvents } from "@/db/schema";
 import { MEDIA_DOWNLOAD_JOB } from "@/server/channels/whatsapp/media";
 import { NOTIFICATIONS_DELIVER_JOB } from "@/server/notifications/notify";
 import { createBusiness, createChannel, createContactWithIdentity, createConversation, createMessage, createUser, type TestUser } from "@/test/factories";
@@ -101,5 +101,17 @@ describe("erasing a contact clears what names them outside their conversations [
     expect(inOutbox(marta.noticeFile)).toBe(true);
     expect(await emailOf(marta.reminder.id)).toBeDefined();
     expect(inOutbox(marta.reminderFile)).toBe(true);
+  });
+
+  it("the raw webhooks of YCloud that name them go too: YCloud writes the phone with «+» [YC-05]", async () => {
+    const channel = await createChannel({ type: "whatsapp", connectionMode: "ycloud", name: "WhatsApp YCloud" });
+    const { contact } = await createContactWithIdentity("whatsapp", { name: "Lucía Ramos", externalId: "34611222333", phone: "34611222333" });
+    await createConversation(channel.id, contact.id);
+    const event = (from: string) => ({ source: "ycloud", channelId: channel.id, signatureValid: true, receivedAt: new Date(), payload: { id: "evt_1", type: "whatsapp.inbound_message.received", whatsappInboundMessage: { from, to: "+34600111222", type: "text" } } });
+    const [theirs] = await db.insert(webhookEvents).values(event("+34611222333")).returning();
+    const [another] = await db.insert(webhookEvents).values(event("+34611222334")).returning();
+    await eraseContactData(contact.id, { audit: { actor: owner.actor, action: "contact.erased", targetType: "contact", targetId: contact.id }, storage: memoryFileStorage().storage, outboxDir });
+    expect((await db.select().from(webhookEvents)).map((row) => row.id)).toEqual(expect.arrayContaining([another.id]));
+    expect((await db.select().from(webhookEvents)).map((row) => row.id)).not.toContain(theirs.id);
   });
 });

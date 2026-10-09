@@ -105,9 +105,9 @@ Qué se prueba y cómo, para demostrar que el código funciona.
     respuestas documentadas (chat, catálogo con un ejemplo de cada exclusión) y una clave de prueba; el código
     del servidor lo recibe con `fetchImpl` (por ejemplo, `runAgent(input, { fetchImpl })`).
   - En Playwright, un servidor simulado (`e2e/mocks/`) responde por Meta, OpenRouter, Google, Microsoft,
-    Mistral y Telegram, y la app apunta a él con sus variables de URL base (`OPENROUTER_BASE_URL`,
+    Mistral, Telegram y YCloud, y la app apunta a él con sus variables de URL base (`OPENROUTER_BASE_URL`,
     `META_GRAPH_BASE_URL`, `GOOGLE_OAUTH_BASE_URL`, `GOOGLE_API_BASE_URL`, `MS_LOGIN_BASE_URL`,
-    `MS_GRAPH_BASE_URL`, `MISTRAL_BASE_URL` y `TELEGRAM_API_BASE_URL`).
+    `MS_GRAPH_BASE_URL`, `MISTRAL_BASE_URL`, `TELEGRAM_API_BASE_URL` y `YCLOUD_API_BASE_URL`).
   - OpenRouter simulado (`e2e/mocks/routes/openrouter.mjs`): solo responde a las claves de prueba de
     `e2e/mocks/test-keys.json`; su catálogo tiene modelos de cuatro proveedores y uno de cada exclusión; da los
     proveedores de cada modelo y la lista sin retención de datos (Whisper está en ella, Voxtral no); el chat
@@ -159,6 +159,26 @@ Qué se prueba y cómo, para demostrar que el código funciona.
     prueba conecta su propio número (`e2e/support/whatsapp-meta.ts` genera números, clientes, wamids y avisos firmados
     a partir de los mismos archivos de `src/test/fixtures/whatsapp/`) y deja su canal desactivado o desconectado al
     terminar. Las pantallas de WhatsApp se recorren con los ayudantes de `e2e/support/whatsapp.ts`.
+  - Telegram en Vitest (fase 9): `src/test/fixtures/telegram/` es la Bot API falsa (`fakeTelegramFetch`,
+    `connectedBotRoutes`, `tgOk`, `tgError` y las respuestas documentadas) con avisos realistas (texto, nota de voz,
+    foto, documento, grupo); los tokens de prueba se montan al ejecutarse, para que ningún texto del repositorio
+    parezca una clave. Las funciones de `src/data/telegram.ts` reciben `{ fetchImpl, baseUrl }` como último argumento;
+    las acciones se prueban con el `fetch` global sustituido y `TELEGRAM_API_BASE_URL`.
+  - YCloud en Vitest (fase 9): `src/test/fixtures/ycloud/` es la API falsa (`fakeYCloudFetch`, `ycloudRoutes`,
+    `ycloudAccount`, que recuerda las direcciones de avisos que se le piden y da a cada una su secreto) con avisos
+    realistas (texto, nota de voz, foto, estado, lo escrito desde el móvil, plantilla revisada) y `signedEvent`, que
+    los firma como YCloud. Las claves de prueba se montan al ejecutarse. Las funciones de `src/data/ycloud.ts`
+    reciben `{ fetchImpl, baseUrl }` como último argumento.
+  - YCloud en Playwright (`e2e/mocks/routes/ycloud.mjs`): cualquier clave «yc<9 cifras><letras>» es una cuenta con
+    un número; «REVOCADA» y «SINNUMERO» en las letras dan una clave rechazada y una cuenta sin números. Como la app
+    corre en `http://localhost`, no se crea dirección de avisos ([YC-04]): la recepción y el envío se prueban en
+    Vitest. Ayudantes en `e2e/support/ycloud.ts`.
+  - WhatsApp por código QR (fase 9): **ninguna prueba abre una conexión con WhatsApp**. La sesión se prueba con una
+    conexión falsa (`src/test/fixtures/whatsapp-qr/`: `fakeQrSockets` y `FakeQrSocket`, que emite lo que emitiría
+    WhatsApp —código, escaneo, apertura, cierres con su motivo, mensajes, estados— y anota lo que se le pide) y un
+    supervisor propio de la prueba (`createQrSupervisor({ openSocket })` + `setQrSupervisorForTests`). El
+    normalizador (`normalize.ts`) no importa la librería y se prueba con mensajes de ejemplo. En Playwright solo se
+    comprueba el aviso y la casilla del asistente: nunca se pulsa «Generar código QR», que abriría una conexión real.
   - El `request` de Playwright lleva la sesión del `storageState` del archivo: para comprobar que algo no se sirve
     sin sesión, la prueba crea un contexto sin cookies (`playwright.request.newContext({ storageState: { cookies: [],
     origins: [] } })`).

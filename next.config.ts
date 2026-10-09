@@ -40,8 +40,9 @@ const nextConfig: NextConfig = {
   experimental: { serverActions: { bodySizeLimit: "4mb" } },
   // pino (imapflow) is externalized by Next.js already. ffmpeg-static resolves its binary from __dirname, so it must be
   // loaded with Node's require (docs/plataforma-despliegue.md). PGlite and its pgvector extension load their WebAssembly
-  // and data files from their own package folders, so they are not bundled either.
-  serverExternalPackages: ["ffmpeg-static", "@electric-sql/pglite", "@electric-sql/pglite-pgvector"],
+  // and data files from their own package folders, so they are not bundled either. Baileys (WhatsApp by QR code) is an
+  // ESM package with WebAssembly inside and deep imports into its Signal library: loaded by Node as it is.
+  serverExternalPackages: ["ffmpeg-static", "@electric-sql/pglite", "@electric-sql/pglite-pgvector", "baileys"],
   // The FFmpeg binary is not imported, so file tracing misses it: include it in the API routes that run tick()
   // (cron, webhooks, widget). Through its real folder in node_modules/.pnpm: node_modules/ffmpeg-static is a pnpm
   // symlink, and Vercel refuses a function with files in symlinked directories («invalid deployment package»).

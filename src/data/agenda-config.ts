@@ -12,6 +12,7 @@ import { AGENDA_MODES, REMINDER_CHANNELS, RESOURCE_COLORS, RESOURCE_TYPES, type 
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
 import { SLOT_INTERVALS, terminologySchema } from "@/lib/sectors/schema";
 import { idSchema, optionalText } from "@/lib/validation";
+import { isOfficialWhatsApp } from "@/lib/whatsapp-via";
 import { loadAgendaSettings, loadServiceResourceIds, serviceColumns, type ServiceRow } from "@/server/booking/load";
 import { isReminderFieldKey, REMINDER_FIELDS } from "@/server/booking/reminder-fields";
 import { syncBookingReminderJob } from "@/server/booking/reminders";
@@ -348,7 +349,13 @@ const isApprovedUtility = (template: { status: string | null; category: string |
   template.status?.toUpperCase() === "APPROVED" && template.category?.toUpperCase() === "UTILITY";
 
 async function whatsappOptions(): Promise<ReminderOptions["whatsapp"]> {
-  const numbers = await db.select({ id: channels.id, name: channels.name, isDemo: channels.isDemo }).from(channels).where(eq(channels.type, "whatsapp")).orderBy(asc(channels.name));
+  const rows = await db
+    .select({ id: channels.id, name: channels.name, isDemo: channels.isDemo, type: channels.type, connectionMode: channels.connectionMode })
+    .from(channels)
+    .where(eq(channels.type, "whatsapp"))
+    .orderBy(asc(channels.name));
+  // Reminders are templates: a number linked by QR code has none ([WA-55]).
+  const numbers = rows.filter(isOfficialWhatsApp);
   if (numbers.length === 0) return [];
   const templates = await db
     .select({ channelId: whatsappTemplates.channelId, name: whatsappTemplates.name, language: whatsappTemplates.language, variables: whatsappTemplates.variables, status: whatsappTemplates.status, category: whatsappTemplates.category })
@@ -399,9 +406,13 @@ const reminderInputSchema = z
 
 async function validateWhatsAppReminder(data: z.output<typeof reminderInputSchema>): Promise<void> {
   const errors: Record<string, string[]> = {};
-  const [number] = data.whatsappChannelId
-    ? await db.select({ id: channels.id }).from(channels).where(and(eq(channels.id, data.whatsappChannelId), eq(channels.type, "whatsapp")))
+  const [row] = data.whatsappChannelId
+    ? await db
+        .select({ id: channels.id, type: channels.type, connectionMode: channels.connectionMode })
+        .from(channels)
+        .where(and(eq(channels.id, data.whatsappChannelId), eq(channels.type, "whatsapp")))
     : [];
+  const number = row && isOfficialWhatsApp(row) ? row : undefined;
   if (!number) errors.whatsappChannelId = ["Elige el número de WhatsApp."];
   const [template] =
     number && data.templateName && data.templateLanguage

@@ -2,7 +2,7 @@
 // called. Service paths are relative to the service prefix (OpenRouter's key check is "/api/v1/key").
 import { MOCK_URL } from "./env";
 
-export type MockService = "openrouter" | "meta" | "google-oauth" | "google" | "ms-login" | "ms-graph" | "mistral" | "telegram";
+export type MockService = "openrouter" | "meta" | "google-oauth" | "google" | "ms-login" | "ms-graph" | "mistral" | "telegram" | "ycloud";
 
 export type MockStub = {
   service: MockService;

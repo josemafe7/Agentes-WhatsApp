@@ -47,10 +47,11 @@ const EMAIL_STATUS_LABELS: Record<SystemEmailStatus, string> = {
 
 /** «Pruebas de conexión» ([AJU-11]): what each channel's test does, as its own panel does it. */
 const CHANNEL_TESTS: Record<TestableChannelType, { badge: string; description: string; action: string }> = {
-  whatsapp: { badge: "WhatsApp", description: "Revalida el número con Meta y pone al día sus semáforos.", action: "Revalidar" },
+  whatsapp: { badge: "WhatsApp", description: "Revalida el número por la vía con la que está conectado (Meta, YCloud o código QR) y pone al día sus semáforos.", action: "Revalidar" },
   email_gmail: { badge: "Gmail", description: "Comprueba con Google que el acceso al buzón sigue funcionando.", action: "Probar acceso" },
   email_outlook: { badge: "Outlook", description: "Comprueba con Microsoft que el acceso al buzón sigue funcionando.", action: "Probar acceso" },
   email_imap: { badge: "Correo IMAP/SMTP", description: "Prueba la entrada (IMAP) y el envío (SMTP) con los datos guardados.", action: "Probar conexión" },
+  telegram: { badge: "Telegram", description: "Revalida el bot con Telegram y pone al día sus semáforos.", action: "Revalidar" },
 };
 const CHANNEL_STATUS_NOTES: Partial<Record<ChannelStatus, string>> = {
   connecting: "Sin terminar de conectar.",

@@ -1,7 +1,9 @@
 // «Pruebas de conexión» of Ajustes › Diagnóstico ([AJU-11]): owner and admin run, now, the checks the app already has —
 // «Probar clave» of OpenRouter ([AJU-04]), «Enviar correo de prueba» of the system mail ([AJU-06]) and each connected
 // channel's own check: «Revalidar» with Meta and every light for WhatsApp ([WA-27]), the access (token) of Gmail and
-// Outlook ([CAN-15], [COR-22]) and «Probar conexión» (IMAP and SMTP) for another mailbox ([COR-11]). Results are in
+// Outlook ([CAN-15], [COR-22]), «Probar conexión» (IMAP and SMTP) for another mailbox ([COR-11]) and «Revalidar» with
+// Telegram for a bot ([TG-08]). A WhatsApp number is checked the way it is connected ([WA-54]): through YCloud, with
+// YCloud ([YC-09]); by QR code, the state of its session in this process ([QR-11]). Results are in
 // Spanish and never carry a key, a token or a password ([SEG-02]); a demo channel never reaches any service ([ARR-11]).
 // They call outside services, so each person has a limit ([SEG-07]).
 import "server-only";
@@ -14,11 +16,16 @@ import { isMetaGraphError } from "@/lib/meta/errors";
 import { checkOpenRouterKey } from "@/lib/openrouter/key";
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
+import { whatsappViaOf } from "@/lib/whatsapp-via";
 import { getRateLimiter } from "@/server/adapters/rate-limiter";
 import { readEmailConfig } from "@/server/channels/email/config";
+import { TELEGRAM_HEALTH_LABELS } from "@/server/channels/telegram/health";
 import { WHATSAPP_HEALTH_LABELS } from "@/server/channels/whatsapp/health";
 import { runHealthCheck } from "@/server/channels/whatsapp/jobs";
 import type { ChannelRecord } from "@/server/channels/types";
+import { whatsappQrAdapter } from "@/server/channels/whatsapp-qr/adapter";
+import { WHATSAPP_QR_HEALTH_LABELS } from "@/server/channels/whatsapp-qr/health";
+import { YCLOUD_HEALTH_LABELS } from "@/server/channels/ycloud/health";
 import { AppError, AuthError, NotFoundError, parseInput, RateLimitError } from "@/server/errors";
 import { isOutboxAllowed } from "@/server/mailer";
 import { checkEmailChannel } from "./email";
@@ -26,13 +33,15 @@ import { testEmailServers } from "./email-connect";
 import { assertCan } from "./guard";
 import { getSmtpConfig, isAiConfigured, loadBusinessSettings, resolveOpenRouterKey } from "./settings";
 import { sendTestEmail } from "./system-mail";
+import { revalidateTelegramChannel } from "./telegram";
 import { revalidateWhatsAppChannel } from "./whatsapp";
+import { revalidateYCloudChannel } from "./ycloud";
 
-/** Channels that talk to an outside service (the web chat has nothing to test; Telegram is not built yet). */
-export const TESTABLE_CHANNEL_TYPES = ["whatsapp", "email_gmail", "email_outlook", "email_imap"] as const satisfies readonly ChannelType[];
+/** Channels that talk to an outside service (the web chat has nothing to test). */
+export const TESTABLE_CHANNEL_TYPES = ["whatsapp", "email_gmail", "email_outlook", "email_imap", "telegram"] as const satisfies readonly ChannelType[];
 export type TestableChannelType = (typeof TESTABLE_CHANNEL_TYPES)[number];
 
-/** Each person, this many tests every 10 minutes: they call Meta, Google, Microsoft, OpenRouter and mail servers. */
+/** Each person, this many tests every 10 minutes: they call Meta, Google, Microsoft, Telegram, OpenRouter and mail servers. */
 export const CONNECTION_TESTS_LIMIT = { limit: 20, windowMs: 10 * 60_000 };
 const RATE_LIMITED = "Has hecho muchas pruebas de conexión seguidas. Espera unos minutos.";
 const CHANNEL_NOT_FOUND = "No se ha encontrado el canal.";
@@ -47,6 +56,9 @@ const EMAIL_HEALTH_LABELS: Record<string, string> = {
   access_expiry: "Caducidad del acceso",
 };
 const WHATSAPP_LABELS: Record<string, string> = WHATSAPP_HEALTH_LABELS;
+const TELEGRAM_LABELS: Record<string, string> = TELEGRAM_HEALTH_LABELS;
+const YCLOUD_LABELS: Record<string, string> = YCLOUD_HEALTH_LABELS;
+const WHATSAPP_QR_LABELS: Record<string, string> = WHATSAPP_QR_HEALTH_LABELS;
 
 export type ConnectionTestChannel = { id: string; name: string; type: TestableChannelType; status: ChannelStatus; isDemo: boolean };
 
@@ -133,7 +145,11 @@ async function testChannel(actor: Actor, channelId: string): Promise<ConnectionT
   if (!channel || !isTestable(channel.type) || channel.status === "draft") throw new NotFoundError(CHANNEL_NOT_FOUND);
   if (channel.isDemo) return { ok: true, summary: "Canal de demostración: no se conecta a ningún servicio.", checks: [] };
   try {
+    if (whatsappViaOf(channel) === "ycloud") return await testYCloud(actor, channel.id);
+    // Nothing to ask outside: the session is this process's own.
+    if (whatsappViaOf(channel) === "qr") return healthResult(await whatsappQrAdapter.healthCheck(channel), WHATSAPP_QR_LABELS, "La sesión de WhatsApp está abierta y la app la mantiene conectada.");
     if (channel.type === "whatsapp") return await testWhatsApp(actor, channel.id);
+    if (channel.type === "telegram") return await testTelegram(actor, channel.id);
     if (channel.type === "email_imap") return await testImap(actor, channel);
     const provider = channel.type === "email_gmail" ? "Google" : "Microsoft";
     return healthResult(await checkEmailChannel(actor, { channelId: channel.id }), EMAIL_HEALTH_LABELS, `${provider} acepta el acceso al buzón: los semáforos están al día.`);
@@ -165,6 +181,26 @@ async function testWhatsApp(actor: Actor, channelId: string): Promise<Connection
   if (!report) return { ok: true, summary: "Meta ha validado las credenciales del número.", checks: warnings };
   const result = healthResult(report.health, WHATSAPP_LABELS, "Meta ha validado el número: los semáforos están al día.");
   return { ...result, checks: [...warnings, ...result.checks] };
+}
+
+/** «Revalidar» of the YCloud panel ([YC-09]): the stored key with YCloud, then every light, stored in the channel. */
+async function testYCloud(actor: Actor, channelId: string): Promise<ConnectionTestResult> {
+  const result = await revalidateYCloudChannel(actor, channelId);
+  if (!result.ok) return { ok: false, summary: result.error, checks: [] };
+  const [row] = await db.select({ lastHealth: channels.lastHealth }).from(channels).where(eq(channels.id, channelId));
+  const summary = "YCloud acepta la clave y ve el número: los semáforos están al día.";
+  // What keeps messages from arriving (no public address, [YC-04]) is one of the lights.
+  return row?.lastHealth ? healthResult(row.lastHealth, YCLOUD_LABELS, summary) : { ok: true, summary, checks: [] };
+}
+
+/** «Revalidar» of the Telegram panel ([TG-08]): the stored token with Telegram, then every light, stored in the channel. */
+async function testTelegram(actor: Actor, channelId: string): Promise<ConnectionTestResult> {
+  const result = await revalidateTelegramChannel(actor, channelId);
+  if (!result.ok) return { ok: false, summary: result.error, checks: [] };
+  if (result.warning) return { ok: false, summary: result.warning, checks: [] };
+  const [row] = await db.select({ lastHealth: channels.lastHealth }).from(channels).where(eq(channels.id, channelId));
+  const summary = "Telegram acepta el token del bot: los semáforos están al día.";
+  return row?.lastHealth ? healthResult(row.lastHealth, TELEGRAM_LABELS, summary) : { ok: true, summary, checks: [] };
 }
 
 /** The stored servers of an IMAP/SMTP mailbox, as «Probar conexión» takes them; null if any is missing. */

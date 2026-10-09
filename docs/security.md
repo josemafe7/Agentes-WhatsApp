@@ -47,6 +47,8 @@ datos de cada servicio (límites, cabeceras, planes), en `docs/plataforma-despli
 - Lo que el negocio pone en la app se guarda cifrado con AES-256-GCM y `APP_ENCRYPTION_KEY` (32 bytes
   aleatorios), en `src/server/crypto.ts`, con un IV nuevo en cada cifrado: tokens de Meta, App Secret y
   PIN; claves de OpenRouter y Mistral; credenciales IMAP y SMTP; accesos de Google, Microsoft y Telegram;
+  la clave de API de YCloud y el secreto de su dirección de avisos; la sesión de un número de WhatsApp vinculado
+  por código QR (sus credenciales en `secrets_enc` y cada clave de sesión en una fila de `whatsapp_qr_keys`);
   cabeceras secretas de las herramientas HTTP; y la clave privada VAPID. Un secreto nuevo, igual.
 - Los secretos van aparte de la configuración (`secrets_enc` frente a `config`), para que nunca se envíen
   por error junto a ella.
@@ -202,8 +204,20 @@ datos de cada servicio (límites, cabeceras, planes), en `docs/plataforma-despli
 - Archivos: tipo y tamaño máximo comprobados en el servidor; el nombre original no se usa como ruta.
 - Avisos de los canales: se verifica su firma antes de hacer nada y, si falla, 401 sin guardar nada.
   WhatsApp, `X-Hub-Signature-256` (HMAC-SHA256 del cuerpo en bruto con el App Secret del canal); Telegram,
-  `X-Telegram-Bot-Api-Secret-Token`; el cron, `Authorization: Bearer` con `CRON_SECRET`. Siempre en tiempo
-  constante ([SEG-08], [SEG-09]).
+  `X-Telegram-Bot-Api-Secret-Token` con el secreto propio de cada bot, en una dirección que lleva el id de su canal
+  ([TG-02]); YCloud, `YCloud-Signature` (HMAC-SHA256 de la hora y el cuerpo en bruto con el secreto de la dirección de
+  ese canal, y solo si la hora es de los últimos 5 minutos, [YC-05]); el cron, `Authorization: Bearer` con
+  `CRON_SECRET`. Siempre en tiempo constante ([SEG-08], [SEG-09]).
+- WhatsApp por código QR no tiene avisos: los mensajes llegan por la conexión que mantiene la propia app. Su única
+  ruta, `/api/internal/whatsapp-qr`, es interna (el trabajador de un servidor propio pide un envío al servidor web):
+  solo responde con `CRON_SECRET`, valida cada campo y recibe el archivo por su clave del almacén, nunca los bytes.
+- Los archivos que trae un mensaje se piden solo al servidor del propio canal, diga lo que diga el mensaje: los de
+  YCloud, solo a la dirección de YCloud (la clave no viaja a ningún otro sitio); los de WhatsApp por código QR, solo
+  al servidor de archivos de WhatsApp y por la ruta del mensaje, que se valida para que no pueda cambiar de servidor
+  (la librería, sola, seguiría la dirección completa que trae el mensaje).
+- El código QR para vincular WhatsApp es un secreto (quien lo escanea queda dentro de la cuenta): solo vive en
+  memoria, nunca se guarda ni se escribe en los registros, llega al navegador ya dibujado y solo a quien gestiona
+  canales ([QR-03]).
 - Redirecciones, solo a rutas de la propia app (el `?next=` del inicio de sesión incluido).
 - Si el servidor descarga una URL que da una persona (la web del negocio, URLs del conocimiento,
   herramientas HTTP), solo a direcciones públicas, nunca a la red interna del servidor (también tras cada
@@ -274,11 +288,16 @@ datos de cada servicio (límites, cabeceras, planes), en `docs/plataforma-despli
     a las 24 horas. La espera es un «alquiler» de `app_kv` que se toma con una sola sentencia: varios intentos a la vez
     no se la saltan (`src/app/(auth)/_lib/throttle.ts`);
   - avisos de los canales, por IP, con un límite amplio que no frene las ráfagas de Meta (1.800 por minuto en
-    WhatsApp) y otro mucho menor para los que acaban rechazados (60 por minuto con 400, 401 o 413): quien no
+    WhatsApp y en Telegram) y otro mucho menor para los que acaban rechazados (60 por minuto con 400, 401 o 413): quien no
     tiene la firma no puede hacer trabajar a la app a voluntad. La firma de un aviso de WhatsApp se comprueba con los
     App Secret guardados antes de leer su JSON (decisión 0022); ya firmado, uno con más de 1.000 actualizaciones (el
     máximo de Meta) o que nombra más de 100 números o cuentas se rechaza con 400 sin guardar nada. Las firmas
     rechazadas se cuentan en memoria y se escriben como mucho una vez por minuto y canal, nunca una por petición;
+  - Telegram, por persona: 30 comprobaciones del token por minuto (conectar, «Revalidar» y «Cambiar token»);
+  - YCloud, por persona: 30 comprobaciones de la clave por minuto («Comprobar clave», conectar, «Revalidar», «Cambiar
+    clave» y «Sincronizar plantillas»); sus avisos, por IP, con los mismos límites que los de Telegram;
+  - WhatsApp por código QR, por persona: 10 códigos generados cada 10 minutos (cada uno abre una conexión con
+    WhatsApp, y la insistencia es justo lo que WhatsApp castiga);
   - WhatsApp, por persona: 30 plantillas por minuto desde la bandeja (Meta puede cobrar cada una), 5 códigos
     por SMS o llamada por hora, 10 intentos del código cada 15 minutos y 30 «Validar con Meta» o «Conectar»
     por minuto (`src/data/whatsapp-limits.ts`);
@@ -390,6 +409,8 @@ Hoy no se publica nada; al publicar, Vercel es solo para pruebas, porque Hobby n
   lo ve quien entra en el proyecto, y se cambia (en Vercel y en el trabajo) si se filtra.
 - Con datos reales de clientes: Supabase Pro (copias diarias; el gratuito no las hace y se pausa) y Vercel Pro o el
   VPS. El contrato de encargo de Supabase forma parte de sus condiciones (https://supabase.com/legal/dpa).
+- WhatsApp por código QR no funciona en Vercel (una función no puede mantener una conexión abierta): el asistente lo
+  dice y no deja crear el canal ([QR-02]). Las otras dos vías de WhatsApp sí.
 
 ## Si se publica en un VPS
 
@@ -419,6 +440,9 @@ cuenta.
   volúmenes.
 - Next.js, Docker y Dokploy se actualizan en cuanto publican un parche de seguridad: en un servidor propio
   nadie lo hace por mí.
+- Con un número de WhatsApp vinculado por código QR: una sola copia del servicio `web` (dos se quitarían la sesión
+  la una a la otra), y `CRON_SECRET` igual en `web` y en `worker`, porque el trabajador pide los envíos de esa vía
+  al servidor web con él (`docs/integracion-whatsapp-qr.md`).
 
 ## IA dentro de la app
 
@@ -569,11 +593,13 @@ Una app publicada se queda vieja aunque nadie la toque. Cuando pida el mantenimi
 | El chat web guarda en `localStorage` el identificador anónimo del visitante | Permite volver a su conversación sin cuenta ([WEB-04]). El identificador lo crea el servidor al azar y no dice nada de la persona. No se guardan datos personales. Si el navegador bloquea el almacenamiento, se queda en memoria | Encargo del usuario (§6.4 de la especificación original), 26-09-2026 |
 | El chat web guarda también en `localStorage`, junto al identificador, el token que el servidor firma para él y la fecha de la última respuesta leída (para el punto de «mensajes nuevos») | Sin el token, cualquiera que copiara un identificador leería esa conversación: el token (HMAC con una clave derivada de `APP_ENCRYPTION_KEY` solo para esto, atado al canal y al visitante, como mucho 365 días) solo abre la conversación de ese visitante en ese chat ([WEB-11]). La fecha es solo un instante, sin contenido. Nada de esto lleva datos personales; si el navegador bloquea el almacenamiento, se queda en memoria | Permiso general del propietario, 2026-09-26 |
 | Meta exige el token de la app (`<APP_ID>\|<App Secret>`) como parámetro `access_token` de la dirección en `GET /debug_token` y en `/{APP_ID}/subscriptions`: no admite otra forma | Es la forma documentada (`docs/integracion-whatsapp.md` §2.2); el resto de llamadas lleva el token en la cabecera `Authorization`. Como la dirección lleva un secreto, nunca se escribe en los registros: el cliente (`src/lib/meta/client.ts`) no la anota, sus errores no la incluyen y `redactSecrets` (`src/server/redact.ts`) borra cualquier `access_token=` y los tokens de Meta (`EAA…`) de lo que se registra o se guarda | Permiso general del propietario, 2026-09-26 |
-| D1 · `next@16.3.6` y `eslint-config-next@16.3.6` (y los `@next/*` de esa misma versión, que `next` exige tal cual) entran por `minimumReleaseAgeExclude`, con versión exacta | 16.3.6 (22-09-2026) corrige un fallo crítico (CVE-2026-94545, GHSA-vcvr-r3jv-pc5j): ejecución remota de código en `ImageResponse` de `next/og`, que afecta a 16.2.0–16.3.5. **Quitar la exclusión de `pnpm-workspace.yaml` a partir del 29-09-2026**, cuando 16.3.6 cumpla 7 días | Permiso general del propietario, 2026-09-26 |
+| D1 · (quitada el 2026-10-09) `next@16.3.6` y `eslint-config-next@16.3.6`, con los `@next/*` de esa versión, entraron por `minimumReleaseAgeExclude` | 16.3.6 (22-09-2026) corregía un fallo crítico (CVE-2026-94545, GHSA-vcvr-r3jv-pc5j) y aún no tenía 7 días. La exclusión se quitó de `pnpm-workspace.yaml` el 09-10-2026, al pasar a Next.js 16.3.8 (30-09-2026), que corrige otros seis avisos, y a sharp 0.35.5 (27-09-2026): las dos versiones tienen ya más de 7 días y no necesitan excepción | Permiso general del propietario, 2026-09-26; quitada con su permiso el 2026-10-09 |
 | D2 · `trustPolicyExclude`: `eslint-import-resolver-typescript@3.10.1` y `semver@6.3.1` | Versiones antiguas que llegan de forma indirecta (por `eslint-config-next` y por `@babel/core` del CLI de shadcn), publicadas sin procedencia después de otras que sí la tenían: sin excluirlas, `trustPolicy: no-downgrade` impide instalar. Solo en desarrollo | Permiso general del propietario, 2026-09-26 |
 | D3 · `allowBuilds`: solo `ffmpeg-static` ejecuta su script de instalación | Descarga el binario de FFmpeg 6.1.1 (licencia GPL-3.0-or-later) desde las publicaciones del proyecto en GitHub, sin comprobación de suma visible; sin él no hay binario para convertir las notas de voz ([MED-02]). Los demás scripts (`esbuild`, `unrs-resolver`, `fsevents`, `sharp`) quedan denegados | Permiso general del propietario, 2026-09-26 |
 | D4 · ESLint 9.39.5, sin soporte desde el 06-08-2026 | `eslint-config-next` 16.3 no funciona con ESLint 10 (vercel/next.js#89764, abierta). ESLint solo se usa en desarrollo y nunca llega a producción. Pasar a ESLint 10 cuando `eslint-config-next` lo admita | Permiso general del propietario, 2026-09-26 |
 | La Content Security Policy de las páginas admite estilos en línea (`style-src 'self' 'unsafe-inline'`) | React escribe atributos `style` (anchos, colores de marca, alturas que calcula Radix), Radix, sonner e input-otp añaden etiquetas `<style>` sin nonce, y el color del negocio es un bloque `<style>` del layout. Un estilo no ejecuta código: los scripts siguen solo con el nonce de cada petición y `'strict-dynamic'`, sin `'unsafe-inline'` ni `eval`. Quitarla exigiría reescribir componentes de terceros | Permiso general del propietario, 2026-09-26 |
+| D6 · `baileys@7.0.0-rc14` (versión candidata, no estable) para WhatsApp por código QR, con `overrides: baileys>pino: 9.11.0` y sin ejecutar los scripts de instalación de `baileys` ni de `protobufjs` (`allowBuilds: false`) | No existe una 7.x estable y la 6.x ya no recibe parches de seguridad; rc14 (29-07-2026, publicada con procedencia) no está afectada por GHSA-qvv5-jq5g-4cgg. `pino@9.14.0`, la que se elegiría sola, se publicó sin procedencia después de otras que sí la tenían y `trustPolicy: no-downgrade` la rechaza: se fija 9.11.0, la más nueva de la 9.x que pasa. Los dos scripts no hacen falta (uno solo comprueba la versión de Node y el otro solo escribe un aviso). No se instala `link-preview-js` (todas sus versiones admitidas tienen avisos de SSRF) y la app envía sin vista previa. `libsignal`, que Baileys usa, tiene licencia GPL-3.0: a tener en cuenta si la app se entrega a terceros. Solo `baileys` y `@whiskeysockets/baileys` son legítimos (hay cientos de paquetes falsos con nombres parecidos). **Revisar cuando se publique una 7.0.0 estable** (`docs/integracion-whatsapp-qr.md`) | Propietario, 2026-10-09 (eligió «7.0.0-rc14 (Recomendado)») |
+| WhatsApp por código QR usa una librería no oficial (Baileys), contra las condiciones de WhatsApp | Encargo expreso del propietario (decisión 0026). Nunca es la opción por defecto, se marca «No oficial», no se crea nada sin aceptar su aviso de riesgo ([QR-01]), empieza en modo pruebas sin contestar a nadie ([WA-56]) y se rechaza donde no puede funcionar ([QR-02]). El riesgo de bloqueo del número es del negocio, y está escrito en el asistente, en el panel y en la guía | Propietario, 2026-10-09 (eligió «Las tres vías») |
 | D5 · TypeScript 6.0.3 en vez de 7 | typescript-eslint 8.70 solo admite TypeScript < 6.1 y TypeScript 7 no trae la API de JavaScript que usa. `tsconfig.json` lleva `"types": ["node"]` porque TypeScript 6 ya no carga los tipos por defecto | Permiso general del propietario, 2026-09-26 |
 | Las herramientas HTTP pueden llamar por `http` y a este ordenador o a la red privada (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 y `::1`) solo en desarrollo local (`pnpm dev`, `NODE_ENV=development`) o con `ALLOW_LOCAL_HTTP_TOOLS=true` | Sirve para probar una herramienta contra un n8n o una API de pruebas del propio ordenador o de la red local, y para que Playwright llame a su simulador. Nunca en una instalación publicada: la versión compilada no arranca con `ALLOW_LOCAL_HTTP_TOOLS` salvo en los servidores de Playwright («Configuración», [HER-14]). Ni siquiera así llega a las direcciones link-local (169.254.0.0/16, donde están los metadatos de la nube), a las de CGNAT ni a las IPv6 locales únicas (`fd00:ec2::254` es la de metadatos de AWS) (`src/server/ai/tools/http-tool.ts`) | Permiso general del propietario, 2026-09-26 |
 | `ALLOW_PRIVATE_MAIL_HOSTS=true` deja conectar un buzón «Otro (IMAP/SMTP)» a un servidor de correo con dirección privada | Solo para una instalación en un servidor propio con su servidor de correo al lado, en la misma red. Sin ella, la app solo se conecta a servidores de correo con dirección pública. Con ella tampoco llega nunca a las direcciones link-local, donde están los metadatos de la nube (169.254.0.0/16, también escrita como `::ffff:169.254.…`, y `fe80::/10`), ni a la de metadatos de AWS en IPv6 (`fd00:ec2::254`): el nombre del servidor se resuelve igual que sin ella y la app se conecta a la dirección comprobada, así que un cambio de DNS no la lleva a otra. Siguen valiendo las demás reglas: nunca el puerto 25, siempre con TLS y nunca una contraseña sin cifrar (`src/server/channels/email/imap/connection.ts`) | Permiso general del propietario, 2026-09-26 |

@@ -8,8 +8,10 @@ Las guías están en **Ayuda** (en el menú de tu usuario) y, en el repositorio,
 - «Publicar la app en Vercel» (`guia-despliegue.md`).
 - «Crear agentes y darles el conocimiento del negocio» (`guia-agentes-y-conocimiento.md`).
 - «La agenda: citas, servicios, recursos y recordatorios» (`guia-agenda.md`).
-- «Conectar WhatsApp» (`guia-whatsapp.md`).
+- «Conectar WhatsApp» (`guia-whatsapp.md`), con la API oficial de Meta. Las otras dos formas: «Conectar WhatsApp con
+  YCloud» (`guia-whatsapp-ycloud.md`) y «Conectar WhatsApp por código QR» (`guia-whatsapp-qr.md`).
 - «Conectar el correo» (`guia-correo.md`).
+- «Conectar Telegram» (`guia-telegram.md`).
 
 Si trabajas con un agente de código, la skill `nuevo-negocio` recorre esta lista contigo.
 
@@ -174,8 +176,10 @@ Cómo: guía «La agenda: citas, servicios, recursos y recordatorios».
 
 - [ ] **Chat web:** el del asistente o uno nuevo (Canales › Añadir canal › Chat web). Pruébalo en `/widget-demo`. En
   «Apariencia y código», añade el dominio de tu web, pero todavía no pegues el código en ella.
-- [ ] **WhatsApp:** primero con el número de prueba de Meta y después con el real. App de Meta publicada (Live), método
-  de pago añadido, plantillas sincronizadas y «Modo pruebas» con tu número.
+- [ ] **WhatsApp:** elige una de las tres formas en Canales › Añadir canal. Con la API oficial de Meta (la
+  recomendada): primero con el número de prueba de Meta y después con el real. App de Meta publicada (Live), método
+  de pago añadido, plantillas sincronizadas y «Modo pruebas» con tu número. Con YCloud o con el código QR, sigue su
+  guía: el número empieza en «Modo pruebas» sin contestar a nadie.
 - [ ] **Correo:** Gmail, Outlook u otro servidor, en «Borrador para revisar» al principio y con «Modo pruebas» con tu
   dirección. Pruébalo escribiendo desde otra dirección.
 - [ ] En cada canal: agente activo, IA encendida, modo de respuesta, fuera de horario y aviso de IA.

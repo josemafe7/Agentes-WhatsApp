@@ -1,4 +1,5 @@
-// Channels (WhatsApp numbers, mailboxes, web chats, Telegram), agent channel membership and WhatsApp templates.
+// Channels (WhatsApp numbers, mailboxes, web chats, Telegram), agent channel membership, WhatsApp templates and the
+// session keys of the WhatsApp numbers linked by QR code.
 import { sql } from "drizzle-orm";
 import { index, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 import {
@@ -132,4 +133,25 @@ export const whatsappTemplates = pgTable(
     ...timestamps(),
   },
   (t) => [uniqueIndex("whatsapp_templates_channel_name_language_uq").on(t.channelId, t.name, t.language)],
+).enableRLS();
+
+/**
+ * Session keys of a WhatsApp number linked by QR code ([QR-04]): what the Signal protocol keeps for each contact and
+ * device (pre-keys, sessions, sender keys, LID mappings…), one row per key. Encrypted with APP_ENCRYPTION_KEY like
+ * every business secret ([SEG-01]); the account's own credentials are in the channel's `secrets_enc`.
+ */
+export const whatsappQrKeys = pgTable(
+  "whatsapp_qr_keys",
+  {
+    id: id(),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.id),
+    /** The library's key type: «pre-key», «session», «sender-key», «lid-mapping»… */
+    type: text("type").notNull(),
+    keyId: text("key_id").notNull(),
+    valueEnc: text("value_enc").notNull(),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("whatsapp_qr_keys_channel_type_key_uq").on(t.channelId, t.type, t.keyId)],
 ).enableRLS();

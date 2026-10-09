@@ -197,6 +197,13 @@ describe("current data and channel [MOT-07] [PRU-03]", () => {
     expect(web).toMatch(/breve/);
   });
 
+  it("in Telegram the model is told that «/start» only opens the chat: it greets instead of answering it [TG-10]", () => {
+    const telegram = buildPrompt(input({ channel: { kind: "telegram" } })).sections[4].content;
+    expect(telegram).toMatch(/Canal: Telegram/);
+    expect(telegram).toMatch(/«\/start»[\s\S]*no es una pregunta[\s\S]*Salúdale/);
+    expect(buildPrompt(input({ channel: { kind: "whatsapp" } })).sections[4].content).not.toContain("/start");
+  });
+
   it("includes the running summary of a long conversation [MOT-13]", () => {
     const dynamic = buildPrompt(input({ summary: "Ana quiere cortarse el pelo el martes." })).sections[4].content;
     expect(dynamic).toContain("## Resumen de la conversación anterior");

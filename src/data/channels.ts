@@ -16,6 +16,7 @@ import {
   user,
   userRoles,
   webhookEvents,
+  whatsappQrKeys,
   whatsappTemplates,
   type ChannelHealth,
 } from "@/db/schema";
@@ -23,12 +24,18 @@ import { OFF_HOURS_BEHAVIORS, REPLY_MODES, type ChannelStatus, type ChannelType,
 import { channelFilter, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema, optionalText } from "@/lib/validation";
 import { readWebchatConfig, webchatConfigSchema, type WebchatConfig } from "@/lib/webchat-config";
+import { whatsappViaOf, type WhatsAppVia } from "@/lib/whatsapp-via";
 import { isValidFileKey } from "@/server/adapters/file-storage";
 import { defaultCapabilitiesOf } from "@/server/channels/capabilities";
 import { isEmailChannelType } from "@/server/channels/email/config";
 import { cancelEmailJobs, ensureEmailPolling } from "@/server/channels/email/jobs";
+import { cancelTelegramJobs, requestTelegramHealthCheckSoon } from "@/server/channels/telegram/schedule";
 import type { ChannelCapabilities } from "@/server/channels/types";
 import { requestHealthCheckSoon } from "@/server/channels/whatsapp/schedule";
+import { existingQrSupervisor, qrSupervisor } from "@/server/channels/whatsapp-qr/runtime";
+import { ycloudAdapter } from "@/server/channels/ycloud/adapter";
+import { cancelYCloudJobs, requestYCloudHealthCheckSoon } from "@/server/channels/ycloud/schedule";
+import { safeErrorMessage } from "@/server/redact";
 import { ConflictError, NotFoundError, parseInput, ValidationError } from "@/server/errors";
 import { writeAudit } from "./audit";
 import { assertCan } from "./guard";
@@ -48,6 +55,10 @@ export type ChannelListItem = {
   replyMode: ReplyMode;
   lastInboundAt: Date | null;
   capabilities: ChannelCapabilities;
+  /** How a WhatsApp number is connected ([WA-54]); null for the other channel types. */
+  whatsappVia: WhatsAppVia | null;
+  /** The WhatsApp number as it is shown («+34 600 11 12 22»), when known. */
+  whatsappNumber: string | null;
 };
 
 /** Canales: every channel with its state, active agent and AI switch ([CAN-01]). */
@@ -70,6 +81,8 @@ export async function listChannels(actor: Actor): Promise<ChannelListItem[]> {
     replyMode: channel.replyMode,
     lastInboundAt: channel.lastInboundAt,
     capabilities: defaultCapabilitiesOf(channel),
+    whatsappVia: whatsappViaOf(channel),
+    whatsappNumber: channel.type === "whatsapp" ? channel.displayPhoneNumber : null,
   }));
 }
 
@@ -126,6 +139,8 @@ export async function getChannel(actor: Actor, channelId: string): Promise<Chann
     replyMode: channel.replyMode,
     lastInboundAt: channel.lastInboundAt,
     capabilities: defaultCapabilitiesOf(channel),
+    whatsappVia: whatsappViaOf(channel),
+    whatsappNumber: channel.type === "whatsapp" ? channel.displayPhoneNumber : null,
     config: channel.config,
     webchat: channel.type === "webchat" ? readWebchatConfig(channel.config) : null,
     testAllowlist: channel.testAllowlist,
@@ -226,6 +241,11 @@ export async function updateChannel(actor: Actor, channelId: string, input: unkn
   if (status === "connecting" && whatsappNumber && !channel.secretsEnc) {
     throw new ConflictError("Este número está desconectado: vuelve a conectarlo con el asistente de WhatsApp.");
   }
+  // The same for a bot whose token was erased ([TG-04]).
+  const telegramBot = channel.type === "telegram" && !channel.isDemo;
+  if (status === "connecting" && telegramBot && !channel.secretsEnc) {
+    throw new ConflictError("Este bot está desconectado: vuelve a conectarlo con el asistente de Telegram.");
+  }
   const values = {
     ...data,
     ...(testAllowlist !== undefined ? { testAllowlist: [...new Set(testAllowlist)] } : {}),
@@ -233,8 +253,18 @@ export async function updateChannel(actor: Actor, channelId: string, input: unkn
   };
   if (Object.keys(values).length === 0) return;
   await db.update(channels).set({ ...values, updatedAt: new Date() }).where(eq(channels.id, channel.id));
-  // Back to «conectado» (or «error») as soon as Meta is checked again ([CAN-15]).
-  if (status === "connecting" && channel.status === "disabled" && whatsappNumber) await requestHealthCheckSoon(channel.id);
+  // Back to «conectado» (or «error») as soon as the number is checked again, each way with its own check ([CAN-15]).
+  if (status === "connecting" && channel.status === "disabled" && whatsappNumber) {
+    const via = whatsappViaOf(channel);
+    if (via === "meta") await requestHealthCheckSoon(channel.id);
+    if (via === "ycloud") await requestYCloudHealthCheckSoon(channel.id);
+    // A linked number opens its connection again; once open, it is «conectado» ([QR-04]).
+    if (via === "qr") await (await qrSupervisor()).start(channel.id);
+  }
+  // A disabled channel neither receives nor sends: a linked number closes its connection and stays linked ([CAN-16]).
+  if (status === "disabled" && whatsappViaOf(channel) === "qr") await existingQrSupervisor()?.stop(channel.id);
+  // A bot switched on again goes back to «conectado» (or «error») once Telegram is checked ([TG-08]).
+  if (status === "connecting" && channel.status === "disabled" && telegramBot) await requestTelegramHealthCheckSoon(channel.id);
   // A mailbox switched on again is read at its next poll, which puts it back in «conectado» ([CAN-16]).
   if (status === "connecting" && channel.status === "disabled" && isEmailChannelType(channel.type) && !channel.isDemo) await ensureEmailPolling(channel.id);
   await writeAudit({ actor, action: "channel.updated", targetType: "channel", targetId: channel.id, metadata: { fields: Object.keys(values) } });
@@ -367,16 +397,29 @@ export async function deleteChannel(actor: Actor, channelId: string): Promise<Ch
     // Children first: nothing relies on cascades.
     await tx.delete(channelMembers).where(eq(channelMembers.channelId, channel.id));
     await tx.delete(whatsappTemplates).where(eq(whatsappTemplates.channelId, channel.id));
+    await tx.delete(whatsappQrKeys).where(eq(whatsappQrKeys.channelId, channel.id));
     await tx.update(webhookEvents).set({ channelId: null }).where(eq(webhookEvents.channelId, channel.id));
     await tx.update(notifications).set({ channelId: null }).where(eq(notifications.channelId, channel.id));
     await tx.update(consents).set({ channelId: null }).where(eq(consents.channelId, channel.id));
     await tx.update(oauthStates).set({ channelId: null }).where(eq(oauthStates.channelId, channel.id));
     await tx.delete(channels).where(eq(channels.id, channel.id));
     await writeAudit({ actor, action: "channel.deleted", targetType: "channel", targetId: channel.id, metadata: { type: channel.type } }, tx);
-    return { id: channel.id, type: channel.type, leftWithout: await agentsWithoutChannels(tx, members.map((row) => row.userId)) };
+    return { id: channel.id, type: channel.type, via: whatsappViaOf(channel), channel, leftWithout: await agentsWithoutChannels(tx, members.map((row) => row.userId)) };
   });
-  // A deleted mailbox is not polled any more.
+  // A deleted mailbox is not polled any more, nor a deleted bot.
   if (isEmailChannelType(deleted.type)) await cancelEmailJobs(deleted.id);
+  if (deleted.type === "telegram") await cancelTelegramJobs(deleted.id);
+  // A number connected through YCloud stops being told about by YCloud; its key went with the row ([YC-10]).
+  if (deleted.via === "ycloud") {
+    await cancelYCloudJobs(deleted.id);
+    await ycloudAdapter.disconnect(deleted.channel).catch((error: unknown) => console.error(`[ycloud] No se pudo borrar la dirección de avisos: ${safeErrorMessage(error)}`));
+  }
+  // A number linked by QR code leaves the phone's linked devices, when its connection is open here ([QR-12]).
+  if (deleted.via === "qr") {
+    await existingQrSupervisor()
+      ?.logout(deleted.id)
+      .catch((error: unknown) => console.error(`[whatsapp-qr] No se pudo cerrar la sesión: ${safeErrorMessage(error)}`));
+  }
   return withAllChannelsWarning(deleted.leftWithout);
 }
 

@@ -1,14 +1,20 @@
 // Adapters by channel type. Each channel phase registers its adapter at import time (WhatsApp in phase 3, email in
-// phase 6…); demo channels always use the DemoAdapter, which never calls a real service ([ARR-11]).
+// phase 6, Telegram in phase 9…); demo channels always use the DemoAdapter, which never calls a real service ([ARR-11]).
+// WhatsApp has one adapter per way of connecting the number ([WA-54]): Meta's own API is the registered one, a number
+// connected through YCloud gets YCloud's, and one linked by QR code gets that way's.
 import "server-only";
 import type { ChannelType } from "@/lib/enums";
+import { whatsappViaOf } from "@/lib/whatsapp-via";
 import { AppError } from "@/server/errors";
 import { defaultCapabilitiesOf } from "./capabilities";
 import { demoAdapter } from "./demo-adapter";
 import { gmailAdapter, imapAdapter, outlookAdapter } from "./email/adapter";
+import { telegramAdapter } from "./telegram/adapter";
 import type { ChannelAdapter, ChannelCapabilities, ChannelRecord } from "./types";
 import { webchatAdapter } from "./webchat-adapter";
 import { whatsappAdapter } from "./whatsapp/adapter";
+import { whatsappQrAdapter } from "./whatsapp-qr/adapter";
+import { ycloudAdapter } from "./ycloud/adapter";
 
 export class ChannelAdapterMissingError extends AppError {
   constructor() {
@@ -37,10 +43,17 @@ registerChannelAdapter(whatsappAdapter);
 registerChannelAdapter(gmailAdapter);
 registerChannelAdapter(outlookAdapter);
 registerChannelAdapter(imapAdapter);
+registerChannelAdapter(telegramAdapter);
 
-/** The adapter that talks to this channel. Demo WhatsApp and email channels get the DemoAdapter. */
-export function getChannelAdapter(channel: Pick<ChannelRecord, "type" | "isDemo">): ChannelAdapter {
+/** What tells a channel's adapter apart: its type and, for WhatsApp, the way its number is connected. */
+type AdapterKey = Pick<ChannelRecord, "type" | "isDemo"> & { connectionMode?: string | null };
+
+/** The adapter that talks to this channel. Demo WhatsApp, email and Telegram channels get the DemoAdapter. */
+export function getChannelAdapter(channel: AdapterKey): ChannelAdapter {
   if (channel.isDemo && channel.type !== "webchat") return demoAdapter;
+  const via = whatsappViaOf(channel);
+  if (via === "ycloud") return ycloudAdapter;
+  if (via === "qr") return whatsappQrAdapter;
   const adapter = registry.get(channel.type);
   if (!adapter) throw new ChannelAdapterMissingError();
   return adapter;
@@ -50,7 +63,7 @@ export function getChannelAdapter(channel: Pick<ChannelRecord, "type" | "isDemo"
  * The adapter for sending. Replies to simulated messages never leave the app, even on a real channel ([AJU-13]):
  * they go through the DemoAdapter, which only stores them (the web chat adapter only stores anyway).
  */
-export function getSendAdapter(channel: Pick<ChannelRecord, "type" | "isDemo">, simulated: boolean): ChannelAdapter {
+export function getSendAdapter(channel: AdapterKey, simulated: boolean): ChannelAdapter {
   if (simulated && channel.type !== "webchat") return demoAdapter;
   return getChannelAdapter(channel);
 }

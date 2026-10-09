@@ -11,10 +11,16 @@ import { isEmailChannelType } from "@/server/channels/email/config";
 import { ActiveAgentControl } from "../_components/active-agent-control";
 import { CHANNEL_STATUS_LABELS } from "../_lib/labels";
 import { widgetDemoHref } from "../_lib/webchat";
+import { telegramWizardHref } from "../nuevo/telegram/_lib/steps";
 import { wizardHref } from "../nuevo/whatsapp/_lib/steps";
+import { qrWizardHref } from "../nuevo/whatsapp-qr/_lib/steps";
+import { ycloudWizardHref } from "../nuevo/whatsapp-ycloud/_lib/steps";
 import { ChannelDangerZone } from "./_components/channel-danger-zone";
 import { EmailPanel } from "./_email/email-panel";
+import { TelegramPanel } from "./_telegram/telegram-panel";
 import { WhatsAppPanel } from "./_whatsapp/whatsapp-panel";
+import { WhatsAppQrPanel } from "./_whatsapp-qr/whatsapp-qr-panel";
+import { YCloudPanel } from "./_ycloud/ycloud-panel";
 import { loadChannelPage } from "./_lib/load";
 
 export const metadata: Metadata = { title: "Canal" };
@@ -78,6 +84,18 @@ function summaryLights(channel: ChannelDetail, timezone: string): Light[] {
   return lights;
 }
 
+/**
+ * A number or a bot whose credentials were erased is switched on again through its wizard, not with «Activar» ([WA-28],
+ * [TG-04], [YC-10], [QR-12]): a WhatsApp number, through the wizard of the way it was connected ([WA-54]).
+ */
+function reconnectHref(channel: ChannelDetail): string | null {
+  if (channel.isDemo || channel.hasSecrets) return null;
+  if (channel.whatsappVia === "ycloud") return ycloudWizardHref(channel.id);
+  if (channel.whatsappVia === "qr") return qrWizardHref(channel.id);
+  if (channel.whatsappVia === "meta") return wizardHref(channel.id);
+  return channel.type === "telegram" ? telegramWizardHref(channel.id) : null;
+}
+
 /** Resumen del canal (docs/pantallas.md «Panel del canal»): traffic lights, agent and AI, try it, disable or delete. */
 export default async function ChannelSummaryPage({ params, searchParams }: PageProps) {
   const page = await loadChannelPage(params);
@@ -101,10 +119,13 @@ export default async function ChannelSummaryPage({ params, searchParams }: PageP
         </div>
       </section>
 
-      {channel.type === "whatsapp" ? <WhatsAppPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} /> : null}
+      {channel.whatsappVia === "meta" ? <WhatsAppPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} /> : null}
+      {channel.whatsappVia === "ycloud" ? <YCloudPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} /> : null}
+      {channel.whatsappVia === "qr" ? <WhatsAppQrPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} /> : null}
       {isEmailChannelType(channel.type) ? (
         <EmailPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} businessName={profile.name} searchParams={await searchParams} />
       ) : null}
+      {channel.type === "telegram" ? <TelegramPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} /> : null}
 
       <section aria-labelledby="channel-agent" className="grid gap-3 rounded-xl border p-4">
         <div className="grid gap-1">
@@ -148,7 +169,7 @@ export default async function ChannelSummaryPage({ params, searchParams }: PageP
           channelId={channel.id}
           channelName={channel.name}
           enabled={channel.status !== "disabled"}
-          reconnectHref={channel.type === "whatsapp" && !channel.isDemo && !channel.hasSecrets ? wizardHref(channel.id) : null}
+          reconnectHref={reconnectHref(channel)}
         />
       ) : null}
     </div>

@@ -1,6 +1,6 @@
 # DominIA Agentes
 
-Plataforma de agentes IA de atención al cliente (WhatsApp, correo y chat web) que se instala una vez por
+Plataforma de agentes IA de atención al cliente (WhatsApp, correo, chat web y Telegram) que se instala una vez por
 negocio y se configura sin tocar código. Cada instalación es de un solo negocio, con su propia base de datos y
 sus propias claves.
 
@@ -16,6 +16,11 @@ agente reserva sin dobles reservas, el correo (Gmail, Outlook e IMAP/SMTP con bo
 instalable con avisos push. La app todavía no está publicada en internet: por eso WhatsApp y el correo reales aún no se
 han probado contra Meta, Google y Microsoft de verdad (ver «Conectar WhatsApp real» y «Conectar el correo real»); todo
 está probado contra esos servicios simulados.
+
+**Fase 9 (2026-10-09):** Telegram (un bot con su token, también en local) y dos formas más de conectar WhatsApp:
+YCloud con coexistencia (la API oficial sin dejar de usar el móvil) y código QR con Baileys (no oficial, con su aviso
+de riesgo). Están probadas contra servicios simulados y, el código QR, generando un código real de WhatsApp; falta
+probarlas con un bot, una cuenta de YCloud y un número de verdad.
 
 ## Requisitos
 
@@ -424,7 +429,7 @@ Están todas explicadas en `.env.example`. En local no tienes que tocar ninguna:
 | `ALLOW_PRIVATE_MAIL_HOSTS` | Opcional: `true` permite conectar un buzón «Otro (IMAP/SMTP)» a un servidor de correo de la red local (uno propio junto a la app). Sin ella, la app solo se conecta a servidores con dirección pública. |
 | `EMAIL_IMAP_IDLE` | Opcional, solo en un servidor propio con `pnpm worker`: `true` mantiene abierta la conexión IMAP de los buzones que tengan activado «Leer al momento» y lee el correo nuevo en cuanto llega. Sin ella, cada buzón se lee cada minuto. |
 | `ALLOW_LOCAL_HTTP_TOOLS` | Solo para desarrollo y pruebas: `true` deja a las herramientas HTTP llamar a este ordenador o a la red local (con `pnpm dev` ya se permite). La versión compilada no arranca con ella. |
-| `OPENROUTER_BASE_URL`, `META_GRAPH_BASE_URL`, `GOOGLE_OAUTH_BASE_URL`, `GOOGLE_API_BASE_URL`, `MS_LOGIN_BASE_URL`, `MS_GRAPH_BASE_URL`, `MISTRAL_BASE_URL` y `TELEGRAM_API_BASE_URL` | Solo para las pruebas, que apuntan a un simulador. No las cambies: la versión compilada no arranca con ellas. |
+| `OPENROUTER_BASE_URL`, `META_GRAPH_BASE_URL`, `GOOGLE_OAUTH_BASE_URL`, `GOOGLE_API_BASE_URL`, `MS_LOGIN_BASE_URL`, `MS_GRAPH_BASE_URL`, `MISTRAL_BASE_URL`, `TELEGRAM_API_BASE_URL` y `YCLOUD_API_BASE_URL` | Solo para las pruebas, que apuntan a un simulador. No las cambies: la versión compilada no arranca con ellas. |
 | `E2E_ALLOW_BASE_URL_OVERRIDES` | Solo la ponen los servidores de Playwright, para arrancar la versión compilada con el simulador. Nunca en una instalación real. |
 | `REPLY_DEBOUNCE_MS` | Solo para las pruebas: espera fija antes de que la IA responda (en una instalación real, de 4 a 8 s). |
 
@@ -436,15 +441,27 @@ Los secretos van solo en `.env.local`, que nunca se sube a Git.
   `www.tunegocio.es`) en «Dominios permitidos» y pega el código de «Apariencia y código» en tu web. El chat solo
   funciona en esos dominios y en la propia app. Hasta publicar la app, tu web no puede llegar a `localhost`:
   pruébalo en `/widget-demo`.
-- **WhatsApp:** ver «Conectar WhatsApp real», justo debajo.
+- **WhatsApp**, de tres formas, a elegir en Canales › Añadir canal (un mismo número, solo por una):
+  - **API oficial de Meta** (la recomendada): ver «Conectar WhatsApp real», justo debajo.
+  - **YCloud · coexistencia:** la API oficial a través de YCloud, un partner de Meta; el número sigue funcionando en
+    la app WhatsApp Business del móvil. Das de alta el número en YCloud, pegas su clave de API y la app hace el resto.
+    Paso a paso, en la [guía de WhatsApp con YCloud](docs/guia-whatsapp-ycloud.md).
+  - **Código QR · no oficial:** escaneas un código con el móvil, como WhatsApp Web. Lista en un minuto y funciona en
+    local, pero va contra las condiciones de WhatsApp (pueden bloquear el número), necesita que la app esté siempre
+    encendida y no funciona en Vercel. Lee antes la [guía de WhatsApp por código QR](docs/guia-whatsapp-qr.md).
 - **Correo** (Gmail, Outlook e IMAP/SMTP): ver «Conectar el correo real», más abajo.
+- **Telegram (ya disponible, también en local):** crea un bot con @BotFather, pega su token en Canales › Añadir canal ›
+  Telegram y la app lo configura sola. En tu ordenador funciona en «modo local» (la app pregunta a Telegram por los
+  mensajes nuevos cada pocos segundos); al publicarla, «Revalidar» en el panel del canal hace que lleguen al momento.
+  Paso a paso, en la [guía de Telegram](docs/guia-telegram.md).
 - El correo de la propia app (invitaciones y recuperación de contraseña) ya se configura en Ajustes › Correo
   del sistema, con los datos SMTP de tu proveedor.
 
 ## Conectar WhatsApp real
 
-Solo con la API oficial de Meta (Cloud API), con la app de Meta del propio negocio y un token permanente de un usuario
-del sistema. La guía completa, con capturas y los problemas frecuentes, es
+Este apartado es el de la API oficial de Meta (Cloud API), la vía recomendada, con la app de Meta del propio negocio y
+un token permanente de un usuario del sistema. Las otras dos vías (YCloud con coexistencia y código QR) tienen su
+propia guía, enlazada arriba. La guía completa, con capturas y los problemas frecuentes, es
 [`docs/guia-whatsapp.md`](docs/guia-whatsapp.md), también dentro de la app en **Ayuda › Conectar WhatsApp**
 (`/ayuda/whatsapp`). Si usas un agente de código, la skill `conectar-whatsapp` (`.agents/skills/conectar-whatsapp/`)
 te acompaña paso a paso. En resumen:
@@ -666,8 +683,14 @@ Guías para el negocio (también dentro de la app, en Ayuda):
   y bloqueos, el calendario, qué hace el agente con las citas, las citas de prueba y los recordatorios.
 - [Conectar WhatsApp](docs/guia-whatsapp.md): portfolio, app, token, publicación, método de pago, la prueba con
   el número de prueba de Meta y los problemas frecuentes.
+- [Conectar WhatsApp con YCloud](docs/guia-whatsapp-ycloud.md): coexistencia con la app del móvil, el alta del número
+  en YCloud, la clave, el modo pruebas, las plantillas y los problemas frecuentes.
+- [Conectar WhatsApp por código QR](docs/guia-whatsapp-qr.md): los riesgos de esta vía no oficial, qué necesita,
+  vincular, el modo pruebas, qué lee la app y los problemas frecuentes.
 - [Conectar el correo](docs/guia-correo.md): Gmail con el proyecto de Google Cloud del negocio, Outlook o Microsoft
   365 con su app de Microsoft Entra u otro buzón por IMAP/SMTP; modos de respuesta, filtros y problemas frecuentes.
+- [Conectar Telegram](docs/guia-telegram.md): crear el bot con @BotFather, pegar su token, el modo local, el enlace y
+  el código QR para tus clientes y los problemas frecuentes.
 - [Publicar la app en Vercel](docs/guia-despliegue.md): con Supabase para la base de datos, los archivos y el cron,
   paso a paso.
 - [Lista de puesta en marcha](docs/checklist-puesta-en-marcha.md): de `pnpm db:fresh` a la primera conversación de un

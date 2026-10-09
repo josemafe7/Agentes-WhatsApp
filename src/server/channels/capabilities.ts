@@ -3,6 +3,7 @@
 import "server-only";
 import type { ChannelType } from "@/lib/enums";
 import { readWebchatConfig } from "@/lib/webchat-config";
+import { whatsappViaOf } from "@/lib/whatsapp-via";
 import type { ChannelCapabilities, ChannelRecord } from "./types";
 
 const NONE: ChannelCapabilities = {
@@ -34,7 +35,14 @@ export function webchatCapabilities(channel: Pick<ChannelRecord, "config">): Cha
   return { ...NONE, audio: config.voiceEnabled, images: config.imagesEnabled };
 }
 
+/**
+ * A number linked by QR code is not on the official API: no templates, no 24 h window and nothing to estimate a cost
+ * from ([WA-55]). Everything else WhatsApp can do stays.
+ */
+export const WHATSAPP_QR_CAPABILITIES: ChannelCapabilities = { ...DEFAULT_CAPABILITIES.whatsapp, templates: false, window24h: false };
+
 /** Capabilities of a channel without needing its adapter (list screens, the inbox). */
-export function defaultCapabilitiesOf(channel: Pick<ChannelRecord, "type" | "config">): ChannelCapabilities {
-  return channel.type === "webchat" ? webchatCapabilities(channel) : DEFAULT_CAPABILITIES[channel.type];
+export function defaultCapabilitiesOf(channel: Pick<ChannelRecord, "type" | "config"> & { connectionMode?: string | null }): ChannelCapabilities {
+  if (channel.type === "webchat") return webchatCapabilities(channel);
+  return whatsappViaOf(channel) === "qr" ? WHATSAPP_QR_CAPABILITIES : DEFAULT_CAPABILITIES[channel.type];
 }

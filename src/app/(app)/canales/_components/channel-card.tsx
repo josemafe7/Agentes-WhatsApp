@@ -4,6 +4,7 @@ import { CHANNEL_IDENTITY } from "@/components/channels/channel-identity";
 import { Badge } from "@/components/ui/badge";
 import type { ChannelListItem } from "@/data/channels";
 import { formatRelative } from "@/lib/format";
+import { WHATSAPP_VIA_SHORT_LABELS } from "@/lib/whatsapp-via";
 import { cn } from "@/lib/utils";
 import { channelPath } from "../_lib/webchat";
 import { emailWizardHref } from "../nuevo/correo/_lib/steps";
@@ -29,6 +30,8 @@ export function ChannelCard({ channel, address, agents, canManage, timezone }: C
   // A mailbox still being set up goes back to its wizard ([COR-01]); every other channel to its panel.
   const isMailbox = channel.type === "email_gmail" || channel.type === "email_outlook" || channel.type === "email_imap";
   const nextHref = channel.status === "draft" && isMailbox && !channel.isDemo ? emailWizardHref(channel.id) : href;
+  // A real WhatsApp number says how it is connected ([WA-54]); the demo's is connected to nothing.
+  const via = channel.whatsappVia && !channel.isDemo ? WHATSAPP_VIA_SHORT_LABELS[channel.whatsappVia] : null;
   return (
     <li className="flex flex-col gap-4 rounded-xl border bg-card p-4">
       <div className="flex items-start gap-3">
@@ -43,6 +46,7 @@ export function ChannelCard({ channel, address, agents, canManage, timezone }: C
           </h2>
           <p className="truncate text-sm text-muted-foreground" title={address ?? undefined}>
             {identity.label}
+            {via ? ` · ${via}` : null}
             {address ? ` · ${address}` : null}
           </p>
         </div>

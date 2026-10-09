@@ -17,33 +17,55 @@ export const templatesSyncDedupeKey = (channelId: string) => `wa.templates_sync:
 
 export type TemplatesSyncResult = { total: number; approved: number };
 
-export async function syncWhatsAppTemplates(channel: ChannelRecord, deps: WhatsAppDeps = {}): Promise<TemplatesSyncResult> {
-  if (!channel.wabaId) throw new WhatsAppNotConnectedError();
-  const templates = await graphClientFor(channel, deps).listTemplates(channel.wabaId);
-  const now = deps.now?.() ?? new Date();
+/** A template as its provider lists it (Meta's Graph API, or YCloud with Meta's same components). */
+export type SyncedTemplate = {
+  id?: string | null;
+  name: string;
+  language: string;
+  category?: string | null;
+  status?: string | null;
+  components?: unknown[] | null;
+  rejectedReason?: string | null;
+};
+
+/**
+ * Leaves `whatsapp_templates` of a channel as the provider's list says: each template inserted or refreshed (unique
+ * channel + name + language) and what it no longer returns removed.
+ */
+export async function storeWhatsAppTemplates(channelId: string, templates: readonly SyncedTemplate[], now: Date = new Date()): Promise<TemplatesSyncResult> {
   const keep: string[] = [];
   await db.transaction(async (tx) => {
     for (const template of templates) {
       const values = {
-        metaTemplateId: template.id,
+        metaTemplateId: template.id ?? null,
         category: template.category ?? null,
         status: template.status ?? null,
         components: template.components ?? [],
         variables: templateVariableNames(template.components ?? []),
-        rejectedReason: template.rejected_reason && template.rejected_reason !== "NONE" ? template.rejected_reason : null,
+        rejectedReason: template.rejectedReason && template.rejectedReason !== "NONE" ? template.rejectedReason : null,
         lastSyncedAt: now,
         updatedAt: now,
       };
       const [row] = await tx
         .insert(whatsappTemplates)
-        .values({ channelId: channel.id, name: template.name, language: template.language, ...values, createdAt: now })
+        .values({ channelId, name: template.name, language: template.language, ...values, createdAt: now })
         .onConflictDoUpdate({ target: [whatsappTemplates.channelId, whatsappTemplates.name, whatsappTemplates.language], set: values })
         .returning({ id: whatsappTemplates.id });
       keep.push(row.id);
     }
     await tx
       .delete(whatsappTemplates)
-      .where(and(eq(whatsappTemplates.channelId, channel.id), ...(keep.length > 0 ? [notInArray(whatsappTemplates.id, keep)] : [])));
+      .where(and(eq(whatsappTemplates.channelId, channelId), ...(keep.length > 0 ? [notInArray(whatsappTemplates.id, keep)] : [])));
   });
   return { total: templates.length, approved: templates.filter((template) => template.status?.toUpperCase() === "APPROVED").length };
+}
+
+export async function syncWhatsAppTemplates(channel: ChannelRecord, deps: WhatsAppDeps = {}): Promise<TemplatesSyncResult> {
+  if (!channel.wabaId) throw new WhatsAppNotConnectedError();
+  const templates = await graphClientFor(channel, deps).listTemplates(channel.wabaId);
+  return storeWhatsAppTemplates(
+    channel.id,
+    templates.map((template) => ({ ...template, rejectedReason: template.rejected_reason })),
+    deps.now?.() ?? new Date(),
+  );
 }

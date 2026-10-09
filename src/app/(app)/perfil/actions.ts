@@ -3,7 +3,6 @@
 // checks the session on the server; owners and admins who must still set up 2FA may use them all.
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import QRCode from "qrcode";
 import { TOO_MANY_ATTEMPTS_MESSAGE } from "@/app/(auth)/_lib/messages";
 import { authErrorCode } from "@/app/(auth)/_lib/sign-in";
 import { withinLimits } from "@/app/(auth)/_lib/throttle";
@@ -15,6 +14,7 @@ import { LOGIN_PATH } from "@/lib/auth-paths";
 import { PERMISSIONS } from "@/lib/permissions";
 import { auth } from "@/server/auth";
 import { AppError, toActionFailure } from "@/server/errors";
+import { qrCodeDataUrl as qrDataUrl } from "@/server/qr";
 import { getActor, requireActor, type SessionActor } from "@/server/session";
 import { isTwoFactorRequiredFor } from "@/server/session-2fa";
 import { changePasswordSchema, passwordCheckSchema, totpConfirmSchema, updateNameSchema } from "./schemas";
@@ -31,7 +31,6 @@ export type TwoFactorSetup = {
 const INVALID_FIELDS = "Revisa los campos marcados.";
 const WRONG_PASSWORD = "La contraseña no es correcta.";
 const GENERIC_ERROR = "Algo ha fallado. Inténtalo de nuevo.";
-const QR_CODE_OPTIONS = { errorCorrectionLevel: "M", margin: 1, width: 224 } as const;
 
 /** Everyone may manage their own account, also while 2FA setup is pending ([USU-12]). */
 async function accountActor(): Promise<SessionActor> {
@@ -108,7 +107,7 @@ export async function startTwoFactorSetupAction(input: unknown): Promise<ActionR
     }
     if (!("totpURI" in setup) || !setup.totpURI || !setup.backupCodes) return fail(GENERIC_ERROR);
     const secret = new URL(setup.totpURI).searchParams.get("secret") ?? "";
-    const qrCodeDataUrl = await QRCode.toDataURL(setup.totpURI, QR_CODE_OPTIONS);
+    const qrCodeDataUrl = await qrDataUrl(setup.totpURI);
     return ok({ qrCodeDataUrl, secret, backupCodes: setup.backupCodes });
   } catch (error) {
     return failureOf(error);

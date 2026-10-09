@@ -92,11 +92,35 @@ Lo propio de cada tipo:
 - **Común.** `config.handoffOnSendFailure` (en WhatsApp, el interruptor «Traspasar a una persona si un envío falla»
   del panel): si la respuesta de la IA no se puede enviar, la conversación pasa a una persona en vez de solo avisar
   ([WA-46]).
-- **Telegram** (después de la v1). Secretos: token del bot y secreto de los avisos ([TG-01], [TG-02]).
+- **WhatsApp · las tres vías.** `connection_mode` dice cómo está conectado el número: `manual` (API de Meta),
+  `ycloud` o `qr` (`embedded_signup` queda preparado y sin usar). `phone_number_id`, único en la instalación, lleva el
+  id que da Meta en la primera vía y, en las otras dos, las cifras del número con un prefijo (`ycloud:34600111222`,
+  `qr:34600111222`): una fila de una vía nunca se confunde con la de otra. Un mismo número solo puede estar en un
+  canal ([WA-11], `src/data/whatsapp-numbers.ts`).
+- **WhatsApp · YCloud.** En `config` (`src/server/channels/ycloud/config.ts`): `ycloudPhoneNumber` (el número en
+  E.164, el «desde» de cada envío), `ycloudWebhookEndpointId` (la dirección de avisos que la app creó en YCloud) y
+  `ycloudBalance` (el saldo de la última revisión). El número, su nombre, su calidad y su límite, en las mismas
+  columnas que con Meta. Secretos: la clave de API y el secreto de la dirección de avisos. Su dirección de avisos
+  lleva el id del canal: `/api/webhooks/ycloud/{id}`.
+- **WhatsApp · código QR.** En `config` (`src/server/channels/whatsapp-qr/config.ts`): `qrLinkedAt` (cuándo se
+  vinculó: nada anterior se lee como mensaje nuevo) y `qrRiskAcceptedAt` (cuándo se aceptó el aviso de riesgo). En
+  `display_phone_number` y `verified_name`, el número y el nombre de la cuenta que escaneó el código. Secretos: las
+  credenciales del dispositivo vinculado. Las claves de sesión van aparte, en `whatsapp_qr_keys`.
+- **Telegram.** En `config` (`src/server/channels/telegram/config.ts`): el bot (`botId`, `botUsername`, `botName`;
+  un bot solo puede estar en un canal, [TG-05]), cómo recibe (`receiveMode`: `webhook` o `polling`, [TG-06]) y, en
+  modo local, por dónde va (`updateOffset`) y cuántas consultas seguidas han fallado (`pollFailures`). Secretos:
+  token del bot y secreto de los avisos, propio de cada canal ([TG-01], [TG-02]). Su dirección de avisos lleva el
+  id del canal: `/api/webhooks/telegram/{id}`.
 
 `whatsapp_templates` guarda las plantillas sincronizadas de cada número: nombre, idioma, categoría, estado,
 variables y el id de Meta. Único por canal + nombre + idioma. Sirve a [WA-22], [WA-43] y a los recordatorios
-([AGD-24]).
+([AGD-24]). Las de un número conectado por YCloud van a la misma tabla ([YC-07]); por código QR no hay plantillas.
+
+`whatsapp_qr_keys` (migración 0003) guarda las claves de sesión de cada número vinculado por código QR: una fila
+por clave (`type` y `key_id` son los de la librería: pre-claves, sesiones por contacto y dispositivo,
+correspondencias entre LID y número…), con el valor cifrado en `value_enc`. Único por canal + tipo + clave. Cambian
+con cada mensaje y se escriben por lotes en una sola transacción ([QR-04]). Se borran al desconectar el número, al
+cerrarse la sesión desde el móvil y al borrar el canal.
 
 ## Agentes y conocimiento
 

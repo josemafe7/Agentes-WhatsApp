@@ -10,8 +10,9 @@ import { releaseLease, tryAcquireLease } from "@/server/kv";
 import { createChannel, createContactWithIdentity, createConversation, createMessage } from "@/test/factories";
 import { DEFAULT_CAPABILITIES } from "./capabilities";
 import { buildSimulatedEvent, demoAdapter, DEMO_STATUS_JOB, type DemoStatusJobPayload } from "./demo-adapter";
-import { ChannelAdapterMissingError, getChannelAdapter, getSendAdapter } from "./registry";
+import { ChannelAdapterMissingError, getChannelAdapter, getSendAdapter, registerChannelAdapter, unregisterChannelAdapter } from "./registry";
 import { encryptChannelSecrets, readChannelSecrets } from "./secrets";
+import { telegramAdapter } from "./telegram/adapter";
 import type { ChannelRecord } from "./types";
 import { webchatAdapter, widgetMessageToEvent } from "./webchat-adapter";
 
@@ -27,8 +28,20 @@ describe("adapters by channel type [CAN-02] [CAN-14]", () => {
     expect(getChannelAdapter({ type: "webchat", isDemo: false })).toBe(webchatAdapter);
   });
 
-  it("a type whose adapter does not exist yet fails with a clear error", () => {
-    expect(() => getChannelAdapter({ type: "telegram", isDemo: false })).toThrow(ChannelAdapterMissingError);
+  it("a Telegram bot has its own adapter; a demo one never reaches Telegram [TG-03] [ARR-11]", () => {
+    expect(getChannelAdapter({ type: "telegram", isDemo: false })).toBe(telegramAdapter);
+    expect(getChannelAdapter({ type: "telegram", isDemo: true })).toBe(demoAdapter);
+    expect(getSendAdapter({ type: "telegram", isDemo: false }, true)).toBe(demoAdapter);
+    expect(telegramAdapter.capabilities(null as never)).toEqual(DEFAULT_CAPABILITIES.telegram);
+  });
+
+  it("a type whose adapter is not installed fails with a clear error", () => {
+    unregisterChannelAdapter("telegram");
+    try {
+      expect(() => getChannelAdapter({ type: "telegram", isDemo: false })).toThrow(ChannelAdapterMissingError);
+    } finally {
+      registerChannelAdapter(telegramAdapter);
+    }
   });
 
   it("replies to simulated messages go through the DemoAdapter even on a real channel [AJU-13]", () => {

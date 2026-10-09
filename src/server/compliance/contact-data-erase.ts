@@ -140,10 +140,13 @@ function noticeLinks(found: Pick<Found, "conversationIds" | "bookingIds">): stri
   return [...found.conversationIds.map((id) => `/bandeja/${id}`), ...found.bookingIds.map((id) => `/agenda?cita=${id}`)];
 }
 
+/** A phone number as YCloud writes it in its webhooks, with «+» («+34600111222»); the other channels send only digits. */
+const withPlusForm = (value: string) => (/^\d{6,20}$/.test(value) ? [value, `+${value}`] : [value]);
+
 /** The raw webhooks that name one of the contact's WhatsApp or Telegram identifiers (their quoted value). */
 async function webhooksNaming(identifiers: string[]): Promise<string[]> {
   if (identifiers.length === 0) return [];
-  const conditions: SQL[] = identifiers.map((value) => jsonTextContains(webhookEvents.payload, JSON.stringify(value)));
+  const conditions: SQL[] = identifiers.flatMap(withPlusForm).map((value) => jsonTextContains(webhookEvents.payload, JSON.stringify(value)));
   const rows = await db
     .select({ id: webhookEvents.id })
     .from(webhookEvents)

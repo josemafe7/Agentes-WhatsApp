@@ -12,12 +12,13 @@ import { sameTemplateLanguage } from "@/lib/meta/templates";
 import { whatsappWindowState } from "@/lib/meta/window";
 import { can, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
+import { whatsappViaOf } from "@/lib/whatsapp-via";
 import type { ChannelRecord } from "@/server/channels/types";
 import { ConflictError, NotFoundError, parseInput } from "@/server/errors";
 import { sendOutbound, type SendOutboundResult } from "@/server/outbound/send";
 import { loadConversationFor } from "./conversation-scope";
 import { afterHumanReply, type SendHumanResult } from "./messages";
-import { loadWhatsAppChannel } from "./whatsapp";
+import { loadWhatsAppChannel, OFFICIAL_WHATSAPP_VIAS } from "./whatsapp";
 import { enforceWhatsAppLimit } from "./whatsapp-limits";
 import { buildWhatsAppTemplateMessage, listWhatsAppTemplates, templateMessageOf, templateMessageSchema } from "./whatsapp-templates";
 
@@ -59,8 +60,10 @@ async function assertTemplateAllowed(channel: ChannelRecord, contactId: string |
  */
 export async function getWhatsAppInboxState(actor: Actor, conversationId: string, options: { now?: Date } = {}): Promise<WhatsAppInboxState | null> {
   const conversation = await loadConversationFor(actor, PERMISSIONS.inbox.view, conversationId);
-  const [channel] = await db.select({ type: channels.type }).from(channels).where(eq(channels.id, conversation.channelId));
-  if (channel?.type !== "whatsapp") return null;
+  const [channel] = await db.select({ type: channels.type, connectionMode: channels.connectionMode }).from(channels).where(eq(channels.id, conversation.channelId));
+  // A number linked by QR code has neither window nor templates ([WA-55]).
+  const via = channel ? whatsappViaOf(channel) : null;
+  if (via === null || !OFFICIAL_WHATSAPP_VIAS.includes(via)) return null;
   const { open, closesAt, closedByMeta } = whatsappWindowState(conversation.lastInboundAt, options.now ?? new Date(), conversation.metadata);
   const mayReply = can(actor, PERMISSIONS.inbox.reply, { channelId: conversation.channelId });
   const [templates, optedOut] = await Promise.all([
@@ -85,7 +88,7 @@ export const sendHumanTemplateSchema = templateMessageSchema.extend({ conversati
 export async function sendHumanTemplateMessage(actor: Actor, input: unknown): Promise<SendHumanResult> {
   const { conversationId, ...template } = parseInput(sendHumanTemplateSchema, input);
   const conversation = await loadConversationFor(actor, PERMISSIONS.inbox.reply, conversationId);
-  const channel = await loadWhatsAppChannel(conversation.channelId, { allowDemo: true });
+  const channel = await loadWhatsAppChannel(conversation.channelId, { allowDemo: true, vias: OFFICIAL_WHATSAPP_VIAS });
   await assertTemplateAllowed(channel, conversation.contactId);
   const message = await buildWhatsAppTemplateMessage(actor, channel.id, template);
   // Only a template that is really going out counts ([SEG-07]).
@@ -159,7 +162,7 @@ async function contactConversation(channelId: string, contactId: string, now: Da
  */
 export async function sendTemplateMessage(input: SendTemplateMessageInput, options: { now?: Date } = {}): Promise<SendTemplateMessageResult> {
   const data = parseInput(sendTemplateMessageSchema, input);
-  const channel = await loadWhatsAppChannel(data.channelId, { allowDemo: true });
+  const channel = await loadWhatsAppChannel(data.channelId, { allowDemo: true, vias: OFFICIAL_WHATSAPP_VIAS });
   const [contact] = await db.select({ id: contacts.id }).from(contacts).where(eq(contacts.id, data.contactId));
   if (!contact) throw new NotFoundError("No se ha encontrado el contacto.");
   await assertTemplateAllowed(channel, contact.id);

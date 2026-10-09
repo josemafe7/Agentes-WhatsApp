@@ -10,6 +10,7 @@ import { db } from "@/db";
 import type { NotificationEvent } from "@/data/notification-settings";
 import { channels, consents, conversations } from "@/db/schema";
 import { whatsappWindowState } from "@/lib/meta/window";
+import { isOfficialWhatsApp } from "@/lib/whatsapp-via";
 import { notify } from "@/server/notifications/notify";
 import { sendOutbound } from "@/server/outbound/send";
 import { recordBookingEvent } from "./events";
@@ -80,6 +81,7 @@ export async function sendBookingNotice(view: BookingView, kind: BookingNoticeKi
       metadata: conversations.metadata,
       channelId: channels.id,
       channelType: channels.type,
+      connectionMode: channels.connectionMode,
       channelStatus: channels.status,
     })
     .from(conversations)
@@ -89,7 +91,10 @@ export async function sendBookingNotice(view: BookingView, kind: BookingNoticeKi
   if (target.isTest) return { sent: false, reason: "test" };
   if (target.channelStatus === "disabled") return { sent: false, reason: "channel_disabled" };
   if (await optedOut(target.contactId, target.channelId)) return { sent: false, reason: "opted_out" };
-  if (target.channelType === "whatsapp" && !whatsappWindowState(target.lastInboundAt, now, target.metadata).open) return { sent: false, reason: "window_closed" };
+  // The 24 h window is the official API's: a number linked by QR code has none ([WA-55]).
+  if (isOfficialWhatsApp({ type: target.channelType, connectionMode: target.connectionMode }) && !whatsappWindowState(target.lastInboundAt, now, target.metadata).open) {
+    return { sent: false, reason: "window_closed" };
+  }
   const settings = await loadAgendaSettings();
   const sent = await sendOutbound({ conversationId: view.conversationId, sender: { type: "system" }, text: bookingNoticeText(kind, view, settings), now });
   if (sent.status === "failed") return { sent: false, reason: "failed" };

@@ -11,15 +11,18 @@ import { db, type Executor } from "@/db";
 import { channels, integrationSettings } from "@/db/schema";
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
+import { whatsappViaOf, type WhatsAppVia } from "@/lib/whatsapp-via";
 import type { ChannelRecord } from "@/server/channels/types";
 import { encryptWhatsAppSecrets, PIN_PATTERN, readWhatsAppSecrets, whatsappWebhookUrl, type WhatsAppDeps } from "@/server/channels/whatsapp/config";
 import { validateWhatsAppConnection, type WhatsAppSummary, type WhatsAppValidation } from "@/server/channels/whatsapp/connect";
 import { ensureWhatsAppHealthChecks } from "@/server/channels/whatsapp/schedule";
+import { isPublicHttpsUrl } from "@/server/app-url";
 import { encryptSecret, randomToken, tryDecryptSecret } from "@/server/crypto";
 import { ConflictError, NotFoundError, parseInput } from "@/server/errors";
 import { writeAudit } from "./audit";
 import { assertCan } from "./guard";
 import { enforceWhatsAppLimit } from "./whatsapp-limits";
+import { assertWhatsAppNumberFree } from "./whatsapp-numbers";
 
 const MAX_NAME = 80;
 const digits = (label: string) => z.string().trim().regex(/^\d{5,32}$/, `El ${label} son solo números.`);
@@ -43,16 +46,8 @@ export async function markWhatsAppWebhookVerified(now: Date = new Date()): Promi
   await db.update(integrationSettings).set({ whatsappVerifiedAt: now, updatedAt: now }).where(eq(integrationSettings.id, settings.id));
 }
 
-/** Only a public HTTPS address can receive Meta's webhooks; locally the data can be validated but no message arrives ([WA-16]). */
-export function isPublicHttpsUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase();
-    return parsed.protocol === "https:" && host !== "localhost" && !host.endsWith(".localhost") && !/^127\./.test(host) && host !== "[::1]";
-  } catch {
-    return false;
-  }
-}
+// Only a public HTTPS address can receive Meta's webhooks; locally the data can be validated but no message arrives ([WA-16]).
+export { isPublicHttpsUrl } from "@/server/app-url";
 
 export type WhatsAppWebhookSetup = {
   /** The one address of the installation, always on the production domain ([WA-12]). */
@@ -74,15 +69,24 @@ export async function getWhatsAppWebhookSetup(actor: Actor): Promise<WhatsAppWeb
 
 // ─── Loading ────────────────────────────────────────────────────────────────────────────────────────────
 
+/** The ways that are the official API (Meta's own or through YCloud): templates and the 24 h window exist in both ([WA-55]). */
+export const OFFICIAL_WHATSAPP_VIAS: readonly WhatsAppVia[] = ["meta", "ycloud"];
+
 /**
  * A WhatsApp channel, or NotFoundError. Shared by the WhatsApp data files. Demo channels never talk to Meta
- * ([ARR-11]): only read-only views pass `allowDemo`.
+ * ([ARR-11]): only read-only views pass `allowDemo`. By default only a number connected with Meta's API: what is done
+ * with Meta (validating, registering, its panel…) never applies to a number connected another way ([WA-54]); the few
+ * things the ways share name them in `vias`.
  */
-export async function loadWhatsAppChannel(channelId: unknown, options: { allowDemo?: boolean; executor?: Executor } = {}): Promise<ChannelRecord> {
+export async function loadWhatsAppChannel(
+  channelId: unknown,
+  options: { allowDemo?: boolean; executor?: Executor; vias?: readonly WhatsAppVia[] } = {},
+): Promise<ChannelRecord> {
   const id = idSchema.safeParse(channelId);
   if (!id.success) throw new NotFoundError("No se ha encontrado el canal.");
   const [row] = await (options.executor ?? db).select().from(channels).where(eq(channels.id, id.data));
-  if (!row || row.type !== "whatsapp" || (row.isDemo && !options.allowDemo)) throw new NotFoundError("No se ha encontrado el canal de WhatsApp.");
+  const via = row ? whatsappViaOf(row) : null;
+  if (!row || via === null || !(options.vias ?? ["meta"]).includes(via) || (row.isDemo && !options.allowDemo)) throw new NotFoundError("No se ha encontrado el canal de WhatsApp.");
   return row;
 }
 
@@ -176,6 +180,8 @@ export async function connectWhatsAppChannel(actor: Actor, input: unknown, deps:
       .from(channels)
       .where(and(eq(channels.phoneNumberId, result.identity.phoneNumberId), ...(existing ? [ne(channels.id, existing.id)] : [])));
     if (taken) throw new ConflictError("Este número ya está conectado en otro canal de la instalación.");
+    // Nor connected another way (YCloud, QR code): one number, one channel ([WA-11], [QR-05]).
+    await assertWhatsAppNumberFree(tx, result.identity.displayPhoneNumber, { exceptChannelId: existing?.id ?? null, vias: ["ycloud", "qr"] });
     const values = { ...result.identity, name: data.name, connectionMode: "manual" as const, isMetaTestNumber: data.isMetaTestNumber, secretsEnc, updatedAt: now };
     if (existing) {
       await tx.update(channels).set({ ...values, status: existing.status === "connected" ? "connected" : "connecting" }).where(eq(channels.id, existing.id));

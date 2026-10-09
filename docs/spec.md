@@ -8,11 +8,11 @@ Qué se construye. Sirve para comprobar, sin saber programar, que lo construido 
 
 DominIA Agentes es una plataforma de atención al cliente con agentes de IA que se instala una vez por negocio
 (una peluquería, una clínica dental, un restaurante…), cada una con su propia base de datos. El negocio atiende
-en un solo sitio lo que le llega por WhatsApp, por correo y por el chat de su web: los agentes de IA contestan,
-dan información fiable sacada de sus documentos, reservan citas en su agenda y pasan la conversación a una
-persona del equipo cuando hace falta. La usan el dueño y su equipo, cada uno con su rol, y todo se configura
-desde la pantalla, sin tocar código. Quien clona el repositorio puede probarlo todo con una demo, sin configurar
-nada.
+en un solo sitio lo que le llega por WhatsApp, por correo, por el chat de su web y por Telegram: los agentes de
+IA contestan, dan información fiable sacada de sus documentos, reservan citas en su agenda y pasan la
+conversación a una persona del equipo cuando hace falta. La usan el dueño y su equipo, cada uno con su rol, y
+todo se configura desde la pantalla, sin tocar código. Quien clona el repositorio puede probarlo todo con una
+demo, sin configurar nada.
 
 ## Qué hace
 
@@ -273,9 +273,30 @@ límites y sus fuentes) están en `docs/integracion-whatsapp.md`, `docs/integrac
 
 ### WhatsApp
 
-Solo la API oficial de Meta (Cloud API), con la app de Meta del propio negocio y un token permanente de usuario
-del sistema. Detalles en `docs/integracion-whatsapp.md` (conexión) y `docs/integracion-whatsapp-mensajes.md`
-(recepción y envío).
+Un número de WhatsApp se conecta de una de estas tres formas, que elige el negocio (decisión 0026):
+
+- **API oficial de Meta** (Cloud API), con la app de Meta del propio negocio y un token permanente de usuario del
+  sistema. Es la recomendada y la que describen las reglas [WA-01]–[WA-52]. Detalles en
+  `docs/integracion-whatsapp.md` (conexión) y `docs/integracion-whatsapp-mensajes.md` (recepción y envío).
+- **YCloud**, un partner oficial de Meta: la misma API oficial a través de la cuenta de YCloud del negocio, con
+  coexistencia (el número sigue funcionando en la app WhatsApp Business del móvil). Reglas [YC-01]–[YC-10] y
+  `docs/integracion-ycloud.md`.
+- **Código QR**, con Baileys: el número se vincula como un «dispositivo vinculado», igual que WhatsApp Web. No es
+  oficial. Reglas [QR-01]–[QR-12] y `docs/integracion-whatsapp-qr.md`.
+
+Las tres comparten lo común de los canales ([CAN-01]–[CAN-17]) y estas reglas:
+
+- [WA-53] Canales > Añadir muestra las tres formas de conectar WhatsApp, cada una con el logotipo de WhatsApp, su
+  nombre y en qué se diferencia de las otras: «API oficial de Meta» (recomendada), «YCloud · coexistencia» y
+  «Código QR · no oficial». Cada una abre su propio asistente.
+- [WA-54] Cada canal de WhatsApp guarda por qué vía está conectado, y su tarjeta y su panel lo dicen. Las acciones
+  de una vía (por ejemplo, «Validar con Meta») no se pueden usar en un canal de otra.
+- [WA-55] Lo que ofrece la bandeja depende de la vía: la ventana de 24 h, las plantillas y el coste estimado solo
+  existen con la API oficial (Meta o YCloud); por código QR no hay ventana ni plantillas.
+- [WA-56] Un número con conversaciones de siempre (coexistencia o código QR) empieza en modo pruebas, con la lista
+  vacía: la IA no contesta a nadie hasta que el negocio añade contactos a la lista o quita el modo pruebas.
+
+Reglas de la API oficial de Meta:
 
 - [WA-01] Canales > Añadir > WhatsApp abre un asistente; cada campo tiene «¿Dónde lo encuentro?», con el texto
   corto y el enlace a su apartado de la guía de WhatsApp dentro de la app ([AJU-17]).
@@ -428,6 +449,72 @@ del sistema. Detalles en `docs/integracion-whatsapp.md` (conexión) y `docs/inte
 - [WA-52] El panel también permite «Cambiar App Secret» (si Meta lo rota): el nuevo solo sustituye al anterior si
   la firma de un aviso o la validación con Meta lo confirma, y se guarda cifrado.
 
+### WhatsApp con YCloud (coexistencia)
+
+La API oficial de WhatsApp a través de YCloud, con la cuenta de YCloud del propio negocio. El número se da de alta
+en la consola de YCloud («WhatsApp Business APP Coexistence»), no en esta app. Detalles en
+`docs/integracion-ycloud.md`.
+
+- [YC-01] Canales > Añadir > WhatsApp · YCloud explica qué es la coexistencia y qué hay que hacer antes en YCloud
+  (crear la cuenta, dar de alta el número y tener saldo), con enlaces, y pide la clave de API de YCloud.
+- [YC-02] «Comprobar clave» valida la clave con YCloud y muestra los números de la cuenta con su nombre, estado y
+  calidad, para elegir uno. Una clave que YCloud rechaza no guarda nada y dice por qué, en español.
+- [YC-03] Al conectar, la app crea sola en YCloud la dirección de avisos de ese canal y guarda cifrados la clave y
+  el secreto de la dirección. No se puede conectar dos veces el mismo número en la instalación ([WA-11]).
+- [YC-04] Cuando la app no tiene una dirección pública con HTTPS (por ejemplo, en local), el asistente lo avisa: la
+  clave se valida y el canal se guarda, pero no llegarán mensajes hasta publicar la app y pulsar «Revalidar».
+- [YC-05] Un aviso de YCloud sin la firma del canal, con una firma incorrecta o de hace más de 5 minutos se rechaza
+  y no se guarda nada. Los avisos de otro número de la misma cuenta se ignoran.
+- [YC-06] Recibe los mismos tipos de mensaje que la API de Meta ([WA-36], [WA-37]) y reconoce al cliente igual
+  ([WA-39], [WA-40]). Los archivos se descargan de YCloud en cuanto llegan, con la clave, y se guardan en privado
+  ([WA-41]).
+- [YC-07] Envía texto, imágenes, documentos y plantillas, una sola respuesta por turno. La ventana de 24 h funciona
+  como con Meta ([WA-43]); «Sincronizar plantillas» las trae de YCloud. Los estados (enviado, entregado, leído y
+  fallido) actualizan el mensaje ([WA-38]) y los errores se muestran en español, también los propios de YCloud
+  (por ejemplo, sin saldo).
+- [YC-08] Coexistencia: lo que el negocio escribe a un cliente desde la app WhatsApp Business del móvil aparece en
+  su conversación como mensaje de una persona, con la marca «Desde el móvil», y pausa la IA en esa conversación
+  como cuando una persona responde desde la bandeja ([BAN-11]).
+- [YC-09] Cada número tiene un panel con semáforos (clave, número, avisos, saldo y último mensaje) y los botones
+  Revalidar, Cambiar clave (la nueva solo sustituye a la anterior si YCloud la valida y ve el mismo número),
+  Sincronizar plantillas y Desconectar. La app lo revisa cada 6 horas y avisa si algo empeora ([CAN-15]).
+- [YC-10] «Desconectar» borra en YCloud la dirección de avisos del canal y borra la clave guardada. El número
+  sigue en YCloud y en el móvil; para volver a usarlo aquí se conecta otra vez con el asistente.
+
+### WhatsApp por código QR (no oficial)
+
+El número se vincula escaneando un código QR desde WhatsApp > Dispositivos vinculados, con la librería Baileys.
+No es la API oficial: va contra las condiciones de WhatsApp y el número se puede bloquear. Detalles en
+`docs/integracion-whatsapp-qr.md`.
+
+- [QR-01] Canales > Añadir > WhatsApp · Código QR empieza con un aviso que hay que aceptar marcando una casilla: no
+  es oficial, WhatsApp puede bloquear el número de forma temporal o definitiva, conviene no usar un número del que
+  dependa el negocio, y la IA contestaría a todos los chats de ese número (por eso empieza en modo pruebas).
+- [QR-02] Esta vía necesita que la app esté siempre encendida: funciona con `pnpm dev` y con la versión compilada en
+  un servidor propio, y no en Vercel. Donde no puede funcionar, el asistente lo dice y no deja crear el canal.
+- [QR-03] El asistente muestra un código QR que se renueva solo. Al escanearlo, el canal queda conectado y muestra
+  el número y el nombre de la cuenta. Si nadie lo escanea a tiempo, ofrece generar otro.
+- [QR-04] Las claves de la sesión se guardan cifradas. Al reiniciar la app, el número se vuelve a conectar solo,
+  sin escanear otra vez; lo que llegó mientras estaba apagada se recupera al reconectar.
+- [QR-05] No se puede vincular dos veces el mismo número en la instalación, ni uno que ya está conectado por otra
+  vía ([WA-11]).
+- [QR-06] Recibe texto, notas de voz (que se transcriben), imágenes y documentos de chats individuales. Los
+  grupos, los estados, las difusiones y los canales se ignoran. Cualquier otro tipo aparece como «Tipo de mensaje
+  no admitido» y la IA no lo responde.
+- [QR-07] El cliente se reconoce por su identificador de WhatsApp (LID o, si no lo hay, su identificador de
+  número); el teléfono se guarda como dato cuando se conoce, nunca como clave ([CAN-13]).
+- [QR-08] Envía texto, imágenes y documentos, una sola respuesta por turno, y muestra «escribiendo…» y el leído
+  mientras la IA prepara la respuesta. Los avisos de entregado y leído actualizan el mensaje.
+- [QR-09] Lo que el negocio escribe a un cliente desde su móvil aparece en la conversación como mensaje de una
+  persona, con la marca «Desde el móvil», y pausa la IA en esa conversación ([BAN-11]).
+- [QR-10] Si el móvil cierra la sesión o WhatsApp la retira, el canal pasa a «error», avisa al propietario y a los
+  administradores y el panel ofrece «Volver a vincular», con un código QR nuevo. Un corte de red se recupera solo.
+- [QR-11] Cada número tiene un panel con semáforos (sesión, proceso y último mensaje), el aviso de que la vía no es
+  oficial y los botones Reconectar (abre de nuevo una conexión que se quedó cerrada con la sesión aún vinculada),
+  Volver a vincular y Desconectar.
+- [QR-12] «Desconectar» cierra la sesión en WhatsApp (desaparece de los dispositivos vinculados del móvil) y borra
+  las claves guardadas. El canal queda desactivado y conserva su historial.
+
 ### Correo
 
 Detalles en `docs/integracion-correo.md`.
@@ -529,16 +616,39 @@ Detalles en `docs/integracion-correo.md`.
 - [WEB-12] `/widget-demo` muestra una web de ejemplo del negocio con el chat web de la demo funcionando.
 - [WEB-13] Si el canal está desactivado, el chat dice que no está disponible.
 
-### Telegram (opcional)
+### Telegram
 
-Se construye después de la fase 7 (ver «Fases»); sus reglas quedan escritas para entonces. Detalles en
-`docs/integracion-telegram.md`.
+Un bot de Telegram del propio negocio, creado con @BotFather (fase 9). Detalles en `docs/integracion-telegram.md`.
 
 - [TG-01] Canales > Añadir > Telegram pide el token del bot, lo valida y configura sola la dirección de avisos con
-  un secreto.
-- [TG-02] Un aviso de Telegram sin el secreto correcto se rechaza y no se guarda nada.
-- [TG-03] Recibe texto, notas de voz (que se transcriben) e imágenes, y responde con texto.
-- [TG-04] «Desconectar» quita la dirección de avisos en Telegram y borra el token.
+  un secreto. El asistente explica cómo crear el bot, con un código QR y un enlace que abren @BotFather, y al
+  conectar muestra el nombre y el usuario del bot. El token se guarda cifrado y nunca vuelve a la pantalla.
+- [TG-02] Un aviso de Telegram sin el secreto correcto se rechaza y no se guarda nada. Cada bot tiene su propia
+  dirección de avisos, y una dirección que no es la de un bot conectado se rechaza igual.
+- [TG-03] Recibe texto, notas de voz (que se transcriben) e imágenes, y responde con texto; una persona puede enviar
+  además una imagen. Solo se atienden los chats privados: grupos, canales y otros bots se ignoran. Cualquier otro
+  tipo de mensaje aparece como mensaje del sistema «Tipo de mensaje no admitido» y la IA no lo responde.
+- [TG-04] «Desconectar» quita la dirección de avisos en Telegram y borra el token. El canal queda desactivado y
+  conserva su historial; para volver a usarlo se conecta otra vez con el asistente, no con «Activar».
+- [TG-05] No se puede conectar dos veces el mismo bot en la instalación. Si el bot ya enviaba sus avisos a otra
+  dirección (otra instalación u otra herramienta), el asistente avisa de que dejará de funcionar allí y pide
+  confirmación; sin confirmar, no cambia nada.
+- [TG-06] Cuando la app no tiene una dirección pública con HTTPS (por ejemplo, en local), el bot funciona en «modo
+  local»: la app pregunta a Telegram por los mensajes nuevos en cada ronda del trabajo en segundo plano, sin
+  dirección de avisos, y la pantalla lo dice. Cuando la app tiene dirección pública, «Revalidar» pasa a avisos.
+- [TG-07] Al conectar, y en el panel, se muestran el enlace del bot (`https://t.me/{usuario}`) y su código QR, para
+  probarlo y para dárselo a los clientes: un bot no puede escribir primero.
+- [TG-08] Cada bot tiene un panel con semáforos (token, recepción y último mensaje) y los botones Revalidar, Cambiar
+  token (el nuevo solo sustituye al anterior si Telegram lo acepta y es del mismo bot) y Desconectar. La app revisa
+  cada bot cada 6 horas; si algo empeora, lo muestra en el panel y avisa al propietario y a los administradores.
+- [TG-09] La IA envía una sola respuesta por turno: un texto de más de 4.096 caracteres se recorta, nunca se parte
+  en dos mensajes. Los errores de Telegram se muestran en español; si Telegram pide esperar, el envío se reintenta
+  tras esa espera; si el cliente ha bloqueado el bot, el mensaje queda como fallido.
+- [TG-10] «/start», lo que Telegram envía solo cuando alguien abre el chat con el bot por primera vez, se guarda
+  como mensaje del cliente y el agente lo contesta saludando.
+- [TG-11] Las notas de voz y las fotos se descargan de Telegram en cuanto llegan (como mucho 20 MB, el límite de
+  Telegram para los bots) y se guardan en privado. Si la descarga falla, se reintenta; si no se consigue, el mensaje
+  dice «No se pudo descargar el archivo».
 
 ### Agentes
 
@@ -1076,9 +1186,13 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
 
 ## Qué queda fuera
 
-- Tech Provider, BSP y coexistencia con la app WhatsApp del móvil.
+- Tech Provider y dar de alta números desde esta app: el alta en la API oficial se hace en Meta o en YCloud.
 - Embedded Signup: solo queda preparado el modo de conexión; se conecta a mano.
-- APIs no oficiales de WhatsApp (Baileys, Evolution, Whapi, conexión por QR).
+- Otras APIs no oficiales de WhatsApp (Evolution, Whapi…) y otros proveedores intermediarios: la única vía no
+  oficial es el código QR con Baileys, con su aviso ([QR-01]), y el único proveedor, YCloud.
+- El historial anterior de los chats del móvil (coexistencia o código QR): solo se guardan los mensajes que llegan
+  desde que el número se conecta.
+- Los grupos de WhatsApp y vincular por código de emparejamiento en lugar de QR.
 - Instagram y Messenger.
 - Multi-cliente: organizaciones, espacios de trabajo o varios negocios en una instalación.
 - Dokploy y GitHub: son el futuro y el código queda preparado para ellos.
@@ -1186,9 +1300,35 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
   (funciones en `lhr1`, rol de base `dominia_app` sin permisos para cambiar tablas): /api/health «ok» contra
   Supabase y el cron de Supabase recibe 202 cada minuto; `pnpm audit`, 1 aviso moderado solo de desarrollo. Queda para
   el propietario, en la app publicada: entrar con los usuarios de la demo, una reserva y la subida de un archivo.
+- [ ] Fase 9 · Telegram y las tres vías de WhatsApp (encargo del propietario del 2026-10-09, en una sola fase): el
+  canal de Telegram, que estaba previsto (el bot del negocio por su token, con avisos o en «modo local» sin dirección
+  pública; decisión 0025), y dos formas más de conectar un número de WhatsApp además de la API oficial de Meta, que
+  no cambia: YCloud con coexistencia y código QR con Baileys, no oficial (decisión 0026). Añadir canal enseña las
+  tres con el logotipo de WhatsApp y lo que las distingue — se comprueba: con Telegram, YCloud y la conexión de
+  WhatsApp simulados, cada vía conecta, recibe (texto, nota de voz, imagen y documento), responde una sola vez y se
+  desconecta; un aviso de YCloud sin su firma se rechaza sin guardar nada; un mismo número no se conecta dos veces
+  por ninguna vía; lo que el negocio escribe desde su móvil entra en la conversación y pausa la IA; la sesión del
+  código QR se guarda cifrada, sobrevive a un reinicio y se borra si el móvil la cierra; el código QR no deja seguir
+  sin aceptar su aviso ni en Vercel; pasan lint, tipos, pruebas y compilación.
+  Construida y comprobada el 2026-10-09: 4.588 pruebas de Vitest en verde y 1 que ya fallaba antes de la fase
+  (`src/instrumentation.test.ts`, comprobado en una copia limpia de `main`); las 170 de Playwright en verde (169 en
+  la pasada completa y la que faltaba, corregida, al repetirla); lint sin errores, tipos y compilación. A mano, en
+  local: Añadir canal con las tres vías; el asistente del código QR recibe un código real de WhatsApp, lo renueva y,
+  al caducar, ofrece otro, sin dejar el código en los registros; la app compilada arranca con la librería cargada.
+  Migración 0003 (tabla `whatsapp_qr_keys`), solo aditiva, aplicada a la base local; **falta aplicarla a la base
+  publicada antes de publicar esta versión**. Con permiso del propietario se aplicaron los parches de Next.js
+  (16.3.6 → 16.3.8) y de sharp (0.35.4 → 0.35.5) y se quitó la excepción D1, que ya no hacía falta; se repitieron
+  todas las pruebas con ellos: Vitest igual (4.588 y la que ya fallaba) y Playwright 169 de 170 en la pasada
+  completa. La que falló, `e2e/demo/knowledge-demo-key.spec.ts`, no es de esta fase y sale al azar: para «¿Cómo llego
+  en autobús?» dos fragmentos de la demo empatan en la búsqueda por palabras y el desempate es el id del fragmento,
+  que la demo crea al azar en cada pasada; repetida sin cambiar nada, pasa. Queda anotada para arreglarla aparte.
+  `pnpm audit` pasa de 12 avisos a 5 (3 altos y 2 moderados), ninguno de las
+  dependencias nuevas y todos de herramientas de desarrollo o sin arreglo publicado (`braces`, `source-map-js`,
+  `@modelcontextprotocol/sdk`, `esbuild` y `sprintf-js`). Para cerrar la fase falta, y es del propietario: probar
+  con un bot de Telegram, una cuenta de YCloud y un número real por código QR.
 
 Después: publicación en Vercel (con Supabase) con la prueba del número de prueba de Meta; Dokploy; GitHub (versión,
-migraciones solo aditivas, changelog y aviso de versión nueva); Telegram; respuestas con voz; Google Calendar e iCal;
+migraciones solo aditivas, changelog y aviso de versión nueva); respuestas con voz; Google Calendar e iCal;
 evaluación; agente de fuera de horario; y servicios con dos recursos.
 
 ## Cómo se comprueba que todo funciona

@@ -2,22 +2,8 @@
 
 # No instala versiones publicadas hace menos de 7 días (en minutos).
 minimumReleaseAge: 10080
-# D1 (docs/security.md, «Excepciones aprobadas»): parche de seguridad de Next.js 16.3.6 dentro del margen.
-# Quitar a partir del 2026-09-29, cuando 16.3.6 cumpla 7 días. Los @next/* son paquetes de la misma
-# versión 16.3.6 que next exige tal cual (pnpm no admite patrones con versión: van uno a uno).
-minimumReleaseAgeExclude:
-  - next@16.3.6
-  - eslint-config-next@16.3.6
-  - '@next/env@16.3.6'
-  - '@next/eslint-plugin-next@16.3.6'
-  - '@next/swc-darwin-x64@16.3.6'
-  - '@next/swc-darwin-arm64@16.3.6'
-  - '@next/swc-linux-x64-gnu@16.3.6'
-  - '@next/swc-linux-x64-musl@16.3.6'
-  - '@next/swc-win32-x64-msvc@16.3.6'
-  - '@next/swc-linux-arm64-gnu@16.3.6'
-  - '@next/swc-linux-arm64-musl@16.3.6'
-  - '@next/swc-win32-arm64-msvc@16.3.6'
+# D1 (docs/security.md, «Excepciones aprobadas») quitada el 2026-10-09: excluía del margen el parche de Next.js 16.3.6.
+# Ya no hace falta ninguna exclusión: 16.3.8 (30-09-2026) y lo demás instalado tienen más de 7 días.
 
 # Rechaza versiones publicadas con menos garantías que las anteriores.
 trustPolicy: no-downgrade
@@ -37,6 +23,14 @@ allowBuilds:
   unrs-resolver: false # su binario llega por dependencias opcionales
   fsevents: false # solo macOS, opcional
   sharp: false # opcional; sin script en la versión usada
+  baileys: false # D6: su preinstall solo comprueba que Node sea 20 o más
+  protobufjs: false # D6: su postinstall solo imprime un aviso sobre rangos de versiones
+
+# D6 (docs/security.md, «Excepciones aprobadas»): pino 9.14.0, la que pide Baileys por defecto, se publicó a mano y sin
+# procedencia después de versiones que sí la traían, y `trustPolicy: no-downgrade` la rechaza. 9.11.0 es la última 9.x
+# que pasa. Solo para Baileys: el pino de imapflow no cambia.
+overrides:
+  'baileys>pino': 9.11.0
 
 # Versiones exactas en package.json (sin ^ ni ~).
 savePrefix: ''

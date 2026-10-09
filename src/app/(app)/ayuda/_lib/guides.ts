@@ -44,9 +44,24 @@ export const HELP_GUIDES: readonly HelpGuide[] = [
     description: "Lista de puesta en marcha de un negocio real: de la instalación vacía a la primera conversación, con la privacidad de OpenRouter, los textos legales, el equipo y las comprobaciones de cada semana y cada mes.",
   },
   {
+    slug: "telegram",
+    file: "guia-telegram.md",
+    description: "Conectar un bot de Telegram: crearlo con @BotFather, pegar su token, el modo local, el enlace y el código QR para tus clientes y los problemas frecuentes.",
+  },
+  {
     slug: "whatsapp",
     file: "guia-whatsapp.md",
     description: "Conectar el número del negocio con la API oficial de Meta: portfolio, app, token, publicación, pago, prueba y problemas.",
+  },
+  {
+    slug: "whatsapp-qr",
+    file: "guia-whatsapp-qr.md",
+    description: "Conectar WhatsApp escaneando un código, como WhatsApp Web: los riesgos de esta vía no oficial, qué necesita, el modo pruebas, qué lee la app y los problemas frecuentes.",
+  },
+  {
+    slug: "whatsapp-ycloud",
+    file: "guia-whatsapp-ycloud.md",
+    description: "Conectar WhatsApp con YCloud y coexistencia (el número sigue en la app del móvil): el alta en YCloud, la clave, el modo pruebas, las plantillas y los problemas frecuentes.",
   },
 ];
 

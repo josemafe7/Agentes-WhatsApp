@@ -107,6 +107,8 @@ const CHANNEL_LABELS: Record<Exclude<PromptChannelKind, "test">, string> = {
   telegram: "Telegram",
 };
 const SHORT_STYLE = "Estilo para este canal: mensajes breves y naturales, como en una conversación de chat, sin tablas ni encabezados.";
+/** Telegram sends «/start» by itself when someone opens the chat with a bot for the first time ([TG-10]). */
+const TELEGRAM_START = "En Telegram, «/start» es lo que se envía solo cuando alguien abre el chat por primera vez: no es una pregunta. Salúdale y dile en qué puedes ayudarle.";
 const EMAIL_STYLE = (business: string) =>
   `Estilo para este canal: empieza con un saludo, responde de forma clara y termina con una despedida y una firma que diga que eres el asistente de IA de ${business}.`;
 const FILE_TYPE_LABELS: Partial<Record<MessageContentType, string>> = {
@@ -250,7 +252,8 @@ function channelLines(input: BuildPromptInput): string[] {
   const effective = kind === "test" ? (simulated ?? "whatsapp") : kind;
   const label = CHANNEL_LABELS[effective];
   const channel = kind === "test" ? `Canal: Prueba desde el panel, simulando ${label}. Responde como lo harías en ese canal.` : `Canal: ${label}`;
-  return [channel, effective === "email" ? EMAIL_STYLE(input.business.name.trim() || "el negocio") : SHORT_STYLE];
+  const style = effective === "email" ? EMAIL_STYLE(input.business.name.trim() || "el negocio") : SHORT_STYLE;
+  return effective === "telegram" ? [channel, style, TELEGRAM_START] : [channel, style];
 }
 
 function contactLine(contact: PromptContact | null): string {

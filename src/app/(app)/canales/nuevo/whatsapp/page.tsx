@@ -44,11 +44,14 @@ const BREADCRUMBS = [
   { label: "WhatsApp" },
 ];
 
-/** A WhatsApp channel of this installation for the wizard, or null (another type, a demo channel or none). */
+/**
+ * A WhatsApp number of this installation connected with Meta's own API, or null (another type, a demo channel, a number
+ * connected another way, which has its own wizard ([WA-54]), or none).
+ */
 async function wizardChannel(actor: Actor, channelId: string): Promise<ChannelDetail | null> {
   try {
     const channel = await getChannel(actor, channelId);
-    return channel.type === "whatsapp" && !channel.isDemo ? channel : null;
+    return channel.whatsappVia === "meta" && !channel.isDemo ? channel : null;
   } catch (error) {
     if (error instanceof NotFoundError) return null;
     throw error;
@@ -135,7 +138,7 @@ export default async function WhatsAppWizardPage({ searchParams }: WhatsAppWizar
   const publicHttps = isPublicHttpsUrl(whatsappWebhookUrl());
   /** Another real number is connected: its app's App Secret may be reused ([WA-10]). */
   const otherNumbers = async (exceptId: string | null) =>
-    (await listChannels(actor)).some((channel) => channel.type === "whatsapp" && !channel.isDemo && channel.id !== exceptId);
+    (await listChannels(actor)).some((channel) => channel.whatsappVia === "meta" && !channel.isDemo && channel.id !== exceptId);
 
   if (params.canal === undefined) {
     return (

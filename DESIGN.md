@@ -410,10 +410,22 @@ indicar estados.
 | WhatsApp | `message-circle` | `#008236` | `#05df72` |
 | Correo (Gmail, Outlook, IMAP) | `mail` | `#ca3500` | `#ff8904` |
 | Chat web | `globe` | `--muted-foreground` | `--muted-foreground` |
-| Telegram (después de la v1) | `send` | `#0069a8` | `#00bcff` |
+| Telegram | `send` | `#0069a8` | `#00bcff` |
 
 Todos dan al menos 3:1 con su fondo (objeto no textual). El nombre del canal («WhatsApp · Recepción») va
 siempre en texto `--foreground`.
+
+**Única excepción, el logotipo de WhatsApp** (encargo del propietario del 2026-10-09, [WA-53]): en «Añadir canal»,
+las tres tarjetas de las formas de conectar WhatsApp llevan su logotipo, para que se reconozca de un vistazo que
+las tres son WhatsApp y lo que cambia es la forma. Va tal cual, sin retocar: el símbolo en blanco sobre un cuadro
+de 40 px en su verde (`#25D366`), dibujado en `src/components/channels/whatsapp-logo.tsx` (es una marca registrada
+de WhatsApp LLC y solo se usa para decir «esto conecta con WhatsApp»). Es decorativo: el nombre va siempre al lado,
+en texto. En el resto de la app (listas, tarjetas de canal, filtros, gráficos) WhatsApp sigue con su icono
+genérico, y ningún otro canal lleva logotipo.
+
+Las tres formas se distinguen con texto y una insignia, nunca solo con color: «Recomendada» (`success` suave) en la
+API oficial de Meta y «No oficial» (`warning` suave) en el código QR. Los puntos de cada tarjeta llevan `check`
+(a favor) o `x` (a tener en cuenta), con su texto para lectores de pantalla.
 
 ### Colores de recurso (agenda)
 
@@ -585,7 +597,8 @@ shadcn no tiene (burbujas, calendario de la agenda, semáforos, barra inferior) 
 
 - Borde, radio `xl`, 16–24 px de relleno, sin sombra. Cabecera con título, descripción y acción.
 - Si toda la tarjeta es un enlace: fondo `--accent` al pasar el ratón y anillo de foco en toda la tarjeta.
-- **Tarjeta de canal:** cuadro de icono del canal, nombre, tipo, chip de estado; número, correo o dominio;
+- **Tarjeta de canal:** cuadro de icono del canal, nombre, tipo (en WhatsApp, con su vía: «WhatsApp · API de
+  Meta», «· YCloud» o «· Código QR»), chip de estado; número, correo o dominio;
   «Agente activo» (selector) con el interruptor de IA; chips «Modo pruebas» (`flask-conical`, warning) y
   «Demo»; último mensaje («hace 3 min»); pie «Abrir panel».
 - **Tarjeta de agente:** avatar (imagen o iniciales sobre `--ai-soft`), nombre, descripción en una línea,
@@ -766,7 +779,8 @@ Cada pantalla y cada bloque que carga datos tiene los cuatro:
 **No**
 
 - Usar el color del negocio para estados, alertas o texto largo.
-- Usar los colores de canal para estados, ni colores de marca o logotipos de terceros.
+- Usar los colores de canal para estados, ni colores de marca o logotipos de terceros (salvo el de WhatsApp en
+  «Añadir canal», «Identidad de canal»).
 - Mostrar un secreto completo, una traza de error o datos técnicos al usuario.
 - Tapar la conversación con toasts o avisos; lo urgente va en su sitio de la pantalla.
 - Ruedas de carga a pantalla completa, sombras de colores, degradados o desenfoques.

@@ -5,6 +5,7 @@ import { noPermissionDescription } from "@/components/app-shell/navigation";
 import { NoPermission } from "@/components/no-permission";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
+import { WHATSAPP_VIA_LABELS } from "@/lib/whatsapp-via";
 import { ChannelStatusBadge } from "../_components/channel-status-badge";
 import { CHANNEL_TABS, channelPath } from "../_lib/webchat";
 import { ChannelTabs } from "./_components/channel-tabs";
@@ -22,6 +23,8 @@ export default async function ChannelLayout({ children, params }: ChannelLayoutP
   if (!page.allowed) return <NoPermission description={noPermissionDescription(page.role)} />;
   const { channel, canManage } = page;
   const identity = CHANNEL_IDENTITY[channel.type];
+  // A real WhatsApp number says how it is connected ([WA-54]).
+  const typeLabel = channel.whatsappVia && !channel.isDemo ? `${identity.label} · ${WHATSAPP_VIA_LABELS[channel.whatsappVia]}` : identity.label;
 
   const tabs = CHANNEL_TABS.filter((tab) => tab.key !== "appearance" || channel.type === "webchat").map((tab) => ({
     key: tab.key,
@@ -34,7 +37,7 @@ export default async function ChannelLayout({ children, params }: ChannelLayoutP
       <PageHeader
         breadcrumbs={[{ label: "Canales", href: "/canales" }, { label: channel.name }]}
         title={channel.name}
-        description={channel.isDemo ? `${identity.label} · Demo: no envía mensajes reales.` : identity.label}
+        description={channel.isDemo ? `${identity.label} · Demo: no envía mensajes reales.` : typeLabel}
         actions={
           <>
             <ChannelStatusBadge status={channel.status} />

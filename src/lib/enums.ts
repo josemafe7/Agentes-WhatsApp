@@ -29,8 +29,12 @@ export type ReplyMode = (typeof REPLY_MODES)[number];
 /** [CAN-08]: «Responder igual» or «No responder fuera de horario». */
 export const OFF_HOURS_BEHAVIORS = ["reply", "no_reply"] as const;
 export type OffHoursBehavior = (typeof OFF_HOURS_BEHAVIORS)[number];
-/** Only `manual` is implemented; `embedded_signup` stays prepared (spec «Qué queda fuera»). */
-export const WHATSAPP_CONNECTION_MODES = ["manual", "embedded_signup"] as const;
+/**
+ * How a WhatsApp number is connected (src/lib/whatsapp-via.ts): `manual` = Meta's Cloud API with the business's own app
+ * (`embedded_signup` stays prepared, spec «Qué queda fuera»), `ycloud` = the official API through YCloud, `qr` = a QR
+ * code with Baileys.
+ */
+export const WHATSAPP_CONNECTION_MODES = ["manual", "embedded_signup", "ycloud", "qr"] as const;
 export type WhatsappConnectionMode = (typeof WHATSAPP_CONNECTION_MODES)[number];
 
 export const CONVERSATION_STATUSES = ["open", "pending_human", "resolved"] as const;

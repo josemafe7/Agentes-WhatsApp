@@ -54,6 +54,7 @@ export const EXTERNAL_SERVICE_ENV = {
   MS_GRAPH_BASE_URL: `${MOCK_URL}/ms-graph`,
   MISTRAL_BASE_URL: `${MOCK_URL}/mistral`,
   TELEGRAM_API_BASE_URL: `${MOCK_URL}/telegram`,
+  YCLOUD_API_BASE_URL: `${MOCK_URL}/ycloud/v2`,
 } as const;
 
 /**

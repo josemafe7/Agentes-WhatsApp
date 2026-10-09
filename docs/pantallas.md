@@ -356,16 +356,22 @@ Pestañas con ruta propia y barra «Cambios sin guardar»:
 
 ### Canales · `/canales` · fase 2
 
-- **Se ve:** tarjetas por canal (WhatsApp, correo, chat web; Telegram después de la v1) con estado, número,
-  correo o dominio, agente activo e interruptor de IA, modo pruebas, «Demo» y último mensaje.
+- **Se ve:** tarjetas por canal (WhatsApp, correo, chat web y Telegram) con estado, número, correo, dominio o
+  usuario del bot, agente activo e interruptor de IA, modo pruebas, «Demo» y último mensaje. Un número de WhatsApp
+  dice además por qué vía está conectado: «WhatsApp · API de Meta», «· YCloud» o «· Código QR» ([WA-54]).
 - **Acciones:** «Añadir canal»; cambiar agente activo o IA desde la tarjeta; abrir panel; «Continuar
   configuración» si está a medias.
 - **Áreas:** Canales (común), Asignación a canales, Demo.
-- **Estados:** vacío: «Conecta tu primer canal · WhatsApp, correo o chat web».
+- **Estados:** vacío: «Conecta tu primer canal · WhatsApp, correo, chat web o Telegram».
 
-### Añadir canal · `/canales/nuevo` · fase 2
+### Añadir canal · `/canales/nuevo` · fases 2 y 9
 
-- **Se ve:** tarjetas WhatsApp, Correo, Chat web y Telegram (esta, «Próximamente»).
+- **Se ve:** primero «WhatsApp», con sus tres formas de conectar una al lado de otra ([WA-53]): «API oficial de
+  Meta» (insignia «Recomendada»), «YCloud · coexistencia» y «Código QR · no oficial» (insignia «No oficial»). Cada
+  tarjeta lleva el logotipo de WhatsApp, una frase y cuatro puntos, a favor o a tener en cuenta, que las
+  distinguen. Debajo, «Comparar las tres formas» despliega una tabla (si es oficial, qué pasa con el móvil, qué
+  hace falta, coste, plantillas, riesgo de bloqueo y dónde funciona). Después, «Otros canales»: Chat web, Correo y
+  Telegram.
 - **Acciones:** elegir y abrir su asistente.
 
 ### Asistente de WhatsApp · `/canales/nuevo/whatsapp` · fase 3
@@ -411,32 +417,81 @@ apartado en Ayuda ([AJU-17]).
   /widget-demo».
 - **Áreas:** Chat web, Cumplimiento (aviso de IA).
 
-### Asistente de Telegram · `/canales/nuevo/telegram` · después de la v1
+### Asistente de WhatsApp · YCloud · `/canales/nuevo/whatsapp-ycloud` · fase 9
 
-- **Se ve:** token del bot y «Conectar» (webhook automático con `secret_token`).
+1. **Conectar:** clave de API de YCloud (campo secreto) y «Comprobar clave»; al lado, «Antes de empezar, en
+   YCloud», con los pasos para dar de alta el número con coexistencia, recargar saldo y copiar la clave, y el enlace
+   a su consola. Con la clave aceptada: el saldo, los números de la cuenta para elegir uno (con nombre, estado y
+   calidad; uno que ya está en otro canal no se puede elegir), nombre del canal, agente activo e IA. Sin dirección
+   pública, aviso «Estás en local: podrás comprobar la clave, pero no llegarán mensajes». «Conectar número».
+2. **Probar:** «+34… está conectado», el aviso de que empieza en modo pruebas, y «Esperando un mensaje…», que lo
+   enseña al llegar. Sin dirección pública, lo que falta para recibir.
+
+- Un número desconectado vuelve por aquí (`?canal=…`), conservando su canal y sus conversaciones.
+- **Áreas:** WhatsApp con YCloud.
+- **Estados:** clave rechazada, junto al campo y en español; cuenta sin números; número ya conectado en otro canal.
+
+### Asistente de WhatsApp · Código QR · `/canales/nuevo/whatsapp-qr` · fase 9
+
+1. **Aviso:** «Esta forma de conectar no es oficial», con sus cuatro riesgos y el enlace a la guía; nombre del
+   canal, agente activo, IA y la casilla «He leído el aviso y acepto el riesgo…». Sin marcarla, «Generar código
+   QR» está apagado. Donde no puede funcionar (Vercel), lo dice arriba y no deja seguir ([QR-02]).
+2. **Vincular:** el código QR, que se renueva solo, y los tres pasos para escanearlo desde WhatsApp ›
+   Dispositivos vinculados. Si caduca, «No se ha vinculado» y «Generar otro código». «Dejarlo para luego».
+3. **Listo:** «+34… está vinculado», el aviso de que empieza en modo pruebas y los enlaces a la configuración y al
+   panel.
+
+- Un número cuya sesión se cerró se vuelve a vincular por aquí (`?canal=…`), con el mismo número.
+- **Áreas:** WhatsApp por código QR.
+- **Estados:** código caducado; escaneado con otro número, o con uno que ya está en otro canal.
+
+### Asistente de Telegram · `/canales/nuevo/telegram` · fase 9
+
+1. **Conectar:** token del bot (campo secreto, con «¿Dónde lo encuentro?»), nombre del canal, agente activo e IA; al
+   lado, «¿Aún no tienes el bot?», con los tres pasos en @BotFather y un código QR y un enlace que lo abren. Sin
+   dirección pública, aviso «Estás en local: funcionará en modo local». «Conectar bot» comprueba el token y lo
+   configura todo; si el bot ya enviaba sus avisos a otra dirección, diálogo «¿Traer @bot a esta instalación?».
+2. **Probar:** «@bot está conectado», el enlace `https://t.me/…` con «Copiar» y su código QR, y «Esperando tu
+   "hola"…», que enseña el mensaje al llegar y dice si un agente lo va a contestar.
+
+- Un bot desconectado vuelve por aquí (`?canal=…`), conservando su canal y sus conversaciones.
 - **Áreas:** Telegram.
+- **Estados:** token rechazado, junto al campo y en español; bot ya conectado en otro canal; Telegram no acepta la
+  dirección de avisos (el bot queda guardado y se reintenta con «Revalidar»).
 
-### Panel del canal · `/canales/[id]` y pestañas · fases 2, 3 y 6
+### Panel del canal · `/canales/[id]` y pestañas · fases 2, 3, 6 y 9
 
 - **Resumen** (`/canales/[id]`): semáforos (WhatsApp: token, registro, suscripción, webhook, último mensaje,
   calidad, nombre, límite y versión; correo: conexión, permisos, última lectura y, en Outlook, caducidad del
-  secreto; web: último mensaje), errores en español, agente activo e IA, modo pruebas y su lista, límites de
+  secreto; web: último mensaje; Telegram: token, recepción y último mensaje), errores en español, agente activo e
+  IA, modo pruebas y su lista, límites de
   Meta (el de mensajes, del portfolio y compartido con sus otros números), aviso «Puede que falte el método de
   pago en Meta» si toca ([WA-51]) y recordatorio de volver a registrar tras un cambio de nombre ([WA-20]). En
   WhatsApp (fase 3) el panel del número va aquí mismo: además, credenciales enmascaradas (propietario y
   administrador), versión de la API, «Envíos y comprobaciones» (traspasar si un envío falla, app publicada y
   método de pago), la lista de plantillas con «Sincronizar», el historial de avisos de Meta y, si el número se dejó
-  a medias o se desconectó, «Continuar configuración» o «Volver a conectar», que abren su asistente.
+  a medias o se desconectó, «Continuar configuración» o «Volver a conectar», que abren su asistente. En Telegram
+  (fase 9): nombre y usuario del bot, token enmascarado (propietario y administrador), aviso «Modo local» si toca,
+  «Enlace para tus clientes» con su código QR y, si el bot se desconectó, «Volver a conectar este bot». Un número
+  de WhatsApp enseña el panel de su vía ([WA-54]). Con YCloud (fase 9): «WhatsApp · YCloud (coexistencia)», número
+  y nombre, clave enmascarada, semáforos (clave, número, avisos, saldo y último mensaje), calidad, límite,
+  plantillas sincronizadas y su dirección de avisos; «Todavía no recibe mensajes» sin dirección pública. Por código
+  QR (fase 9): «WhatsApp · Código QR (no oficial)», número y nombre de la cuenta, cuándo se vinculó, semáforos
+  (sesión de WhatsApp, app encendida y último mensaje), el aviso fijo «Esta vía no es la API oficial de WhatsApp» y,
+  si la sesión se cerró o nunca se escaneó, «Volver a vincular».
 - **Configuración** (`/configuracion`): modo de respuesta, aviso de IA del primer mensaje, comportamiento fuera
   de horario y lo propio de cada tipo.
 - **Plantillas** (WhatsApp): lista con estado, categoría, idioma, variables y motivo de rechazo; «Sincronizar». En
   la fase 3 está en el Resumen, no en una pestaña propia.
 - **Apariencia y código** (`/apariencia`, chat web): lo del asistente de chat web.
+- **Acciones de las otras vías de WhatsApp:** con YCloud, Revalidar, Cambiar clave, Sincronizar plantillas y
+  Desconectar; por código QR, Reconectar (si la sesión sigue vinculada pero la conexión está cerrada), Volver a
+  vincular y Desconectar.
 - **Acciones:** Revalidar, Cambiar token, «Volver a registrar» (WhatsApp, tras un cambio de nombre), Pausar
   IA, Desconectar (confirmación escribiendo el nombre; en WhatsApp borra credenciales y, si se confirma, da de
   baja la suscripción y el registro; un número desconectado no se «Activa»: se vuelve a conectar con su
   asistente); «Reconectar» si el correo requiere reconexión.
-- **Áreas:** Canales, WhatsApp (panel, revisión cada 6 h), Correo, Chat web.
+- **Áreas:** Canales, WhatsApp (panel, revisión cada 6 h), Correo, Chat web, Telegram (panel, revisión cada 6 h).
 
 ## Informes
 

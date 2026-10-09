@@ -14,7 +14,7 @@ import { syncWhatsAppTemplates, type TemplatesSyncResult } from "@/server/channe
 import { AuthError, NotFoundError, parseInput, ValidationError } from "@/server/errors";
 import { writeAudit } from "./audit";
 import { assertCan } from "./guard";
-import { loadWhatsAppChannel } from "./whatsapp";
+import { loadWhatsAppChannel, OFFICIAL_WHATSAPP_VIAS } from "./whatsapp";
 
 export type WhatsAppTemplateItem = {
   id: string;
@@ -36,7 +36,7 @@ function assertCanSeeTemplates(actor: Actor, channelId: string): void {
 }
 
 export async function listWhatsAppTemplates(actor: Actor, channelId: string, options: { approvedOnly?: boolean } = {}): Promise<WhatsAppTemplateItem[]> {
-  const channel = await loadWhatsAppChannel(channelId, { allowDemo: true });
+  const channel = await loadWhatsAppChannel(channelId, { allowDemo: true, vias: OFFICIAL_WHATSAPP_VIAS });
   assertCanSeeTemplates(actor, channel.id);
   const rows = await db
     .select()
@@ -115,7 +115,7 @@ export async function buildWhatsAppTemplateMessage(
 ): Promise<{ text: string; metadata: Record<string, unknown>; template: { name: string; language: string } }> {
   const data = parseInput(templateMessageSchema, input);
   // Nothing is sent here: on a demo channel the DemoAdapter only stores the message ([ARR-11]).
-  const channel = await loadWhatsAppChannel(channelId, { allowDemo: true });
+  const channel = await loadWhatsAppChannel(channelId, { allowDemo: true, vias: OFFICIAL_WHATSAPP_VIAS });
   assertCan(actor, PERMISSIONS.inbox.reply, { channelId: channel.id });
   const [template] = await db.select().from(whatsappTemplates).where(and(eq(whatsappTemplates.id, data.templateId), eq(whatsappTemplates.channelId, channel.id)));
   if (!template) throw new NotFoundError("No se ha encontrado la plantilla.");
