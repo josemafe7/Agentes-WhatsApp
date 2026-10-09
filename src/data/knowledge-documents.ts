@@ -5,7 +5,7 @@ import "server-only";
 import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, isUniqueViolation } from "@/db";
-import { agentContextFiles, kbChunks, kbDocuments, knowledgeBases, messageRetrievals } from "@/db/schema";
+import { agentContextFiles, agents, kbChunks, kbDocuments, knowledgeBases, messageRetrievals } from "@/db/schema";
 import type { KbDocumentStatus, KbSourceType } from "@/lib/enums";
 import { can, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
@@ -28,8 +28,9 @@ import { cancelDocumentProcessing, enqueueDocumentProcessing, enqueueSitemap, sc
 import { deleteChunksWhere } from "@/server/knowledge/store";
 import { normalizeWebAddress } from "@/server/web-fetch";
 import { writeAudit } from "./audit";
+import { seesInternalAgents, seesInternalKnowledge } from "./agent-audience";
 import { assertCan } from "./guard";
-import { deleteFileQuietly, loadKnowledgeBaseOrThrow } from "./knowledge";
+import { deleteFileQuietly, loadKnowledgeBaseFor } from "./knowledge";
 import { CONTEXT_FILE_KEY_PREFIX } from "./knowledge-context-files";
 
 export const KNOWLEDGE_FILE_KEY_PREFIX = "knowledge";
@@ -104,11 +105,21 @@ async function withCounts(rows: DocumentRow[], indexVersion: number): Promise<Kn
   return rows.map((row) => ({ ...row, chunkCount: counts.find((item) => item.documentId === row.id)?.n ?? 0, textOnly: pendingIds.has(row.id) }));
 }
 
-async function loadDocumentOrThrow(documentId: unknown) {
+const DOCUMENT_NOT_FOUND = "No se ha encontrado el documento.";
+
+/**
+ * A document for a person who already passed the knowledge permission. One of an internal base only exists for who
+ * manages internal bases ([INT-15]): for anybody else it is «not found», like a document that is not there.
+ */
+async function loadDocumentFor(actor: Actor, documentId: unknown) {
   const id = idSchema.safeParse(documentId);
-  if (!id.success) throw new NotFoundError("No se ha encontrado el documento.");
+  if (!id.success) throw new NotFoundError(DOCUMENT_NOT_FOUND);
   const [row] = await db.select().from(kbDocuments).where(eq(kbDocuments.id, id.data));
-  if (!row) throw new NotFoundError("No se ha encontrado el documento.");
+  if (!row) throw new NotFoundError(DOCUMENT_NOT_FOUND);
+  if (!seesInternalKnowledge(actor)) {
+    const [base] = await db.select({ audience: knowledgeBases.audience }).from(knowledgeBases).where(eq(knowledgeBases.id, row.kbId));
+    if (base?.audience !== "customers") throw new NotFoundError(DOCUMENT_NOT_FOUND);
+  }
   return row;
 }
 
@@ -117,7 +128,7 @@ async function loadDocumentOrThrow(documentId: unknown) {
 /** Documents of a base, newest first, with their status and number of chunks. */
 export async function listKnowledgeDocuments(actor: Actor, kbId: unknown, options: { sourceType?: KbSourceType } = {}): Promise<KnowledgeDocumentItem[]> {
   assertCan(actor, PERMISSIONS.knowledge.view);
-  const base = await loadKnowledgeBaseOrThrow(kbId);
+  const base = await loadKnowledgeBaseFor(actor, kbId);
   const rows = await db
     .select(documentColumns)
     .from(kbDocuments)
@@ -131,7 +142,7 @@ export type KnowledgeFaqItem = { id: string; question: string; answer: string; s
 /** The FAQs of a base with their answers, newest first: the «Preguntas frecuentes» editor ([CON-04]). */
 export async function listKnowledgeFaqs(actor: Actor, kbId: unknown): Promise<KnowledgeFaqItem[]> {
   assertCan(actor, PERMISSIONS.knowledge.view);
-  const base = await loadKnowledgeBaseOrThrow(kbId);
+  const base = await loadKnowledgeBaseFor(actor, kbId);
   const rows = await db
     .select({ id: kbDocuments.id, title: kbDocuments.title, faqQuestion: kbDocuments.faqQuestion, contentMd: kbDocuments.contentMd, status: kbDocuments.status, error: kbDocuments.error, updatedAt: kbDocuments.updatedAt })
     .from(kbDocuments)
@@ -144,8 +155,8 @@ export async function listKnowledgeFaqs(actor: Actor, kbId: unknown): Promise<Kn
 /** A document with its summary, its Markdown and its chunks in the index in use (never the embeddings). */
 export async function getKnowledgeDocument(actor: Actor, documentId: unknown): Promise<KnowledgeDocumentDetail> {
   assertCan(actor, PERMISSIONS.knowledge.view);
-  const doc = await loadDocumentOrThrow(documentId);
-  const base = await loadKnowledgeBaseOrThrow(doc.kbId);
+  const doc = await loadDocumentFor(actor, documentId);
+  const base = await loadKnowledgeBaseFor(actor, doc.kbId);
   const inUse = and(eq(kbChunks.documentId, doc.id), eq(kbChunks.indexVersion, base.indexVersion));
   const [rows, chunks, withoutEmbedding] = await Promise.all([
     db.select(documentColumns).from(kbDocuments).where(eq(kbDocuments.id, doc.id)),
@@ -196,7 +207,7 @@ export const knowledgeFileInputSchema = z.object({
  */
 export async function addKnowledgeFile(actor: Actor, kbId: unknown, input: unknown, options: { storage?: FileStorage } = {}): Promise<{ id: string }> {
   assertCan(actor, PERMISSIONS.knowledge.manage);
-  const base = await loadKnowledgeBaseOrThrow(kbId);
+  const base = await loadKnowledgeBaseFor(actor, kbId);
   const data = parseInput(knowledgeFileInputSchema, input);
   if (data.bytes.byteLength === 0) throw new UnsupportedFileError(KNOWLEDGE_MESSAGES.emptyFile);
   if (data.bytes.byteLength > MAX_KB_FILE_BYTES) throw new UnsupportedFileError(KNOWLEDGE_MESSAGES.fileTooLarge(Math.round(MAX_KB_FILE_BYTES / 1024 / 1024)));
@@ -271,7 +282,7 @@ function webAddress(input: string): string {
  */
 export async function addKnowledgeUrl(actor: Actor, kbId: unknown, input: unknown): Promise<{ id: string | null; sitemapQueued: boolean }> {
   assertCan(actor, PERMISSIONS.knowledge.manage);
-  const base = await loadKnowledgeBaseOrThrow(kbId);
+  const base = await loadKnowledgeBaseFor(actor, kbId);
   const data = parseInput(knowledgeUrlInputSchema, input);
   const url = webAddress(data.url);
   const refreshIntervalHours = data.refresh ? (data.refreshIntervalHours ?? DEFAULT_REFRESH_HOURS) : null;
@@ -318,7 +329,7 @@ export const knowledgeFaqInputSchema = z.object({ question: questionSchema, answ
 /** A frequently asked question written in the panel ([CON-04]): its own small document. */
 export async function addKnowledgeFaq(actor: Actor, kbId: unknown, input: unknown): Promise<{ id: string }> {
   assertCan(actor, PERMISSIONS.knowledge.manage);
-  const base = await loadKnowledgeBaseOrThrow(kbId);
+  const base = await loadKnowledgeBaseFor(actor, kbId);
   const data = parseInput(knowledgeFaqInputSchema, input);
   const row = await insertDocument(
     { kbId: base.id, sourceType: "faq", title: data.question, faqQuestion: data.question, contentMd: data.answer, status: "queued", createdBy: actor.userId },
@@ -332,7 +343,7 @@ export async function addKnowledgeFaq(actor: Actor, kbId: unknown, input: unknow
 /** Edits a FAQ: it is processed again (its chunks are replaced when the new ones are ready). */
 export async function updateKnowledgeFaq(actor: Actor, documentId: unknown, input: unknown): Promise<void> {
   assertCan(actor, PERMISSIONS.knowledge.manage);
-  const doc = await loadDocumentOrThrow(documentId);
+  const doc = await loadDocumentFor(actor, documentId);
   if (doc.sourceType !== "faq") throw new ValidationError("Este documento no es una pregunta frecuente.");
   const data = parseInput(knowledgeFaqInputSchema, input);
   await db
@@ -353,7 +364,7 @@ export const knowledgeTextInputSchema = z
 /** Pasted text as a document. */
 export async function addKnowledgeText(actor: Actor, kbId: unknown, input: unknown): Promise<{ id: string }> {
   assertCan(actor, PERMISSIONS.knowledge.manage);
-  const base = await loadKnowledgeBaseOrThrow(kbId);
+  const base = await loadKnowledgeBaseFor(actor, kbId);
   const data = parseInput(knowledgeTextInputSchema, input);
   const row = await insertDocument(
     { kbId: base.id, sourceType: "text", title: data.title, contentMd: data.text, checksum: sha256Hex(data.text), status: "queued", createdBy: actor.userId },
@@ -372,7 +383,7 @@ export async function addKnowledgeText(actor: Actor, kbId: unknown, input: unkno
  */
 export async function reprocessKnowledgeDocument(actor: Actor, documentId: unknown): Promise<void> {
   assertCan(actor, PERMISSIONS.knowledge.manage);
-  const doc = await loadDocumentOrThrow(documentId);
+  const doc = await loadDocumentFor(actor, documentId);
   const rereadsSource = doc.sourceType === "file" || doc.sourceType === "url";
   await db
     .update(kbDocuments)
@@ -402,7 +413,7 @@ export const knowledgeTitleInputSchema = z
  */
 export async function renameKnowledgeDocument(actor: Actor, documentId: unknown, input: unknown): Promise<{ changed: boolean }> {
   assertCan(actor, PERMISSIONS.knowledge.manage);
-  const doc = await loadDocumentOrThrow(documentId);
+  const doc = await loadDocumentFor(actor, documentId);
   const { title } = parseInput(knowledgeTitleInputSchema, input);
   if (doc.sourceType === "faq") throw new ValidationError(undefined, { title: ["El título de una pregunta frecuente es su pregunta: cámbiala en «Preguntas frecuentes»."] });
   if (title === doc.title) return { changed: false };
@@ -421,7 +432,7 @@ export const knowledgeRefreshInputSchema = z.object({ enabled: z.boolean(), inte
 /** Periodic refresh of a web page on or off ([CON-09]). */
 export async function setKnowledgeDocumentRefresh(actor: Actor, documentId: unknown, input: unknown): Promise<void> {
   assertCan(actor, PERMISSIONS.knowledge.manage);
-  const doc = await loadDocumentOrThrow(documentId);
+  const doc = await loadDocumentFor(actor, documentId);
   if (doc.sourceType !== "url") throw new ValidationError("Solo las páginas web se pueden refrescar.");
   const data = parseInput(knowledgeRefreshInputSchema, input);
   const hours = data.intervalHours ?? doc.refreshIntervalHours ?? DEFAULT_REFRESH_HOURS;
@@ -441,13 +452,23 @@ export async function setKnowledgeDocumentRefresh(actor: Actor, documentId: unkn
 export async function canViewKnowledgeFile(actor: Actor, key: string): Promise<boolean> {
   if (key.startsWith(`${KNOWLEDGE_FILE_KEY_PREFIX}/`)) {
     if (!can(actor, PERMISSIONS.knowledge.view)) return false;
-    const [row] = await db.select({ id: kbDocuments.id }).from(kbDocuments).where(eq(kbDocuments.fileKey, key)).limit(1);
-    return Boolean(row);
+    // The same file may be in several bases: one the actor may see is enough; an internal one needs its permission.
+    const rows = await db
+      .select({ audience: knowledgeBases.audience })
+      .from(kbDocuments)
+      .innerJoin(knowledgeBases, eq(knowledgeBases.id, kbDocuments.kbId))
+      .where(eq(kbDocuments.fileKey, key));
+    return rows.some((row) => row.audience === "customers" || seesInternalKnowledge(actor));
   }
   if (key.startsWith(`${CONTEXT_FILE_KEY_PREFIX}/`)) {
     if (!can(actor, PERMISSIONS.agents.view)) return false;
-    const [row] = await db.select({ id: agentContextFiles.id }).from(agentContextFiles).where(eq(agentContextFiles.sourceFileKey, key)).limit(1);
-    return Boolean(row);
+    // A duplicated agent shares the original: one agent the actor may see is enough ([AGE-16], [INT-15]).
+    const rows = await db
+      .select({ audience: agents.audience })
+      .from(agentContextFiles)
+      .innerJoin(agents, eq(agents.id, agentContextFiles.agentId))
+      .where(eq(agentContextFiles.sourceFileKey, key));
+    return rows.some((row) => row.audience === "customers" || seesInternalAgents(actor));
   }
   return false;
 }
@@ -455,7 +476,7 @@ export async function canViewKnowledgeFile(actor: Actor, key: string): Promise<b
 /** Deletes a document, its chunks and its file ([CON-15]); answers that used it keep their copied sources. */
 export async function deleteKnowledgeDocument(actor: Actor, documentId: unknown, options: { storage?: FileStorage } = {}): Promise<void> {
   assertCan(actor, PERMISSIONS.knowledge.manage);
-  const doc = await loadDocumentOrThrow(documentId);
+  const doc = await loadDocumentFor(actor, documentId);
   await cancelDocumentProcessing(doc.id);
   await db.transaction(async (tx) => {
     await deleteChunksWhere(eq(kbChunks.documentId, doc.id), tx);

@@ -14,7 +14,7 @@ import { DocumentStatusBadge } from "./status-badge";
 export type FaqView = { id: string; question: string; answer: string; status: KbDocumentStatus; error: string | null };
 
 /** The FAQs of a base, each editable in place and deletable ([CON-04], [CON-15]). Viewer only reads them. */
-export function FaqList({ kbId, faqs, canManage }: { kbId: string; faqs: FaqView[]; canManage: boolean }) {
+export function FaqList({ kbId, faqs, canManage, internal = false }: { kbId: string; faqs: FaqView[]; canManage: boolean; internal?: boolean }) {
   const [editing, setEditing] = useState<string | null>(null);
 
   return (
@@ -22,7 +22,7 @@ export function FaqList({ kbId, faqs, canManage }: { kbId: string; faqs: FaqView
       {faqs.map((faq) => (
         <li key={faq.id} className="rounded-xl border p-4">
           {editing === faq.id ? (
-            <FaqForm kbId={kbId} faq={faq} idPrefix={`faq-${faq.id}`} onDone={() => setEditing(null)} onCancel={() => setEditing(null)} />
+            <FaqForm kbId={kbId} faq={faq} idPrefix={`faq-${faq.id}`} internal={internal} onDone={() => setEditing(null)} onCancel={() => setEditing(null)} />
           ) : (
             <FaqItem faq={faq} canManage={canManage} onEdit={() => setEditing(faq.id)} />
           )}

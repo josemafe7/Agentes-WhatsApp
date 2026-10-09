@@ -1,7 +1,11 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateIntegrationSettings } from "@/data/settings";
+import { db } from "@/db";
+import { agentMembers, agents } from "@/db/schema";
 import { primaryStyleSheet } from "@/lib/color";
-import { actorFor, createBusiness, createChannel, createContactWithIdentity, createConversation, createUser } from "@/test/factories";
+import type { Actor } from "@/lib/permissions";
+import { actorFor, createAgentRow, createBusiness, createChannel, createContactWithIdentity, createConversation, createUser } from "@/test/factories";
 import { loadShellData } from "./shell-data";
 
 const OWNER_EXTRA = { email: "ana@example.com", sessionId: "s", isDemo: false, twoFactorEnabled: false, twoFactorSetupRequired: false };
@@ -56,5 +60,27 @@ describe("loadShellData", () => {
     await createBusiness();
     const shell = await loadShellData({ ...actorFor("agent"), ...OWNER_EXTRA });
     expect(shell.sectionKeys).toEqual(["bandeja", "contactos", "agenda", "ajustes"]);
+  });
+});
+
+describe("«Asistentes» in the menu [INT-06]", () => {
+  it("reaches the menu of who has an internal agent to use, and of nobody else", async () => {
+    await createBusiness();
+    const internal = await createAgentRow({ audience: "team", teamAccess: "selected", systemTools: [] });
+    const agent = await createUser("agent");
+    const supervisor = await createUser("supervisor");
+    const keysOf = async (actor: Actor) => (await loadShellData({ ...actor, ...OWNER_EXTRA })).sectionKeys;
+
+    // Only owner and admin use a new internal agent.
+    expect(await keysOf(actorFor("owner"))).toContain("asistentes");
+    expect(await keysOf(agent.actor)).not.toContain("asistentes");
+
+    await db.insert(agentMembers).values({ agentId: internal.id, userId: agent.userId });
+    expect(await keysOf(agent.actor)).toContain("asistentes");
+    expect(await keysOf(supervisor.actor)).not.toContain("asistentes");
+
+    await db.update(agents).set({ teamAccess: "everyone" }).where(eq(agents.id, internal.id));
+    expect(await keysOf(supervisor.actor)).toContain("asistentes");
+    expect(await keysOf(actorFor("viewer"))).not.toContain("asistentes");
   });
 });

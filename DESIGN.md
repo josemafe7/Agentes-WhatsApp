@@ -485,13 +485,15 @@ WhatsApp con trama o menor opacidad y la palabra «estimado».
   3. Barra superior fija de 56 px: botón del menú (móvil), migas de pan, campana de notificaciones.
   4. Aviso «Añade tu clave de OpenRouter» (si toca), dentro del área de contenido y encima de la cabecera.
   5. Contenido con 24 px de margen lateral (16 px en móvil).
-- **Navegación:** Bandeja, Contactos, Agenda | Agentes, Conocimiento, Canales | Informes, Ajustes, con un
-  separador entre los tres grupos y sin títulos de grupo. Iconos: `inbox`, `users`, `calendar-days`, `bot`,
-  `book-open`, `radio-tower`, `chart-column`, `settings`. Bandeja lleva el contador de no leídos. Cada rol ve
-  solo lo que puede usar (el servidor lo impide igualmente).
+- **Navegación:** Bandeja, Contactos, Agenda, Asistentes | Agentes, Conocimiento, Canales | Informes, Ajustes, con
+  un separador entre los tres grupos y sin títulos de grupo. Iconos: `inbox`, `users`, `calendar-days`,
+  `messages-square`, `bot`, `book-open`, `radio-tower`, `chart-column`, `settings`. Bandeja lleva el contador de no
+  leídos. Cada rol ve solo lo que puede usar (el servidor lo impide igualmente); «Asistentes», solo quien tiene
+  algún agente interno que usar.
 - **Móvil y PWA (sobre todo agentes):** menos de 768 px, el menú lateral se sustituye por una barra inferior
   de 56 px más la zona segura (`env(safe-area-inset-bottom)`, con `viewportFit: 'cover'` en el `viewport` de
-  Next): Bandeja, Agenda, Contactos y Más (abre un panel con el resto de secciones permitidas y el perfil).
+  Next): Bandeja, Agenda, Contactos y Más (abre un panel con el resto de secciones permitidas, también
+  «Asistentes», y el perfil).
   Icono de 20 px y etiqueta de 12 px; el activo en `--primary-text`. Dentro de una conversación la barra se
   oculta: la conversación ocupa toda la pantalla con su botón «Atrás». Con la app instalada
   (`display-mode: standalone`) se ve igual; la barra de estado usa `themeColor` claro y oscuro.
@@ -602,7 +604,9 @@ shadcn no tiene (burbujas, calendario de la agenda, semáforos, barra inferior) 
   «Agente activo» (selector) con el interruptor de IA; chips «Modo pruebas» (`flask-conical`, warning) y
   «Demo»; último mensaje («hace 3 min»); pie «Abrir panel».
 - **Tarjeta de agente:** avatar (imagen o iniciales sobre `--ai-soft`), nombre, descripción en una línea,
-  modelo en mono pequeño y «Activo en:» con chips de canal.
+  modelo en mono pequeño y «Activo en:» con chips de canal. Un agente interno no tiene canales: en su lugar,
+  «Responde al equipo en «Asistentes»». Lo interno (un agente o una base de conocimiento) se marca con una
+  insignia `outline` «Interno» o «Interna», sin color propio.
 - **Indicadores (KPI):** etiqueta `caption`, cifra `kpi` y, debajo, el dato que la explica en `caption`
   («78 % en menos de 3 min», «estimado»).
 
@@ -690,6 +694,20 @@ Cada pantalla y cada bloque que carga datos tiene los cuatro:
   «Elegir plantilla».
 - **Tiempo real:** los mensajes nuevos entran sin mover lo que se está leyendo; si no estás al final,
   aparece «Nuevos mensajes ↓». «Escribiendo…» con tres puntos (estáticos si se reduce el movimiento).
+
+### Asistentes (conversación con un agente interno)
+
+- Mismas burbujas que la bandeja, con los papeles de «Probar agente»: la persona que pregunta a la izquierda
+  (`--muted`, marca «Tú») y el agente a la derecha (`--ai-soft`, `bot` + «IA · {nombre}»). La respuesta se pinta
+  con el formato sencillo de las guías (listas, negritas), siempre como texto.
+- Bajo cada respuesta con fuentes, «Ver la fuente» / «Ver las N fuentes» (`file-text`) despliega la lista
+  numerada: documento, sección, página y base.
+- A la izquierda (debajo del chat en móvil), «Nueva conversación» y «Tus conversaciones»; la abierta, en
+  `--primary-soft` con franja izquierda `--primary`, como la fila seleccionada de la bandeja. Borrar una (botón de
+  icono `trash-2` con tooltip) pide confirmación. La lista y el chat siguen «Cargar más» de las listas: «Cargar más»
+  bajo las conversaciones y «Cargar mensajes anteriores» arriba del chat. Al pie, con `lock`, «Solo tú ves tus
+  conversaciones».
+- Mientras responde: «Buscando en los documentos…» con los tres puntos (estáticos si se reduce el movimiento).
 
 ### Agenda (calendario)
 

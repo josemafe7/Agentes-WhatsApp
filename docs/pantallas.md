@@ -12,7 +12,7 @@ Cómo leer cada ficha:
 
 - **Ruta:** en español y en minúsculas. Los filtros y la vista van en la URL (`?estado=pendiente`), para
   poder compartir y volver atrás.
-- **Fase:** la primera fase de la especificación en la que aparece (0 a 7). Algunas partes llegan después y se
+- **Fase:** la primera fase de la especificación en la que aparece (0 a 10). Algunas partes llegan después y se
   indica.
 - **Estados:** los textos que importan. Lo que no se dice sigue las reglas comunes de `DESIGN.md` (esqueleto
   al cargar, aviso con «Reintentar» si falla, pantalla «Sin permiso» si el rol no llega).
@@ -20,7 +20,8 @@ Cómo leer cada ficha:
 ## Quién ve qué
 
 Resume «Quién puede hacer qué» de `docs/spec.md`, que es la que manda. ✔ = ve y usa · Ver = solo lectura ·
-Suyos = solo lo de sus canales ([PER-02]) · — = no entra.
+Suyos = solo lo de sus canales ([PER-02]) · Con acceso = solo los agentes internos que le han dado ([INT-05]) ·
+— = no entra.
 
 | Sección | Propietario | Administrador | Supervisor | Agente | Solo lectura |
 |---|---|---|---|---|---|
@@ -28,9 +29,12 @@ Suyos = solo lo de sus canales ([PER-02]) · — = no entra.
 | Contactos | ✔ | ✔ | ✔ sin exportar ni borrar | Suyos, sin fusionar, exportar ni borrar | Ver |
 | Agenda: citas | ✔ | ✔ | ✔ con bloqueos y ausencias | ✔ sin bloqueos ni ausencias | Ver |
 | Agenda: servicios, recursos, configuración | ✔ | ✔ | Solo las ausencias de los recursos | — | — |
+| Asistentes | ✔ todos | ✔ todos | Con acceso | Con acceso | — |
 | Agentes | ✔ | ✔ | Ver y Probar | — | Ver |
+| Agentes internos (crear, configurar y dar acceso) | ✔ | ✔ | — | — | — |
 | Herramientas HTTP | ✔ | ✔ | — | — | — |
 | Conocimiento | ✔ | ✔ | ✔ | — | Ver |
+| Bases de conocimiento internas | ✔ | ✔ | — | — | — |
 | Canales | ✔ | ✔ | — | — | Ver (estado y panel, sin credenciales) |
 | Informes | ✔ | ✔ | ✔ | — | Ver |
 | Ajustes: Negocio, Horario, Correo del sistema, WhatsApp, Privacidad, Notificaciones, Diagnóstico, Actividad | ✔ | ✔ | — | — | — |
@@ -44,23 +48,26 @@ Pantallas por rol:
 - **Administrador** (ordenador): todas; no puede cambiar, desactivar ni borrar al propietario ni traspasar la
   propiedad ([PER-05], [PER-06]).
 - **Supervisor** (ordenador): Bandeja y conversación (todas), Contactos, Agenda (citas, bloqueos y ausencias,
-  sin configuración), Agentes (ver y Probar), Conocimiento, Informes, Mi cuenta, Acerca de y Ayuda. Nada de
+  sin configuración), Asistentes (los agentes internos que le han dado), Agentes (ver y Probar, solo los de
+  clientes), Conocimiento (solo las bases para clientes), Informes, Mi cuenta, Acerca de y Ayuda. Nada de
   Canales ni del resto de Ajustes ([PER-04]).
 - **Agente** (móvil como app instalada y ordenador): Bandeja, conversación y Contactos de sus canales, Agenda
-  (citas), Mi cuenta, Acerca de y Ayuda.
+  (citas), Asistentes (los agentes internos que le han dado), Mi cuenta, Acerca de y Ayuda.
 - **Solo lectura** (ordenador): Bandeja, Contactos, Agenda (citas), Agentes, Conocimiento, Canales (estado y
   panel, sin credenciales) e Informes, siempre sin botones de acción; Mi cuenta, Acerca de y Ayuda. No ve
-  ningún secreto ni el registro de actividad ([PER-03]).
+  ningún secreto ni el registro de actividad ([PER-03]), ni los agentes internos, sus bases o «Asistentes»
+  ([INT-05], [INT-15]).
 - **Sin sesión:** inicio de sesión, recuperación, invitación, asistente de arranque (solo en una instalación
   vacía), páginas legales, `/widget-demo` y el chat web en la web del negocio.
 
 ## Navegación
 
-- **Menú lateral** (ordenador): Bandeja · Contactos · Agenda | Agentes · Conocimiento · Canales | Informes ·
-  Ajustes. Solo aparecen las secciones del rol. Abajo, menú de usuario: Mi cuenta, Ayuda, Tema (Claro,
-  Oscuro, Sistema), Cerrar sesión. Se pliega a iconos.
-- **Barra inferior** (móvil y PWA): Bandeja · Agenda · Contactos · Más (el resto de secciones del rol, Mi
-  cuenta y Ayuda). Se oculta dentro de una conversación.
+- **Menú lateral** (ordenador): Bandeja · Contactos · Agenda · Asistentes | Agentes · Conocimiento · Canales |
+  Informes · Ajustes. Solo aparecen las secciones del rol, y «Asistentes» solo a quien tiene algún agente interno
+  que usar ([INT-06]). Abajo, menú de usuario: Mi cuenta, Ayuda, Tema (Claro, Oscuro, Sistema), Cerrar sesión. Se
+  pliega a iconos.
+- **Barra inferior** (móvil y PWA): Bandeja · Agenda · Contactos · Más (el resto de secciones del rol, también
+  «Asistentes», Mi cuenta y Ayuda). Se oculta dentro de una conversación.
 - **Barra superior:** migas de pan y campana de notificaciones (popover con traspasos pendientes, canales con
   error, citas creadas por la IA; cada una lleva a su pantalla; «Marcar todo como leído»).
 - **Entrada:** `/` lleva a `/setup` si no hay propietario, a `/login` sin sesión y, con sesión, a `/bandeja`
@@ -69,6 +76,8 @@ Pantallas por rol:
   - Aviso «Añade tu clave de OpenRouter» → Ajustes › IA → vuelve a donde estaba.
   - Bandeja → conversación → ficha del contacto → «Nueva cita» → cita creada (visible en Agenda).
   - Conversación → «Ver fuentes» → documento de la base de conocimiento.
+  - Agentes → «Nuevo agente» → «Interno» → Conocimiento (una base interna) → Acceso → la persona lo encuentra
+    en Asistentes y pregunta.
   - Respuesta de una persona en la conversación → «Convertir en FAQ» → base elegida.
   - Canales → «Añadir canal» → asistente → panel del canal → «Probar» (simulador o `/widget-demo`).
   - Tarjeta de canal «Agente activo» ↔ pestaña Canales del agente («Activo aquí»).
@@ -265,21 +274,54 @@ Pestañas General, Servicios y Recursos (el supervisor solo ve Recursos, para la
 - **Acciones:** guardar (programa o quita el trabajo de los recordatorios).
 - **Áreas:** Agenda (avisos), WhatsApp (plantillas).
 
+## Asistentes
+
+Los agentes internos, vistos por quien los usa (fase 10). Cómo se crean y a quién se dan: «Editor del agente».
+
+### Asistentes · `/asistentes` · fase 10
+
+- **Quién:** propietario y administrador (todos los agentes internos), supervisor y agente (los que les han dado).
+  Solo lectura no entra.
+- **Se ve:** una tarjeta por agente interno que la persona puede usar, con su avatar, nombre y descripción.
+- **Acciones:** abrir uno para preguntarle.
+- **Áreas:** Agentes internos.
+- **Estados:** vacío para quien los crea: «Crea tu primer agente interno» con «Nuevo agente»; para el resto:
+  «Todavía no tienes asistentes · Cuando un administrador te dé acceso a un agente interno, aparecerá aquí».
+
+### Conversación con un asistente · `/asistentes/[id]` (la conversación abierta va en `?c=…`) · fase 10
+
+- **Se ve:** a un lado, «Tus conversaciones» con ese agente (las de esa persona, nunca las de otra) y «Nueva
+  conversación»; al otro, el chat: las preguntas a la izquierda («Tú») y las respuestas a la derecha («IA ·
+  nombre del agente»), cada una con «Ver la fuente» (documento, sección, página y base). Debajo de la lista, la
+  nota «Solo tú ves tus conversaciones».
+- **Acciones:** preguntar (Intro envía), seguir una conversación anterior, empezar otra, borrar una (con
+  confirmación), «Reintentar» si la IA ha fallado, «Cargar más» (cuando hay más de 50 conversaciones) y «Cargar
+  mensajes anteriores» (cuando la abierta pasa de 200 mensajes).
+- **Áreas:** Agentes internos, Conocimiento (búsqueda), Reglas de la plataforma.
+- **Estados:** sin clave de OpenRouter: aviso y no se puede enviar ([INT-11]); demasiadas preguntas seguidas o
+  tope del día: el mensaje lo dice y la pregunta no se envía ([INT-12]); un agente que no le han dado, o la
+  conversación de otra persona, por su dirección: «Esta página no existe».
+
 ## Agentes
 
 ### Agentes · `/agentes` · fase 1
 
-- **Se ve:** tarjetas de agentes con avatar, descripción, modelo y «Activo en:» sus canales.
+- **Se ve:** tarjetas de agentes con avatar, descripción, modelo y «Activo en:» sus canales. Con agentes internos
+  (fase 10), dos grupos: «Para clientes» e «Internos», estos con «Responde al equipo en «Asistentes»» en lugar de
+  los canales. Los internos solo los ven propietario y administrador.
 - **Acciones:** «Nuevo agente», «Herramientas HTTP» (propietario y administrador, fase 7), abrir, borrar (la
-  confirmación avisa si está activo en algún canal).
-- **Áreas:** Agentes, Asignación a canales.
+  confirmación avisa si está activo en algún canal; la de un agente interno, de que se borran las conversaciones
+  del equipo con él).
+- **Áreas:** Agentes, Asignación a canales, Agentes internos.
 - **Estados:** vacío: «Crea tu primer agente · Empieza desde la plantilla de tu sector».
 
 ### Nuevo agente · `/agentes/nuevo` · fase 1
 
-- **Se ve:** plantillas por sector, «En blanco» y «Generar desde la web del negocio o una descripción».
+- **Se ve:** «¿Para quién es?» («Para clientes» o «Interno, para tu equipo»; no se cambia después; fase 10). Para
+  clientes: plantillas por sector, «En blanco» y «Generar desde la web del negocio o una descripción». Interno:
+  solo el nombre (se crea en blanco).
 - **Acciones:** elegir y crear (lleva al editor).
-- **Áreas:** Agentes (plantillas), Instrucciones guiadas.
+- **Áreas:** Agentes (plantillas), Instrucciones guiadas, Agentes internos.
 
 ### Editor del agente · `/agentes/[id]` y pestañas · fase 1
 
@@ -304,8 +346,14 @@ Pestañas con ruta propia y barra «Cambios sin guardar»:
   la conversación de prueba) y «Borrar citas de prueba». El supervisor entra aquí aunque el resto del editor
   lo vea en solo lectura.
 - **Versiones** (`/versiones`): lista con fecha y autor; ver y restaurar.
+- **Agente interno** (fase 10): lleva la insignia «Interno» y sus pestañas son General, Instrucciones (sin
+  «Cuándo pasar a una persona» ni «Generar borrador con IA»), Modelo, Conocimiento (puede usar bases internas y
+  de clientes), **Acceso**, Probar (sin «Simular canal» ni citas de prueba) y Versiones. No tiene Herramientas,
+  Traspaso ni Canales: esas direcciones no existen para él.
+- **Acceso** (`/acceso`, solo agentes internos): «Todo el equipo» o «Personas concretas» (supervisores y agentes
+  activos, uno a uno); «Guardar acceso». Propietario y administradores pueden usarlo siempre.
 - **Áreas:** Agentes (editor), Modelos, Motor de respuesta, Reglas de la plataforma, Conocimiento,
-  Herramientas, Traspaso.
+  Herramientas, Traspaso, Agentes internos.
 - **Estados:** sin clave de OpenRouter: el selector de modelos y «Probar» explican que hace falta la clave y
   enlazan a Ajustes › IA; modelo no válido al guardar, con el motivo.
 
@@ -325,8 +373,10 @@ Pestañas con ruta propia y barra «Cambios sin guardar»:
 ### Bases de conocimiento · `/conocimiento` · fase 4
 
 - **Se ve:** bases con número de documentos y fragmentos, estado (lista, indexando, con errores), modelo de
-  embeddings, agentes que la usan y última actualización.
-- **Acciones:** «Nueva base» (diálogo con nombre y descripción), abrir.
+  embeddings, agentes que la usan y última actualización. Las internas (fase 10) llevan la insignia «Interna» y
+  solo las ven propietario y administrador.
+- **Acciones:** «Nueva base» (diálogo con nombre y descripción; propietario y administrador eligen además su
+  «Uso»: «Para clientes» o «Interna», que no se cambia después), abrir.
 - **Áreas:** Conocimiento (nivel 2).
 - **Estados:** vacío: «Crea una base de conocimiento · Sube documentos, webs o preguntas frecuentes para que tus
   agentes respondan con datos del negocio»; sin clave: aviso «Sin clave, la búsqueda va solo por texto».
@@ -500,7 +550,8 @@ apartado en Ayuda ([AJU-17]).
 - **Quién:** propietario, administrador, supervisor y solo lectura (el rol Agente no entra).
 - **Se ve:** periodo (el mes actual por defecto, otro mes o unas fechas, como mucho un año) y canal; indicadores:
   conversaciones, % resuelto por la IA, traspasos, tiempo hasta la primera respuesta humana tras un traspaso
-  (mediana y percentil 90) y % en menos de 3 min ([INF-05]), citas creadas por la IA, coste de IA y coste estimado
+  (mediana y percentil 90) y % en menos de 3 min ([INF-05]), citas creadas por la IA, coste de IA (con lo que de él
+  gastaron los agentes internos y cuántas preguntas respondieron, [INT-16]) y coste estimado
   de WhatsApp (US$, con los mensajes sin tarifa aparte); gráficos por canal, de los motivos de traspaso, de los
   tiempos de respuesta por día o por mes y de los costes de los últimos meses, cada uno con su tabla. Cómo se cuenta
   cada cifra: `docs/decisions/0023-como-se-cuentan-los-informes.md`.

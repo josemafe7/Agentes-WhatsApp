@@ -21,7 +21,10 @@ frecuentes) para que responda con tus datos y diga de dónde los saca, y cómo c
 ## 1. Crear un agente
 
 1. Entra en **Agentes** y pulsa **«Nuevo agente»**.
-2. Elige cómo empezar:
+2. En **«¿Para quién es?»**, deja **«Para clientes»**. La otra opción, «Interno, para tu equipo», crea un agente que
+   responde a tu equipo con los documentos de la empresa y nunca habla con clientes: tiene su propia guía, «Los
+   agentes internos». El tipo no se puede cambiar después.
+3. Elige cómo empezar:
    - **Plantilla de tu sector** (recomendada): trae instrucciones, estilo y reglas para pasar a una persona
      pensadas para tu tipo de negocio.
    - **Plantilla de otro sector**: si el agente atiende algo distinto de lo habitual.
@@ -29,7 +32,7 @@ frecuentes) para que responda con tus datos y diga de dónde los saca, y cómo c
    - **Generar borrador con IA**: escribe la dirección de tu web o una descripción del negocio y la IA propone
      las instrucciones. Es solo una propuesta: la revisas y cambias lo que quieras antes de crear el agente.
      Si la web no se puede leer, la app lo dice y puedes usar una descripción.
-3. Ponle un **nombre** (por ejemplo, «Recepción») y pulsa **«Crear agente»**. Se abre su editor.
+4. Ponle un **nombre** (por ejemplo, «Recepción») y pulsa **«Crear agente»**. Se abre su editor.
 
 El agente nace con los modelos de IA por defecto de Ajustes › IA: uno principal y otro de respaldo, de otro
 proveedor, que responde si el principal falla.
@@ -191,7 +194,9 @@ En el agente, pestaña **Conocimiento** › «Archivos de contexto»:
 ### Crear una base y añadirle contenido
 
 1. Entra en **Conocimiento** y pulsa **«Nueva base»**. Ponle un nombre (por ejemplo, «Información del negocio») y,
-   si quieres, una descripción que solo ve tu equipo.
+   si quieres, una descripción que solo ve tu equipo. El propietario y los administradores eligen además su
+   **«Uso»**: deja «Para clientes» para una base que usarán los agentes que atienden clientes («Interna» es para los
+   agentes internos, y no se puede cambiar después).
 2. En la base, pulsa **«Añadir contenido»**:
    - **Archivos:** PDF, Word (`.docx`), Excel (`.xlsx`), CSV, TXT o Markdown, de hasta 25 MB cada uno. Puedes
      elegir o arrastrar varios a la vez y cada uno dice cómo ha ido. Los formatos antiguos `.xls` y `.doc` no se

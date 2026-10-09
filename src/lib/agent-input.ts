@@ -2,7 +2,7 @@
 // (src/data/agents.ts validates again). Spanish messages next to each field.
 import { z } from "zod";
 import { SYSTEM_TOOL_NAMES } from "./agent-tools";
-import { AGENT_KNOWLEDGE_MODES } from "./enums";
+import { AGENT_KNOWLEDGE_MODES, AUDIENCES } from "./enums";
 import { MODEL_ID_HINT, MODEL_ID_PATTERN } from "./openrouter/model-id";
 import { REASONING_EFFORTS } from "./openrouter/types";
 import type { AgentTemplate } from "./sectors";
@@ -98,8 +98,14 @@ export const agentUpdateSchema = z
   .strict();
 export type AgentUpdateInput = z.input<typeof agentUpdateSchema>;
 
-/** A new agent needs at least its name ([AGE-15]); everything else has a default. */
-export const agentCreateSchema = agentUpdateSchema.extend({ name: nameSchema });
+/**
+ * A new agent needs at least its name ([AGE-15]); everything else has a default. Who it is for is chosen here and
+ * only here: the update schema does not take it, so it never changes afterwards ([INT-01]).
+ */
+export const agentCreateSchema = agentUpdateSchema.extend({
+  name: nameSchema,
+  audience: z.enum(AUDIENCES, { error: "Elige «Para clientes» o «Interno»." }).optional(),
+});
 export type AgentCreateInput = z.input<typeof agentCreateSchema>;
 
 /** The editor's starting values from a sector template ([AGE-02], [ASI-08]). */

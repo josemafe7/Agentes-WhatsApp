@@ -157,6 +157,7 @@ async function rerank(client: OpenRouterClient, query: string, candidates: reado
     await recordAiRun({
       kind: "rerank",
       mode: run?.mode ?? "live",
+      audience: run?.audience,
       agentId: run?.agentId ?? null,
       conversationId: run?.conversationId ?? null,
       modelRequested: models.rerank,
@@ -170,6 +171,7 @@ async function rerank(client: OpenRouterClient, query: string, candidates: reado
     await recordAiRun({
       kind: "rerank",
       mode: run?.mode ?? "live",
+      audience: run?.audience,
       agentId: run?.agentId ?? null,
       conversationId: run?.conversationId ?? null,
       modelRequested: models.rerank,

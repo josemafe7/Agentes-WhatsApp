@@ -23,6 +23,7 @@ export default async function KnowledgePage() {
   const actor = await requirePageActor({ next: KNOWLEDGE_PATH });
   if (!can(actor, PERMISSIONS.knowledge.view)) return <NoPermission description={noPermissionDescription(actor.role)} />;
   const canManage = can(actor, PERMISSIONS.knowledge.manage);
+  const canCreateInternal = can(actor, PERMISSIONS.internal.knowledge);
   const [bases, profile, aiConfigured] = await Promise.all([listKnowledgeBases(actor), getBusinessProfile(actor), isAiConfigured()]);
 
   return (
@@ -30,7 +31,7 @@ export default async function KnowledgePage() {
       <PageHeader
         title="Conocimiento"
         description="Documentos, webs y preguntas frecuentes con los que responden tus agentes."
-        actions={canManage && bases.length > 0 ? <NewBaseDialog /> : null}
+        actions={canManage && bases.length > 0 ? <NewBaseDialog canCreateInternal={canCreateInternal} /> : null}
       />
       {!aiConfigured ? (
         <p role="note" className="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
@@ -44,7 +45,7 @@ export default async function KnowledgePage() {
             icon={BookOpen}
             title={canManage ? "Crea una base de conocimiento" : "Aún no hay bases de conocimiento"}
             description="Sube documentos, webs o preguntas frecuentes para que tus agentes respondan con datos del negocio."
-            action={canManage ? <NewBaseDialog /> : undefined}
+            action={canManage ? <NewBaseDialog canCreateInternal={canCreateInternal} /> : undefined}
           />
         </div>
       ) : (

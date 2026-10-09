@@ -8,7 +8,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { agentKnowledgeBases, agents, kbChunks, kbDocuments, knowledgeBases, messageRetrievals } from "@/db/schema";
 import { EMBEDDING_DIMENSIONS } from "@/db/schema/columns";
-import type { KbDocumentStatus, KbSearchMode } from "@/lib/enums";
+import { AUDIENCES, type Audience, type KbDocumentStatus, type KbSearchMode } from "@/lib/enums";
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
 import { getFileStorage, type FileStorage } from "@/server/adapters/file-storage";
@@ -18,6 +18,16 @@ import { cancelDocumentProcessing, cancelReindex } from "@/server/knowledge/queu
 import { startReindex } from "@/server/knowledge/reindex";
 import { deleteChunksWhere } from "@/server/knowledge/store";
 import { safeErrorMessage } from "@/server/redact";
+import {
+  AGENT_NOT_FOUND,
+  agentAction,
+  assertAgentAudience,
+  assertKnowledgeAudience,
+  INTERNAL_BASE_NOT_FOR_CUSTOMERS,
+  KNOWLEDGE_BASE_NOT_FOUND,
+  seesInternalAgents,
+  seesInternalKnowledge,
+} from "./agent-audience";
 import { writeAudit } from "./audit";
 import { assertCan } from "./guard";
 
@@ -26,6 +36,8 @@ export type KnowledgeBaseState = "empty" | "processing" | "reindexing" | "errors
 
 export type KnowledgeBaseSummary = {
   id: string;
+  /** team = internal base: only internal agents use it ([INT-04]). */
+  audience: Audience;
   name: string;
   description: string | null;
   embeddingModel: string;
@@ -53,11 +65,12 @@ function stateOf(summary: Pick<KnowledgeBaseSummary, "documentCount" | "processi
   return "ready";
 }
 
-async function summaries(kbIds?: readonly string[]): Promise<KnowledgeBaseSummary[]> {
+/** `actor` decides what is left out: internal bases and the names of internal agents, for who may not see them ([INT-15]). */
+async function summaries(actor: Actor, kbIds?: readonly string[]): Promise<KnowledgeBaseSummary[]> {
   const bases = await db
     .select()
     .from(knowledgeBases)
-    .where(kbIds ? inArray(knowledgeBases.id, [...kbIds]) : undefined)
+    .where(and(kbIds ? inArray(knowledgeBases.id, [...kbIds]) : undefined, seesInternalKnowledge(actor) ? undefined : eq(knowledgeBases.audience, "customers")))
     .orderBy(asc(knowledgeBases.name));
   if (bases.length === 0) return [];
   const ids = bases.map((base) => base.id);
@@ -77,13 +90,14 @@ async function summaries(kbIds?: readonly string[]): Promise<KnowledgeBaseSummar
       .select({ kbId: agentKnowledgeBases.knowledgeBaseId, id: agents.id, name: agents.name })
       .from(agentKnowledgeBases)
       .innerJoin(agents, eq(agents.id, agentKnowledgeBases.agentId))
-      .where(inArray(agentKnowledgeBases.knowledgeBaseId, ids))
+      .where(and(inArray(agentKnowledgeBases.knowledgeBaseId, ids), seesInternalAgents(actor) ? undefined : eq(agents.audience, "customers")))
       .orderBy(asc(agents.name)),
   ]);
   return bases.map((base) => {
     const docs = docCounts.filter((row) => row.kbId === base.id);
     const summary = {
       id: base.id,
+      audience: base.audience,
       name: base.name,
       description: base.description,
       embeddingModel: base.embeddingModel,
@@ -104,23 +118,33 @@ async function summaries(kbIds?: readonly string[]): Promise<KnowledgeBaseSummar
 /** System: a base by id or NotFoundError. */
 export async function loadKnowledgeBaseOrThrow(kbId: unknown) {
   const id = idSchema.safeParse(kbId);
-  if (!id.success) throw new NotFoundError("No se ha encontrado la base de conocimiento.");
+  if (!id.success) throw new NotFoundError(KNOWLEDGE_BASE_NOT_FOUND);
   const [row] = await db.select().from(knowledgeBases).where(eq(knowledgeBases.id, id.data));
-  if (!row) throw new NotFoundError("No se ha encontrado la base de conocimiento.");
+  if (!row) throw new NotFoundError(KNOWLEDGE_BASE_NOT_FOUND);
   return row;
+}
+
+/**
+ * A base for a person who already passed the knowledge permission: an internal one only exists for who manages
+ * internal bases ([INT-15]). Every function of the knowledge that takes an actor loads its base through here.
+ */
+export async function loadKnowledgeBaseFor(actor: Actor, kbId: unknown) {
+  const base = await loadKnowledgeBaseOrThrow(kbId);
+  assertKnowledgeAudience(actor, base);
+  return base;
 }
 
 // ─── Read ───────────────────────────────────────────────────────────────────────────────────────────────
 
 export async function listKnowledgeBases(actor: Actor): Promise<KnowledgeBaseSummary[]> {
   assertCan(actor, PERMISSIONS.knowledge.view);
-  return summaries();
+  return summaries(actor);
 }
 
 export async function getKnowledgeBase(actor: Actor, kbId: unknown): Promise<KnowledgeBaseSummary> {
   assertCan(actor, PERMISSIONS.knowledge.view);
-  const base = await loadKnowledgeBaseOrThrow(kbId);
-  const [summary] = await summaries([base.id]);
+  const base = await loadKnowledgeBaseFor(actor, kbId);
+  const [summary] = await summaries(actor, [base.id]);
   return summary;
 }
 
@@ -135,25 +159,29 @@ const descriptionSchema = z
   .optional()
   .transform((value) => value || null);
 
-export const knowledgeBaseCreateSchema = z.object({ name: nameSchema, description: descriptionSchema }).strict();
+/** Who the base is for is chosen when it is created and never changes: the update schema does not take it ([INT-04]). */
+export const knowledgeBaseCreateSchema = z
+  .object({ name: nameSchema, description: descriptionSchema, audience: z.enum(AUDIENCES, { error: "Elige «Para clientes» o «Interna»." }).default("customers") })
+  .strict();
 export const knowledgeBaseUpdateSchema = z.object({ name: nameSchema.optional(), description: descriptionSchema }).strict();
 
 /** A new base with the default embeddings model of Settings › IA (1536 dimensions, [CON-11]). */
 export async function createKnowledgeBase(actor: Actor, input: unknown): Promise<{ id: string }> {
   assertCan(actor, PERMISSIONS.knowledge.manage);
   const data = parseInput(knowledgeBaseCreateSchema, input);
+  if (data.audience === "team") assertCan(actor, PERMISSIONS.internal.knowledge);
   const { embeddings } = await resolveDefaultModels();
   const [row] = await db
     .insert(knowledgeBases)
-    .values({ name: data.name, description: data.description, embeddingModel: embeddings, embeddingDims: EMBEDDING_DIMENSIONS })
+    .values({ name: data.name, description: data.description, audience: data.audience, embeddingModel: embeddings, embeddingDims: EMBEDDING_DIMENSIONS })
     .returning({ id: knowledgeBases.id });
-  await writeAudit({ actor, action: "knowledge.base_created", targetType: "knowledge_base", targetId: row.id, metadata: { name: data.name } });
+  await writeAudit({ actor, action: "knowledge.base_created", targetType: "knowledge_base", targetId: row.id, metadata: { name: data.name, audience: data.audience } });
   return row;
 }
 
 export async function updateKnowledgeBase(actor: Actor, kbId: unknown, input: unknown): Promise<void> {
   assertCan(actor, PERMISSIONS.knowledge.manage);
-  const base = await loadKnowledgeBaseOrThrow(kbId);
+  const base = await loadKnowledgeBaseFor(actor, kbId);
   const data = parseInput(knowledgeBaseUpdateSchema, input);
   await db
     .update(knowledgeBases)
@@ -170,7 +198,7 @@ export const knowledgeBaseDeleteSchema = z.object({ confirmName: z.string() }).s
  */
 export async function deleteKnowledgeBase(actor: Actor, kbId: unknown, input: unknown, options: { storage?: FileStorage } = {}): Promise<void> {
   assertCan(actor, PERMISSIONS.knowledge.manage);
-  const base = await loadKnowledgeBaseOrThrow(kbId);
+  const base = await loadKnowledgeBaseFor(actor, kbId);
   const { confirmName } = parseInput(knowledgeBaseDeleteSchema, input);
   if (confirmName.trim() !== base.name.trim()) {
     throw new ValidationError(undefined, { confirmName: ["Escribe el nombre exacto de la base para borrarla."] });
@@ -209,7 +237,7 @@ export async function deleteFileQuietly(storage: FileStorage, key: string): Prom
 /** «Reindexar»: builds a new index of the base and switches to it when complete. */
 export async function reindexKnowledgeBase(actor: Actor, kbId: unknown): Promise<{ version: number }> {
   assertCan(actor, PERMISSIONS.knowledge.manage);
-  const base = await loadKnowledgeBaseOrThrow(kbId);
+  const base = await loadKnowledgeBaseFor(actor, kbId);
   const { version } = await startReindex(base.id);
   await writeAudit({ actor, action: "knowledge.base_reindexed", targetType: "knowledge_base", targetId: base.id, metadata: { version } });
   return { version };
@@ -224,7 +252,7 @@ const modelSchema = z.object({ model: z.string().trim().regex(/^[a-z0-9._~-]+\/[
  */
 export async function changeKnowledgeBaseModel(actor: Actor, kbId: unknown, input: unknown): Promise<{ version: number }> {
   assertCan(actor, PERMISSIONS.knowledge.manage);
-  const base = await loadKnowledgeBaseOrThrow(kbId);
+  const base = await loadKnowledgeBaseFor(actor, kbId);
   const { model } = parseInput(modelSchema, input);
   const { version } = await startReindex(base.id, { model });
   await writeAudit({ actor, action: "knowledge.model_changed", targetType: "knowledge_base", targetId: base.id, metadata: { model, version } });
@@ -249,17 +277,39 @@ export async function reindexAllKnowledgeBases(actor: Actor, input: unknown = {}
 
 export type AgentKnowledgeBases = { selected: { id: string; name: string }[]; available: { id: string; name: string }[] };
 
-/** The bases of an agent and all the bases that can be chosen. */
+/** Ids of the internal bases, for who may see them ([INT-15]): nobody else learns that there are any. */
+export async function listInternalKnowledgeBaseIds(actor: Actor): Promise<string[]> {
+  if (!seesInternalKnowledge(actor)) return [];
+  const rows = await db.select({ id: knowledgeBases.id }).from(knowledgeBases).where(eq(knowledgeBases.audience, "team"));
+  return rows.map((row) => row.id);
+}
+
+async function loadAgentAudience(agentId: string): Promise<{ id: string; audience: Audience }> {
+  const [agent] = await db.select({ id: agents.id, audience: agents.audience }).from(agents).where(eq(agents.id, agentId));
+  if (!agent) throw new NotFoundError(AGENT_NOT_FOUND);
+  return agent;
+}
+
+/**
+ * The bases of an agent and all the bases it can be given: an agent for customers, only bases for customers; an
+ * internal one, every base ([INT-04]).
+ */
 export async function listAgentKnowledgeBases(actor: Actor, agentId: unknown): Promise<AgentKnowledgeBases> {
   assertCan(actor, PERMISSIONS.agents.view);
-  const id = parseInput(idSchema, agentId);
+  const agent = await loadAgentAudience(parseInput(idSchema, agentId));
+  assertAgentAudience(actor, agent);
+  const columns = { id: knowledgeBases.id, name: knowledgeBases.name };
   const [all, selected] = await Promise.all([
-    db.select({ id: knowledgeBases.id, name: knowledgeBases.name }).from(knowledgeBases).orderBy(asc(knowledgeBases.name)),
     db
-      .select({ id: knowledgeBases.id, name: knowledgeBases.name })
+      .select(columns)
+      .from(knowledgeBases)
+      .where(agent.audience === "team" && seesInternalKnowledge(actor) ? undefined : eq(knowledgeBases.audience, "customers"))
+      .orderBy(asc(knowledgeBases.name)),
+    db
+      .select(columns)
       .from(agentKnowledgeBases)
       .innerJoin(knowledgeBases, eq(knowledgeBases.id, agentKnowledgeBases.knowledgeBaseId))
-      .where(eq(agentKnowledgeBases.agentId, id))
+      .where(eq(agentKnowledgeBases.agentId, agent.id))
       .orderBy(asc(agentKnowledgeBases.createdAt)),
   ]);
   return { selected, available: all };
@@ -267,16 +317,22 @@ export async function listAgentKnowledgeBases(actor: Actor, agentId: unknown): P
 
 export const agentKnowledgeBasesSchema = z.object({ kbIds: z.array(idSchema).max(50, "Como mucho 50 bases.") }).strict();
 
-/** Which bases an agent searches ([CON-03]): only these. */
+/**
+ * Which bases an agent searches ([CON-03]): only these. An internal base is refused for an agent that answers
+ * customers, and nothing changes ([INT-04]).
+ */
 export async function setAgentKnowledgeBases(actor: Actor, agentId: unknown, input: unknown): Promise<void> {
   assertCan(actor, PERMISSIONS.agents.manage);
-  const id = parseInput(idSchema, agentId);
+  const agent = await loadAgentAudience(parseInput(idSchema, agentId));
+  assertCan(actor, agentAction(agent.audience, PERMISSIONS.agents.manage));
+  const id = agent.id;
   const { kbIds } = parseInput(agentKnowledgeBasesSchema, input);
   const wanted = [...new Set(kbIds)];
-  const [agent] = await db.select({ id: agents.id }).from(agents).where(eq(agents.id, id));
-  if (!agent) throw new NotFoundError("No se ha encontrado el agente.");
-  const found = wanted.length > 0 ? await db.select({ id: knowledgeBases.id }).from(knowledgeBases).where(inArray(knowledgeBases.id, wanted)) : [];
+  const found = wanted.length > 0 ? await db.select({ id: knowledgeBases.id, audience: knowledgeBases.audience }).from(knowledgeBases).where(inArray(knowledgeBases.id, wanted)) : [];
   if (found.length !== wanted.length) throw new ValidationError(undefined, { kbIds: ["Alguna de las bases ya no existe. Recarga la página."] });
+  if (agent.audience === "customers" && found.some((base) => base.audience === "team")) {
+    throw new ValidationError(undefined, { kbIds: [INTERNAL_BASE_NOT_FOR_CUSTOMERS] });
+  }
   await db.transaction(async (tx) => {
     const current = await tx.select({ kbId: agentKnowledgeBases.knowledgeBaseId }).from(agentKnowledgeBases).where(eq(agentKnowledgeBases.agentId, id));
     const currentIds = new Set(current.map((row) => row.kbId));

@@ -4,7 +4,7 @@ import { NoPermission } from "@/components/no-permission";
 import { getPublicBusinessInfo } from "@/data/business";
 import { isAiConfigured } from "@/data/settings";
 import { instructionValues } from "../../_lib/instructions";
-import { INSTRUCTION_FIELDS } from "../../_lib/labels";
+import { instructionFieldsFor } from "../../_lib/labels";
 import { InstructionsForm } from "../_components/instructions-form";
 import { PromptPreview } from "../_components/prompt-preview";
 import { ReadOnlyList } from "../_components/read-only";
@@ -25,14 +25,14 @@ export default async function AgentInstructionsPage({ params }: PageProps) {
     return (
       <div className="grid gap-6">
         <div>
-          <PromptPreview agentId={agent.id} />
+          <PromptPreview agentId={agent.id} withChannels={agent.audience !== "team"} />
         </div>
-        <ReadOnlyList items={INSTRUCTION_FIELDS.map((field) => ({ label: field.label, value: initial[field.key] }))} />
+        <ReadOnlyList items={instructionFieldsFor(agent.audience).map((field) => ({ label: field.label, value: initial[field.key] }))} />
       </div>
     );
   }
 
   // The business web (Ajustes › Negocio) is proposed for «Generar desde la web»: public data of the business.
   const [{ website }, aiConfigured] = await Promise.all([getPublicBusinessInfo(), isAiConfigured()]);
-  return <InstructionsForm key={JSON.stringify(initial)} agentId={agent.id} initial={initial} businessWebsite={website} aiConfigured={aiConfigured} />;
+  return <InstructionsForm key={JSON.stringify(initial)} agentId={agent.id} audience={agent.audience} initial={initial} businessWebsite={website} aiConfigured={aiConfigured} />;
 }

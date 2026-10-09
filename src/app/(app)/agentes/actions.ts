@@ -32,7 +32,11 @@ export async function createAgentAction(input: unknown): Promise<ActionResult<{ 
       if (request.tone !== undefined) overrides.tone = request.tone;
     }
     const agent =
-      request.source === "blank" ? await createAgent(actor, overrides) : await createAgentFromTemplate(actor, request.sector, overrides);
+      request.source === "internal"
+        ? await createAgent(actor, { ...overrides, audience: "team" })
+        : request.source === "blank"
+          ? await createAgent(actor, overrides)
+          : await createAgentFromTemplate(actor, request.sector, overrides);
     revalidatePath(AGENTS_PATH);
     return ok({ id: agent.id }, "Agente creado.");
   } catch (error) {

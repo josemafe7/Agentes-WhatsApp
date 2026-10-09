@@ -20,6 +20,7 @@ import { notify } from "@/server/notifications/notify";
 import { sendOutbound } from "@/server/outbound/send";
 import { publishConversationEvent, type ConversationChange } from "@/server/realtime/events";
 import { listActiveTeam } from "@/server/team";
+import { assertAnswersCustomers } from "./agent-audience";
 import { writeAudit } from "./audit";
 import { loadConversationFor, type ScopedConversation } from "./conversation-scope";
 
@@ -229,6 +230,8 @@ export async function setConversationAgent(actor: Actor, input: unknown): Promis
   if (data.agentId) {
     const [agent] = await db.select({ id: agents.id }).from(agents).where(eq(agents.id, data.agentId));
     if (!agent) throw new NotFoundError("No se ha encontrado el agente.");
+    // An internal agent never answers customers ([INT-03]).
+    await assertAnswersCustomers(db, agent.id, "agentId");
   }
   await db.update(conversations).set({ agentOverrideId: data.agentId, updatedAt: new Date() }).where(eq(conversations.id, conversation.id));
   await writeAudit({ actor, action: "conversation.agent_changed", targetType: "conversation", targetId: conversation.id, metadata: { agentId: data.agentId } });

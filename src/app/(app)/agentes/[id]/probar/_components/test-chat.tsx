@@ -40,13 +40,15 @@ type TestChatProps = {
   aiConfigured: boolean;
   /** What the no-key note offers: "manage" links to Ajustes › IA, "ask" tells to ask the owner ([ARR-14]). */
   keyHelp: "manage" | "ask";
+  /** An internal agent answers the team, not customers: no channel to simulate ([INT-13]). */
+  internal?: boolean;
 };
 
 /**
  * «Probar agente» ([PRU-01]–[PRU-03], [PRU-06], [PRU-07]). The conversation lives only here: each send carries the
  * transcript, and «Empezar de nuevo» simply forgets it.
  */
-export function TestChat({ agentId, agentName, aiConfigured, keyHelp }: TestChatProps) {
+export function TestChat({ agentId, agentName, aiConfigured, keyHelp, internal = false }: TestChatProps) {
   const [channel, setChannel] = useState<SimulatedChannel>("whatsapp");
   const [items, setItems] = useState<ChatItem[]>([]);
   const [draft, setDraft] = useState("");
@@ -132,27 +134,31 @@ export function TestChat({ agentId, agentName, aiConfigured, keyHelp }: TestChat
     <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <Card className="gap-0 py-0">
         <CardHeader className="flex flex-col gap-3 border-b py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <span id="simular-canal" className="text-sm font-medium">
-              Simular canal
-            </span>
-            <ToggleGroup
-              type="single"
-              variant="outline"
-              value={channel}
-              onValueChange={(value) => {
-                if (isSimulatedChannel(value)) setChannel(value);
-              }}
-              aria-labelledby="simular-canal"
-            >
-              {SIMULATED_CHANNEL_OPTIONS.map(({ value, label, icon: Icon }) => (
-                <ToggleGroupItem key={value} value={value} className="px-3 pointer-coarse:min-h-11">
-                  <Icon aria-hidden />
-                  {label}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          </div>
+          {internal ? (
+            <p className="text-sm text-muted-foreground">Responde como en «Asistentes». Aquí no se guarda la conversación.</p>
+          ) : (
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <span id="simular-canal" className="text-sm font-medium">
+                Simular canal
+              </span>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                value={channel}
+                onValueChange={(value) => {
+                  if (isSimulatedChannel(value)) setChannel(value);
+                }}
+                aria-labelledby="simular-canal"
+              >
+                {SIMULATED_CHANNEL_OPTIONS.map(({ value, label, icon: Icon }) => (
+                  <ToggleGroupItem key={value} value={value} className="px-3 pointer-coarse:min-h-11">
+                    <Icon aria-hidden />
+                    {label}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
+          )}
           <Button type="button" variant="outline" onClick={reset} disabled={items.length === 0 && !pending}>
             <RotateCcw aria-hidden />
             Empezar de nuevo
@@ -166,12 +172,14 @@ export function TestChat({ agentId, agentName, aiConfigured, keyHelp }: TestChat
                 <Bot aria-hidden className="size-6 text-muted-foreground" />
                 <p className="font-medium">Escribe un mensaje para empezar</p>
                 <p className="max-w-sm text-sm text-muted-foreground">
-                  Prueba preguntas de tus clientes y cambia el canal para ver cómo responde en cada uno.
+                  {internal
+                    ? "Prueba las preguntas que haría tu equipo y mira de qué documentos saca cada respuesta."
+                    : "Prueba preguntas de tus clientes y cambia el canal para ver cómo responde en cada uno."}
                 </p>
               </div>
             ) : null}
             {items.map((item) => {
-              if (item.kind === "contact") return <ContactBubble key={item.id} text={item.text} />;
+              if (item.kind === "contact") return <ContactBubble key={item.id} text={item.text} internal={internal} />;
               if (item.kind === "error")
                 return <ErrorLine key={item.id} message={item.message} onRetry={item === items.at(-1) && !noKey ? retry : undefined} pending={pending} />;
               return (
@@ -179,6 +187,7 @@ export function TestChat({ agentId, agentName, aiConfigured, keyHelp }: TestChat
                   key={item.id}
                   agentName={agentName}
                   reply={item.reply}
+                  internal={internal}
                   selected={selected?.id === item.id}
                   onShowDetails={() => showDetails(item.id)}
                 />
@@ -197,7 +206,7 @@ export function TestChat({ agentId, agentName, aiConfigured, keyHelp }: TestChat
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={onKeyDown}
-                placeholder={noKey ? "Sin clave de OpenRouter el agente no responde" : "Escribe como si fueras un cliente…"}
+                placeholder={noKey ? "Sin clave de OpenRouter el agente no responde" : internal ? "Escribe como si fueras una persona del equipo…" : "Escribe como si fueras un cliente…"}
                 maxLength={TEST_CHAT_LIMITS.maxMessageChars}
                 rows={1}
                 disabled={noKey}
@@ -239,20 +248,20 @@ export function TestChat({ agentId, agentName, aiConfigured, keyHelp }: TestChat
   );
 }
 
-function ContactBubble({ text }: { text: string }) {
+function ContactBubble({ text, internal }: { text: string; internal: boolean }) {
   return (
     <div className="flex justify-start">
       <div className="max-w-[85%] space-y-1">
-        <p className="text-xs text-muted-foreground">Tú, como cliente</p>
+        <p className="text-xs text-muted-foreground">{internal ? "Tú, como persona del equipo" : "Tú, como cliente"}</p>
         <p className="rounded-2xl rounded-bl-sm bg-muted px-3 py-2 break-words whitespace-pre-wrap">{text}</p>
       </div>
     </div>
   );
 }
 
-type AiBubbleProps = { agentName: string; reply: TestReply; selected: boolean; onShowDetails: () => void };
+type AiBubbleProps = { agentName: string; reply: TestReply; internal: boolean; selected: boolean; onShowDetails: () => void };
 
-function AiBubble({ agentName, reply, selected, onShowDetails }: AiBubbleProps) {
+function AiBubble({ agentName, reply, internal, selected, onShowDetails }: AiBubbleProps) {
   return (
     <div className="space-y-2">
       <div className="flex justify-end">
@@ -269,8 +278,12 @@ function AiBubble({ agentName, reply, selected, onShowDetails }: AiBubbleProps) 
                 {call.label}
               </span>
             ))}
-            <span>{simulatedChannelLabel(reply.channel)}</span>
-            <span aria-hidden>·</span>
+            {internal ? null : (
+              <>
+                <span>{simulatedChannelLabel(reply.channel)}</span>
+                <span aria-hidden>·</span>
+              </>
+            )}
             <span>{formatNumber(reply.usage.totalTokens)} tokens</span>
             <span aria-hidden>·</span>
             <span>{formatCost(reply.costUsd)}</span>

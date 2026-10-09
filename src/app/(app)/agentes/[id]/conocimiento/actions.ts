@@ -4,8 +4,9 @@
 // The search mode is saved with the rest of the agent (saveAgentAction, a new version).
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { getAgent } from "@/data/agents";
 import { addKnowledgeText } from "@/data/knowledge-documents";
-import { createKnowledgeBase, listAgentKnowledgeBases, setAgentKnowledgeBases } from "@/data/knowledge";
+import { createKnowledgeBase, listAgentKnowledgeBases, listInternalKnowledgeBaseIds, setAgentKnowledgeBases } from "@/data/knowledge";
 import {
   createAgentContextFileFromText,
   createAgentContextFileFromUpload,
@@ -148,15 +149,19 @@ export async function moveContextFileToBaseAction(input: unknown): Promise<Actio
     const { agentId, fileId, kbId: chosenId, newBaseName } = parsed.data;
     if (!chosenId && newBaseName === undefined) return fail(INVALID, { kbId: ["Elige una base."] });
     const file = await contextFileOfAgent(actor, agentId, fileId);
+    // The text of an internal agent only goes to an internal base: one for customers would let the agents that
+    // answer customers read it ([INT-04]).
+    const { audience } = await getAgent(actor, agentId);
 
     let base: { id: string; name: string };
     if (chosenId) {
-      const found = (await listAgentKnowledgeBases(actor, agentId)).available.find((candidate) => candidate.id === chosenId);
+      const internalIds = await listInternalKnowledgeBaseIds(actor);
+      const found = (await listAgentKnowledgeBases(actor, agentId)).available.find((candidate) => candidate.id === chosenId && internalIds.includes(candidate.id) === (audience === "team"));
       if (!found) return fail(BASE_NOT_FOUND, { kbId: [BASE_NOT_FOUND] });
       base = found;
     } else {
       const name = newBaseName ?? "";
-      base = { id: (await createKnowledgeBase(actor, { name })).id, name: name.trim() };
+      base = { id: (await createKnowledgeBase(actor, { name, audience })).id, name: name.trim() };
     }
 
     await addKnowledgeText(actor, base.id, { title: file.title, text: file.contentMd });

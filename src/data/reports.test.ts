@@ -17,7 +17,7 @@ import {
   handoffEvents,
   messages,
 } from "@/db/schema";
-import type { AiRunKind, BookingSource, BookingStatus, ChannelType, HandoffTrigger } from "@/lib/enums";
+import type { AiRunKind, Audience, BookingSource, BookingStatus, ChannelType, HandoffTrigger } from "@/lib/enums";
 import { at, createHairdresser, NOW, TZ } from "@/server/booking/test-helpers";
 import { AuthError, ValidationError } from "@/server/errors";
 import { actorFor, createChannel, createContactWithIdentity, createConversation, createMessage } from "@/test/factories";
@@ -69,13 +69,14 @@ async function handoff(conversationId: string, options: HandoffOptions) {
   });
 }
 
-async function aiRun(options: { at: string; costUsd: number | null; conversationId?: string; isTest?: boolean; kind?: AiRunKind; ok?: boolean }) {
+async function aiRun(options: { at: string; costUsd: number | null; conversationId?: string; isTest?: boolean; kind?: AiRunKind; ok?: boolean; audience?: Audience }) {
   const createdAt = at(options.at);
   await db.insert(aiRuns).values({
     kind: options.kind ?? "chat",
     conversationId: options.conversationId ?? null,
     costUsd: options.costUsd,
     isTest: options.isTest ?? false,
+    audience: options.audience ?? "customers",
     ok: options.ok ?? true,
     createdAt,
     updatedAt: createdAt,
@@ -530,6 +531,32 @@ describe("[INF-07] costs: the AI's, as OpenRouter reported it, and WhatsApp's, e
     expect(september.aiUsd).toBeCloseTo(0.0039, 10);
     expect(september.aiTestUsd).toBeCloseTo(0.0007, 10);
     expect(september.whatsappUnpriced).toBe(1);
+  });
+
+  it("[INT-16] says how much of the AI cost the internal agents spent and how many questions they answered", async () => {
+    const { wa } = await costFixture();
+    // Two answered questions, the search of one of them, a question the AI failed to answer and a test in the editor.
+    await aiRun({ at: "2026-09-14T09:00", costUsd: 0.0006, audience: "team" });
+    await aiRun({ at: "2026-09-14T09:05", costUsd: 0.0003, audience: "team" });
+    await aiRun({ at: "2026-09-14T09:00", costUsd: 0.0001, audience: "team", kind: "embedding" });
+    await aiRun({ at: "2026-09-14T09:10", costUsd: null, audience: "team", ok: false });
+    await aiRun({ at: "2026-09-14T09:20", costUsd: 0.0009, audience: "team", isTest: true });
+    // Another month: not in September's figures.
+    await aiRun({ at: "2026-08-20T09:00", costUsd: 0.005, audience: "team" });
+
+    const { costs } = await getReport(owner, {});
+    expect(costs.aiTeamUsd).toBeCloseTo(0.001, 10);
+    expect(costs.aiTeamQuestions).toBe(2);
+    // Part of the AI cost, not on top of it; the test of the editor goes with «Probar agente».
+    expect(costs.aiUsd).toBeCloseTo(0.0039 + 0.001, 10);
+    expect(costs.aiTestUsd).toBeCloseTo(0.0007 + 0.0009, 10);
+    const august = await getReport(owner, { month: "2026-08" });
+    expect(august.costs.aiTeamUsd).toBeCloseTo(0.005, 10);
+    expect(august.costs.aiTeamQuestions).toBe(1);
+
+    // The internal agents belong to no channel.
+    const whatsapp = await getReport(owner, { channelId: wa.id });
+    expect(whatsapp.costs).toMatchObject({ aiTeamUsd: 0, aiTeamQuestions: 0 });
   });
 
   it("with a channel chosen, only the AI of its conversations and its own WhatsApp messages", async () => {

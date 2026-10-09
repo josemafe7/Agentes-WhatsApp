@@ -17,6 +17,7 @@ import { CONTEXT_FILE_KINDS, detectKnowledgeFile, extractFileToMarkdown, KNOWLED
 import { splitPages } from "@/server/knowledge/pages";
 import { estimateTokens } from "@/server/knowledge/tokens";
 import { writeAudit } from "./audit";
+import { AGENT_NOT_FOUND, assertAgentAudience } from "./agent-audience";
 import { assertCan } from "./guard";
 import { deleteFileQuietly } from "./knowledge";
 
@@ -55,19 +56,23 @@ async function tokensOfAgent(agentId: string, exceptFileId?: string): Promise<nu
   return Number(row?.total ?? 0);
 }
 
-async function assertAgent(agentId: unknown): Promise<string> {
+/** The agent exists for this person: an internal one, only for who manages internal agents ([INT-15]). */
+async function assertAgent(actor: Actor, agentId: unknown): Promise<string> {
   const id = idSchema.safeParse(agentId);
-  if (!id.success) throw new NotFoundError("No se ha encontrado el agente.");
-  const [agent] = await db.select({ id: agents.id }).from(agents).where(eq(agents.id, id.data));
-  if (!agent) throw new NotFoundError("No se ha encontrado el agente.");
+  if (!id.success) throw new NotFoundError(AGENT_NOT_FOUND);
+  const [agent] = await db.select({ id: agents.id, audience: agents.audience }).from(agents).where(eq(agents.id, id.data));
+  if (!agent) throw new NotFoundError(AGENT_NOT_FOUND);
+  assertAgentAudience(actor, agent);
   return agent.id;
 }
 
-async function loadFileOrThrow(fileId: unknown) {
+async function loadFileOrThrow(actor: Actor, fileId: unknown) {
   const id = idSchema.safeParse(fileId);
   if (!id.success) throw new NotFoundError("No se ha encontrado el archivo de contexto.");
   const [row] = await db.select().from(agentContextFiles).where(eq(agentContextFiles.id, id.data));
   if (!row) throw new NotFoundError("No se ha encontrado el archivo de contexto.");
+  // The file of an internal agent, like the agent itself ([INT-15]).
+  await assertAgent(actor, row.agentId);
   return row;
 }
 
@@ -82,7 +87,7 @@ function assertWithinCap(othersTokens: number, tokens: number): void {
 
 export async function listAgentContextFiles(actor: Actor, agentId: unknown): Promise<{ files: ContextFileItem[]; budget: ContextFilesBudget }> {
   assertCan(actor, PERMISSIONS.agents.view);
-  const id = await assertAgent(agentId);
+  const id = await assertAgent(actor, agentId);
   const files = await db
     .select({
       id: agentContextFiles.id,
@@ -101,7 +106,7 @@ export async function listAgentContextFiles(actor: Actor, agentId: unknown): Pro
 
 export async function getAgentContextFile(actor: Actor, fileId: unknown): Promise<ContextFileDetail> {
   assertCan(actor, PERMISSIONS.agents.view);
-  const row = await loadFileOrThrow(fileId);
+  const row = await loadFileOrThrow(actor, fileId);
   return {
     id: row.id,
     agentId: row.agentId,
@@ -131,7 +136,7 @@ export const contextFileUploadSchema = z.object({
 /** Pasted text as a context file. */
 export async function createAgentContextFileFromText(actor: Actor, agentId: unknown, input: unknown): Promise<{ id: string; budget: ContextFilesBudget }> {
   assertCan(actor, PERMISSIONS.agents.manage);
-  const id = await assertAgent(agentId);
+  const id = await assertAgent(actor, agentId);
   const data = parseInput(contextFileTextSchema, input);
   const contentMd = normalizeText(data.contentMd);
   const tokens = estimateTokens(contentMd);
@@ -153,7 +158,7 @@ export async function createAgentContextFileFromUpload(
   options: { storage?: FileStorage } = {},
 ): Promise<{ id: string; budget: ContextFilesBudget }> {
   assertCan(actor, PERMISSIONS.agents.manage);
-  const id = await assertAgent(agentId);
+  const id = await assertAgent(actor, agentId);
   const data = parseInput(contextFileUploadSchema, input);
   if (data.bytes.byteLength === 0) throw new UnsupportedFileError(KNOWLEDGE_MESSAGES.emptyFile);
   if (data.bytes.byteLength > MAX_CONTEXT_FILE_BYTES) throw new UnsupportedFileError(KNOWLEDGE_MESSAGES.fileTooLarge(Math.round(MAX_CONTEXT_FILE_BYTES / 1024 / 1024)));
@@ -200,7 +205,7 @@ export async function createAgentContextFileFromUpload(
 /** Edits the title or the Markdown; the token count is recalculated and the cap checked again. */
 export async function updateAgentContextFile(actor: Actor, fileId: unknown, input: unknown): Promise<{ budget: ContextFilesBudget }> {
   assertCan(actor, PERMISSIONS.agents.manage);
-  const row = await loadFileOrThrow(fileId);
+  const row = await loadFileOrThrow(actor, fileId);
   const data = parseInput(contextFileUpdateSchema, input);
   const contentMd = data.contentMd !== undefined ? normalizeText(data.contentMd) : row.contentMd;
   if (!contentMd.trim()) throw new ValidationError(undefined, { contentMd: ["El archivo no puede quedar vacío: bórralo si ya no lo necesitas."] });
@@ -217,7 +222,7 @@ export async function updateAgentContextFile(actor: Actor, fileId: unknown, inpu
 
 export async function deleteAgentContextFile(actor: Actor, fileId: unknown, options: { storage?: FileStorage } = {}): Promise<void> {
   assertCan(actor, PERMISSIONS.agents.manage);
-  const row = await loadFileOrThrow(fileId);
+  const row = await loadFileOrThrow(actor, fileId);
   await db.delete(agentContextFiles).where(eq(agentContextFiles.id, row.id));
   await writeAudit({ actor, action: "agent.context_file_deleted", targetType: "agent", targetId: row.agentId, metadata: { fileId: row.id } });
   await deleteUnusedContextOriginals([row.sourceFileKey], options.storage);

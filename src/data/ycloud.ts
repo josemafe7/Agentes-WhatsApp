@@ -7,7 +7,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor } from "@/db";
-import { agents, channels, whatsappTemplates, type ChannelHealth } from "@/db/schema";
+import { channels, whatsappTemplates, type ChannelHealth } from "@/db/schema";
 import { phoneDigits } from "@/lib/meta/markets";
 import { can, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
@@ -23,8 +23,9 @@ import { runYCloudHealthCheck } from "@/server/channels/ycloud/jobs";
 import { cancelYCloudJobs, enqueueYCloudTemplatesSync, ensureYCloudHealthChecks } from "@/server/channels/ycloud/schedule";
 import { syncYCloudTemplates } from "@/server/channels/ycloud/templates";
 import { maskSecret } from "@/server/crypto";
-import { ConflictError, parseInput, RateLimitError, ValidationError } from "@/server/errors";
+import { ConflictError, parseInput, RateLimitError } from "@/server/errors";
 import { safeErrorMessage } from "@/server/redact";
+import { assertAnswersCustomers } from "./agent-audience";
 import { writeAudit } from "./audit";
 import { assertCan } from "./guard";
 import { loadWhatsAppChannel } from "./whatsapp";
@@ -116,12 +117,6 @@ export type ConnectYCloudResult =
   /** `warning`: the number is stored but YCloud cannot reach the app yet; «Revalidar» tries again. */
   | { status: "connected"; channelId: string; number: YCloudNumberView; receiving: boolean; warning: string | null };
 
-async function assertAgentExists(executor: Executor, agentId: string | null | undefined): Promise<void> {
-  if (!agentId) return;
-  const [agent] = await executor.select({ id: agents.id }).from(agents).where(eq(agents.id, agentId));
-  if (!agent) throw new ValidationError(undefined, { activeAgentId: ["Ese agente no existe."] });
-}
-
 /** The WhatsApp columns a number of YCloud fills. */
 const numberColumns = (number: YCloudPhoneNumber) => ({
   phoneNumberId: ycloudPhoneNumberId(number.phoneNumber),
@@ -188,7 +183,7 @@ export async function connectYCloudChannel(actor: Actor, input: unknown, deps: Y
   const now = deps.now?.() ?? new Date();
   const channelId = await db.transaction(async (tx) => {
     await assertWhatsAppNumberFree(tx, number.phoneNumber, { exceptChannelId: existing?.id ?? null });
-    await assertAgentExists(tx, data.activeAgentId);
+    await assertAnswersCustomers(tx, data.activeAgentId);
     const agent = data.activeAgentId === undefined ? {} : { activeAgentId: data.activeAgentId };
     const values = { ...numberColumns(number), name: data.name, connectionMode: "ycloud" as const, secretsEnc, status: "connecting" as const, aiEnabled: data.aiEnabled, ...agent, updatedAt: now };
     if (existing) {

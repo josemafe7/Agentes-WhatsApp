@@ -3,7 +3,7 @@
 // tsvector, both in the normal migrations. The `es_unaccent` text search configuration comes from drizzle/0000.
 import { sql } from "drizzle-orm";
 import { bigint, doublePrecision, halfvec, index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
-import { KB_DOCUMENT_STATUSES, KB_SEARCH_MODES, KB_SOURCE_TYPES } from "@/lib/enums";
+import { AUDIENCES, KB_DOCUMENT_STATUSES, KB_SEARCH_MODES, KB_SOURCE_TYPES } from "@/lib/enums";
 import { agents } from "./agents";
 import { user } from "./auth";
 import { bool, EMBEDDING_DIMENSIONS, id, timestamp, timestamps, tsvector } from "./columns";
@@ -13,6 +13,8 @@ export const DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small";
 
 export const knowledgeBases = pgTable("knowledge_bases", {
   id: id(),
+  /** team = internal base: only internal agents may use it, never one that answers customers ([INT-04]). */
+  audience: text("audience", { enum: AUDIENCES }).notNull().default("customers"),
   name: text("name").notNull(),
   description: text("description"),
   /** Model and size of the embeddings; changing them forces a re-index ([CON-13], [AJU-05]). */

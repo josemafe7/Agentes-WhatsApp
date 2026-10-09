@@ -8,6 +8,9 @@ import { z } from "zod";
 import { db, type Executor } from "@/db";
 import {
   account,
+  agentMembers,
+  assistantChats,
+  assistantMessages,
   channelMembers,
   channels,
   conversations,
@@ -121,6 +124,11 @@ export async function createFirstOwner(input: z.input<typeof firstOwnerSchema>):
 export async function deleteUserAccount(executor: Executor, userId: string): Promise<void> {
   await executor.update(conversations).set({ assignedUserId: null }).where(eq(conversations.assignedUserId, userId));
   await executor.delete(channelMembers).where(eq(channelMembers.userId, userId));
+  // Their access to internal agents and their conversations with them, which nobody else could read ([INT-10]).
+  await executor.delete(agentMembers).where(eq(agentMembers.userId, userId));
+  const chats = executor.select({ id: assistantChats.id }).from(assistantChats).where(eq(assistantChats.userId, userId));
+  await executor.delete(assistantMessages).where(inArray(assistantMessages.chatId, chats));
+  await executor.delete(assistantChats).where(eq(assistantChats.userId, userId));
   await executor.delete(notifications).where(eq(notifications.userId, userId));
   await executor.delete(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
   await executor.delete(userRoles).where(eq(userRoles.userId, userId));

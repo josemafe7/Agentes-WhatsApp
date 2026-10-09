@@ -1,6 +1,6 @@
 // AI agents, their versions, context files and custom HTTP tools ([AGE-*], [CON-01], [HER-11]).
 import { doublePrecision, index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
-import { AGENT_KNOWLEDGE_MODES, HTTP_METHODS, SECTORS } from "@/lib/enums";
+import { AGENT_KNOWLEDGE_MODES, AUDIENCES, HTTP_METHODS, SECTORS, TEAM_ACCESS_MODES } from "@/lib/enums";
 import { user } from "./auth";
 import { bool, EMPTY_JSON_ARRAY, EMPTY_JSON_OBJECT, EMPTY_ORDERED_JSON_OBJECT, id, json, orderedJson, timestamps } from "./columns";
 
@@ -29,6 +29,10 @@ export type AgentHandoffConfig = {
 
 export const agents = pgTable("agents", {
   id: id(),
+  /** customers = answers customers on the channels; team = internal agent for the team. Never changed ([INT-01]). */
+  audience: text("audience", { enum: AUDIENCES }).notNull().default("customers"),
+  /** Internal agents only: who of the team may use it ([INT-05]); `selected` = the people of agent_members. */
+  teamAccess: text("team_access", { enum: TEAM_ACCESS_MODES }).notNull().default("everyone"),
   name: text("name").notNull(),
   description: text("description"),
   avatarFileKey: text("avatar_file_key"),

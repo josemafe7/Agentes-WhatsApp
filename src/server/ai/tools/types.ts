@@ -3,6 +3,7 @@
 import "server-only";
 import type { z } from "zod";
 import type { AgentHandoffConfig } from "@/db/schema";
+import type { Audience } from "@/lib/enums";
 import type { KnowledgeRetrieval } from "@/server/knowledge/types";
 import type { OpenRouterDeps } from "../openrouter";
 
@@ -11,6 +12,8 @@ export type ToolMode = "test" | "live";
 export type ToolContext = {
   /** test = «Probar agente»: nothing real changes (bookings are marked «Prueba», hand-offs are simulated). */
   mode: ToolMode;
+  /** team = the run of an internal agent ([INT-07]); customers when omitted. */
+  audience?: Audience;
   agentId: string;
   conversationId: string | null;
   /** The only contact a tool may read or change ([HER-04]). */

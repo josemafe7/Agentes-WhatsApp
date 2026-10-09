@@ -192,3 +192,27 @@ describe("breadcrumb trail", () => {
     expect(sectionForPath("/")).toBeNull();
   });
 });
+
+describe("«Asistentes» [INT-05] [INT-06]", () => {
+  const withAssistants = (role: Role) => keys(visibleSections(actorFor(role), { hasAssistants: true }));
+
+  it("is in the menu only of who has an internal agent to use, after Agenda", () => {
+    expect(withAssistants("owner")).toEqual(["bandeja", "contactos", "agenda", "asistentes", "agentes", "conocimiento", "canales", "informes", "ajustes"]);
+    expect(withAssistants("admin")).toContain("asistentes");
+    expect(withAssistants("supervisor")).toEqual(["bandeja", "contactos", "agenda", "asistentes", "agentes", "conocimiento", "informes", "ajustes"]);
+    expect(withAssistants("agent")).toEqual(["bandeja", "contactos", "agenda", "asistentes", "ajustes"]);
+    // Without any assistant for them, nobody has the section.
+    for (const role of ["owner", "admin", "supervisor", "agent", "viewer"] as const) expect(keys(visibleSections(actorFor(role)))).not.toContain("asistentes");
+  });
+
+  it("«Solo lectura» never has it: that role cannot use internal agents", () => {
+    expect(withAssistants("viewer")).not.toContain("asistentes");
+  });
+
+  it("goes with the daily work, to /asistentes, and under «Más» on the phone", () => {
+    const sections = visibleSections(actorFor("agent"), { hasAssistants: true });
+    expect(sections.find((section) => section.key === "asistentes")).toMatchObject({ label: "Asistentes", href: "/asistentes", group: 0 });
+    expect(keys(splitMobileSections(sections).more)).toEqual(["asistentes", "ajustes"]);
+    expect(sectionForPath("/asistentes/0b6f2c3e-1111-4c1c-9a55-6a4f0f0b3a2d")?.key).toBe("asistentes");
+  });
+});

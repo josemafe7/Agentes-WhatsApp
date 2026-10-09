@@ -11,3 +11,4 @@ export * from "./agenda";
 // Prepared, not offered yet: services that need two resources at once ([AGD-07]).
 export * from "./agenda-prepared";
 export * from "./operations";
+export * from "./assistants";

@@ -6,13 +6,14 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { recordAiRun } from "@/data/ai-runs";
 import { EMBEDDING_DIMENSIONS } from "@/db/schema/columns";
+import type { Audience } from "@/lib/enums";
 import type { OpenRouterClient } from "@/lib/openrouter/client";
 import { isOpenRouterError } from "@/lib/openrouter/errors";
 import { EMBEDDING_BATCH_SIZE } from "./constants";
 import { KNOWLEDGE_MESSAGES, KnowledgeProcessingError } from "./errors";
 
 /** Who the embeddings were for, in ai_runs. */
-export type EmbeddingRunContext = { mode?: "test" | "live"; agentId?: string | null; conversationId?: string | null };
+export type EmbeddingRunContext = { mode?: "test" | "live"; agentId?: string | null; conversationId?: string | null; audience?: Audience };
 
 /** The model gave vectors of another size: nothing is stored ([CON-11]). */
 export class EmbeddingDimensionsError extends KnowledgeProcessingError {
@@ -46,6 +47,7 @@ export async function embedTexts(
       await recordAiRun({
         kind: "embedding",
         mode: options.run?.mode ?? "live",
+        audience: options.run?.audience,
         agentId: options.run?.agentId ?? null,
         conversationId: options.run?.conversationId ?? null,
         modelRequested: options.model,
@@ -61,6 +63,7 @@ export async function embedTexts(
       await recordAiRun({
         kind: "embedding",
         mode: options.run?.mode ?? "live",
+        audience: options.run?.audience,
         agentId: options.run?.agentId ?? null,
         conversationId: options.run?.conversationId ?? null,
         modelRequested: options.model,

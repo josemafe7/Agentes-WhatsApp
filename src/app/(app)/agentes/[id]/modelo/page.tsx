@@ -85,6 +85,7 @@ export default async function AgentModelPage({ params }: PageProps) {
         initial={initial}
         initialSupport={support}
         defaultMaxOutputTokens={DEFAULT_MAX_OUTPUT_TOKENS}
+        internal={agent.audience === "team"}
       />
     </div>
   );

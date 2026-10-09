@@ -14,7 +14,7 @@ import { providerOf } from "@/lib/openrouter/model-id";
 import type { Actor } from "@/lib/permissions";
 import { getSectorPreset } from "@/lib/sectors";
 import { DEMO_BUSINESSES } from "../../seed/businesses";
-import { buildDemoAgents, DEMO_AGENT_KEYS, demoAgentModels } from "../../seed/steps/agents";
+import { buildDemoAgents, DEMO_AGENT_KEYS, DEMO_INTERNAL_AGENT_NAME, demoAgentModels } from "../../seed/steps/agents";
 import { DEMO_USERS } from "../../seed/users";
 import { runSeedCommand } from "./seed-command";
 import { captureOutput, emptyDatabase } from "./testing";
@@ -29,8 +29,9 @@ async function seed(argv: string[] = []) {
   expect(code).toBe(0);
 }
 
+/** The demo agents that answer customers. The internal one ([INT-14]) has its own tests at the end. */
 async function agentRows() {
-  return db.select().from(agents).orderBy(asc(agents.createdAt));
+  return db.select().from(agents).where(eq(agents.audience, "customers")).orderBy(asc(agents.createdAt));
 }
 
 async function demoActor(role: "owner" | "admin"): Promise<Actor> {
@@ -223,5 +224,30 @@ describe("demoAgentModels [MOD-05]", () => {
     const pair = demoAgentModels({ chat: "google/gemini-3.1-pro", fallback: "google/gemini-3.1-flash-lite" });
     expect(pair.model).toBe("google/gemini-3.1-pro");
     expect(providerOf(pair.fallbackModel)).not.toBe("google");
+  });
+});
+
+describe("the demo's internal agent [INT-14]", () => {
+  it("«Asistente del equipo»: internal, for the whole team, with no tools of its own, hand-off or channel, and one saved version", async () => {
+    await seed();
+    const internal = await db.select().from(agents).where(eq(agents.audience, "team"));
+    expect(internal).toHaveLength(1);
+    const [agent] = internal;
+    expect(agent).toMatchObject({ name: DEMO_INTERNAL_AGENT_NAME, teamAccess: "everyone", systemTools: [], handoff: {}, templateSector: null, currentVersion: 1, knowledgeMode: "auto" });
+    expect(agent.instructions.role).toContain(DEMO_BUSINESSES.peluqueria.name);
+    // An internal agent has no «Cuándo pasar a una persona».
+    expect(agent.instructions.handoff).toBeUndefined();
+    expect(agent.model).toBe(DEFAULT_MODELS.chat);
+    // Never the agent of a channel ([INT-03]).
+    const active = await db.select({ activeAgentId: channels.activeAgentId, offHoursAgentId: channels.offHoursAgentId }).from(channels);
+    expect(active.some((channel) => channel.activeAgentId === agent.id || channel.offHoursAgentId === agent.id)).toBe(false);
+    expect(await listAgentVersions(await demoActor("owner"), agent.id)).toHaveLength(1);
+  });
+
+  it("is the same agent in every sector, named after that sector's business", async () => {
+    await seed(["--sector=restaurante"]);
+    const [agent] = await db.select().from(agents).where(eq(agents.audience, "team"));
+    expect(agent.name).toBe(DEMO_INTERNAL_AGENT_NAME);
+    expect(agent.instructions.role).toContain(DEMO_BUSINESSES.restaurante.name);
   });
 });

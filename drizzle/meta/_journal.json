@@ -29,6 +29,13 @@
       "when": 1791553235066,
       "tag": "0003_whatsapp_qr_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791563798691,
+      "tag": "0004_internal_agents",
+      "breakpoints": true
     }
   ]
 }

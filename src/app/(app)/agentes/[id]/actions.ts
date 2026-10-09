@@ -4,7 +4,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { setAgentChannelActive } from "@/data/agent-channels";
-import { getAgent, removeAgentAvatar, restoreAgentVersion, saveAgentAvatar, updateAgent } from "@/data/agents";
+import { getAgent, removeAgentAvatar, restoreAgentVersion, saveAgentAvatar, setAgentAccess, updateAgent } from "@/data/agents";
 import { MAX_LOGO_BYTES } from "@/data/business";
 import type { AgentInstructions } from "@/db/schema";
 import { fail, fromZodError, ok, type ActionResult } from "@/lib/action-result";
@@ -44,6 +44,22 @@ export async function saveAgentAction(agentId: unknown, input: unknown): Promise
     const agent = await updateAgent(actor, id.data, withAlwaysEnabledTools(input));
     revalidateAgent();
     return ok({ version: agent.currentVersion }, SAVED);
+  } catch (error) {
+    return toActionFailure(error);
+  }
+}
+
+/** «Acceso» of an internal agent ([INT-05]): the whole team or the people chosen. Not a version of the agent. */
+export async function saveAgentAccessAction(agentId: unknown, input: unknown): Promise<ActionResult> {
+  try {
+    const actor = await requirePermission(PERMISSIONS.internal.agents);
+    const id = idSchema.safeParse(agentId);
+    if (!id.success) return fail(NOT_FOUND);
+    await setAgentAccess(actor, id.data, input);
+    revalidateAgent();
+    // Who sees it in «Asistentes» changes with it.
+    revalidatePath("/asistentes", "layout");
+    return ok(undefined, "Acceso guardado.");
   } catch (error) {
     return toActionFailure(error);
   }
@@ -152,6 +168,7 @@ export async function previewAgentPromptAction(input: unknown): Promise<ActionRe
     const agent = await getAgent(actor, agentId);
     const [business, contextFiles] = await Promise.all([loadPromptBusinessData(), loadAgentContextFiles(agent.id)]);
     const built = buildPrompt({
+      audience: agent.audience,
       business: business.business,
       hours: business.hours,
       closures: business.closures,

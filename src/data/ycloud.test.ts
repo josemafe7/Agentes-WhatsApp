@@ -6,7 +6,7 @@ import type { Role } from "@/lib/enums";
 import { readYCloudConfig, readYCloudSecrets, ycloudWebhookUrl } from "@/server/channels/ycloud/config";
 import { YCLOUD_HEALTH_CHECK_JOB } from "@/server/channels/ycloud/schedule";
 import { YCLOUD_TEMPLATES_SYNC_JOB } from "@/server/channels/ycloud/templates";
-import { AuthError, ConflictError, NotFoundError, RateLimitError } from "@/server/errors";
+import { AuthError, ConflictError, NotFoundError, RateLimitError, ValidationError } from "@/server/errors";
 import { actorFor, createAgentRow, createBusiness, createChannel } from "@/test/factories";
 import { fakeYCloudFetch, phoneNumberResponse, YC_TEST, ycError, ycloudAccount, type FakeYCloudAccount } from "@/test/fixtures/ycloud";
 import { deleteChannel, getChannel, listChannels, updateChannel } from "./channels";
@@ -284,5 +284,16 @@ describe("disconnecting [YC-10]", () => {
     }
     expect(await db.select().from(channels)).toHaveLength(0);
     expect(service.account.endpoints.size).toBe(0);
+  });
+});
+
+describe("an internal agent never answers customers [INT-03]", () => {
+  it("it cannot be the number's agent: the wizard refuses it and creates no channel, where an agent for customers connects", async () => {
+    const internal = await createAgentRow({ audience: "team", systemTools: [] });
+    await expect(connectYCloudChannel(owner, form({ activeAgentId: internal.id }), ycloud().deps)).rejects.toBeInstanceOf(ValidationError);
+    expect(await db.select().from(channels)).toHaveLength(0);
+    const forCustomers = await createAgentRow();
+    expect(await connectYCloudChannel(owner, form({ activeAgentId: forCustomers.id }), ycloud().deps)).toMatchObject({ status: "connected" });
+    expect((await db.select().from(channels)).map((channel) => channel.activeAgentId)).toEqual([forCustomers.id]);
   });
 });

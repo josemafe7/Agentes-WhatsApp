@@ -10,10 +10,16 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { deleteAgentAction, duplicateAgentAction } from "../actions";
 
-type AgentCardMenuProps = { agentId: string; agentName: string; activeChannelNames: string[] };
+type AgentCardMenuProps = {
+  agentId: string;
+  agentName: string;
+  activeChannelNames: string[];
+  /** An internal agent ([INT-10]): deleting it deletes the conversations the team had with it, and the confirmation says so. */
+  internal?: boolean;
+};
 
 /** Actions of an agent card (owner and admin): open, duplicate and delete with confirmation ([AGE-13]). */
-export function AgentCardMenu({ agentId, agentName, activeChannelNames }: AgentCardMenuProps) {
+export function AgentCardMenu({ agentId, agentName, activeChannelNames, internal = false }: AgentCardMenuProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const active = activeChannelNames.length > 0;
 
@@ -65,9 +71,11 @@ export function AgentCardMenu({ agentId, agentName, activeChannelNames }: AgentC
         onOpenChange={setConfirmDelete}
         title={`¿Borrar el agente «${agentName}»?`}
         description={
-          active
-            ? `Está activo en ${activeChannelNames.join(", ")}. Si lo borras, esos canales se quedarán sin agente y la IA no responderá ahí. Se borran también sus versiones; los mensajes antiguos conservan su nombre.`
-            : "Se borran su configuración y sus versiones, y no se puede deshacer. Los mensajes antiguos conservan su nombre."
+          internal
+            ? "Se borran su configuración, sus versiones y todas las conversaciones que tu equipo ha tenido con él en «Asistentes». No se puede deshacer."
+            : active
+              ? `Está activo en ${activeChannelNames.join(", ")}. Si lo borras, esos canales se quedarán sin agente y la IA no responderá ahí. Se borran también sus versiones; los mensajes antiguos conservan su nombre.`
+              : "Se borran su configuración y sus versiones, y no se puede deshacer. Los mensajes antiguos conservan su nombre."
         }
         confirmLabel="Borrar agente"
         destructive

@@ -18,10 +18,12 @@ type FaqFormProps = {
   onCancel?: () => void;
   /** Prefix of the field ids, unique on the page. */
   idPrefix: string;
+  /** The base is internal ([INT-03]): its questions come from the team, not from customers. */
+  internal?: boolean;
 };
 
 /** A frequently asked question and its answer ([CON-04]): new, or edited in place. Saving processes it again. */
-export function FaqForm({ kbId, faq, onDone, onCancel, idPrefix }: FaqFormProps) {
+export function FaqForm({ kbId, faq, onDone, onCancel, idPrefix, internal = false }: FaqFormProps) {
   const [failure, setFailure] = useState<ActionFailure | null>(null);
   const [pending, startTransition] = useTransition();
   const errors = failure?.fieldErrors;
@@ -54,7 +56,7 @@ export function FaqForm({ kbId, faq, onDone, onCancel, idPrefix }: FaqFormProps)
           defaultValue={faq?.question}
           autoComplete="off"
           maxLength={500}
-          placeholder="¿Aceptáis pago con tarjeta?"
+          placeholder={internal ? "¿Cómo pido las vacaciones?" : "¿Aceptáis pago con tarjeta?"}
           errors={errors?.question}
         />
         <TextAreaField
@@ -64,9 +66,9 @@ export function FaqForm({ kbId, faq, onDone, onCancel, idPrefix }: FaqFormProps)
           defaultValue={faq?.answer}
           rows={4}
           maxLength={10000}
-          placeholder="Sí, aceptamos tarjeta, efectivo y Bizum."
+          placeholder={internal ? "Se piden por escrito a tu responsable, con 30 días de antelación." : "Sí, aceptamos tarjeta, efectivo y Bizum."}
           errors={errors?.answer}
-          help="Escríbela como se la dirías a un cliente: el agente la usará tal cual."
+          help={`Escríbela como se la dirías a ${internal ? "alguien del equipo" : "un cliente"}: el agente la usará tal cual.`}
         />
       </FieldGroup>
       <FormMessage result={failure ?? undefined} />

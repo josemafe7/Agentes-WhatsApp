@@ -45,6 +45,10 @@ const EXPECTED: Record<Action, [Expect, Expect, Expect, Expect, Expect]> = {
   [P.knowledge.view]: [Y, Y, Y, N, Y],
   [P.knowledge.manage]: [Y, Y, Y, N, N],
   [P.knowledge.testSearch]: [Y, Y, Y, N, N],
+  // Agentes internos ([INT-05], [INT-15])
+  [P.internal.agents]: [Y, Y, N, N, N], // ver, crear, configurar, probar y decidir quién los usa
+  [P.internal.knowledge]: [Y, Y, N, N, N], // ver y gestionar las bases internas
+  [P.internal.use]: [Y, Y, Y, Y, N], // preguntar (supervisor y agente: «con acceso») y sus conversaciones
   // Canales
   [P.channels.view]: [Y, Y, N, N, Y], // ver lista, estado y panel, sin credenciales
   [P.channels.manage]: [Y, Y, N, N, N], // crear, conectar, configurar, desconectar, borrar; agente activo e IA

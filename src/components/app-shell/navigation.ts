@@ -14,6 +14,7 @@ import {
   Info,
   Mail,
   MessageCircle,
+  MessagesSquare,
   RadioTower,
   ScrollText,
   Settings,
@@ -38,6 +39,7 @@ export type SectionKey =
   | "bandeja"
   | "contactos"
   | "agenda"
+  | "asistentes"
   | "agentes"
   | "conocimiento"
   | "canales"
@@ -188,11 +190,15 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
   },
 ];
 
-/** The eight sections: Bandeja, Contactos, Agenda | Agentes, Conocimiento, Canales | Informes, Ajustes. */
+/** «Asistentes»: where each person asks the internal agents they were given ([INT-06]). */
+export const ASSISTANTS_HREF = "/asistentes";
+
+/** The nine sections: Bandeja, Contactos, Agenda, Asistentes | Agentes, Conocimiento, Canales | Informes, Ajustes. */
 export const SECTIONS: readonly NavSection[] = [
   { key: "bandeja", label: "Bandeja", href: "/bandeja", icon: Inbox, group: 0, anyOf: [PERMISSIONS.inbox.view] },
   { key: "contactos", label: "Contactos", href: "/contactos", icon: Users, group: 0, anyOf: [PERMISSIONS.contacts.view] },
   { key: "agenda", label: "Agenda", href: "/agenda", icon: CalendarDays, group: 0, anyOf: [PERMISSIONS.agenda.view] },
+  { key: "asistentes", label: "Asistentes", href: ASSISTANTS_HREF, icon: MessagesSquare, group: 0, anyOf: [PERMISSIONS.internal.use] },
   { key: "agentes", label: "Agentes", href: "/agentes", icon: Bot, group: 1, anyOf: [PERMISSIONS.agents.view] },
   {
     key: "conocimiento",
@@ -215,10 +221,16 @@ export const SECTIONS: readonly NavSection[] = [
   },
 ];
 
+/** What only the server knows about the person and also decides a section. */
+export type SectionContext = {
+  /** They have at least one internal agent to use: without any, «Asistentes» is not in their menu ([INT-06]). */
+  hasAssistants?: boolean;
+};
+
 /** Sections of the menu the actor may open (area-level check; each page checks the record again). */
-export function visibleSections(actor: Actor | null): NavSection[] {
+export function visibleSections(actor: Actor | null, context: SectionContext = {}): NavSection[] {
   if (!actor) return [];
-  return SECTIONS.filter((section) => section.anyOf.some((action) => can(actor, action)));
+  return SECTIONS.filter((section) => section.anyOf.some((action) => can(actor, action)) && (section.key !== "asistentes" || context.hasAssistants === true));
 }
 
 /** Sections split in their groups, without empty groups. */

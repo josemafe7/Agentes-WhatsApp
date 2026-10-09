@@ -5,7 +5,7 @@
 import "server-only";
 import { recordAiRun } from "@/data/ai-runs";
 import type { AgentHandoffConfig, AgentInstructions } from "@/db/schema";
-import type { AgentKnowledgeMode } from "@/lib/enums";
+import type { AgentKnowledgeMode, Audience } from "@/lib/enums";
 import { prefetchKnowledge, withSystemSection } from "@/server/knowledge/agent-knowledge";
 import { storableText } from "@/server/storable-text";
 import { isOpenRouterError } from "@/lib/openrouter/errors";
@@ -16,7 +16,17 @@ import { AgentRunError } from "./errors";
 import { catalogSupport } from "./models";
 import { fallbackOfOtherProvider, getOpenRouterClient, isZdrEnabled, resolveDefaultModels, type OpenRouterDeps } from "./openrouter";
 import { buildPrompt, type PromptChannelKind, type PromptContact, type PromptHistoryMessage, type SimulatedChannel } from "./prompt";
-import { executeToolCall, loadAgentHttpTools, skipToolCalls, toolDefinitions, toolsForAgent, type HttpToolDeps, type ToolCallRecord, type ToolContext } from "./tools";
+import {
+  executeToolCall,
+  loadAgentHttpTools,
+  skipToolCalls,
+  toolDefinitions,
+  toolsForAgent,
+  toolsForInternalAgent,
+  type HttpToolDeps,
+  type ToolCallRecord,
+  type ToolContext,
+} from "./tools";
 import { addUsage, emptyUsageTotals, type RunUsage } from "./usage";
 
 /** «hasta 6 pasos de herramientas» ([MOT-08]). */
@@ -27,12 +37,17 @@ export const MAX_TOOL_CALLS_PER_STEP = 5;
 export const DEFAULT_MAX_OUTPUT_TOKENS = 2_000;
 /** A refusal inside a valid answer is treated as «no lo sé» with a person offered (§3.8). */
 export const REFUSAL_REPLY = "Lo siento, con eso no puedo ayudarte por aquí. Si quieres, te paso con una persona del equipo.";
+/** The same for an internal agent: it answers the team and has nobody to hand the conversation to ([INT-07]). */
+export const TEAM_REFUSAL_REPLY = "Lo siento, con eso no puedo ayudarte. Puedo responder a lo que esté en los documentos del negocio.";
 
 const STEP_LIMIT_MESSAGE = "La IA no ha podido terminar la respuesta en 6 pasos. La conversación queda para una persona.";
+const TEAM_STEP_LIMIT_MESSAGE = "La IA no ha podido terminar la respuesta en 6 pasos. Prueba a preguntarlo de otra forma.";
 
 /** The agent settings a run needs (a row of `agents` fits). */
 export type AgentRunConfig = {
   id: string;
+  /** team = an internal agent: its own platform rules and only the knowledge search ([INT-07], [INT-08]). */
+  audience?: Audience;
   name: string;
   language: string;
   tone: string | null;
@@ -51,6 +66,8 @@ export type AgentRunConfig = {
 export type RunAgentContext = {
   /** A row of `conversations` (test conversations included), or null. Also the OpenRouter session. */
   conversationId?: string | null;
+  /** OpenRouter session when there is no row of `conversations`: the chat of a person with an internal agent. */
+  sessionId?: string | null;
   contactId?: string | null;
   channelId?: string | null;
   /** Kind of the real channel; «Probar agente» is always "test". */
@@ -130,6 +147,7 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
   const now = deps.now ?? new Date();
   const { agent, mode } = input;
   const context = input.context ?? {};
+  const audience: Audience = agent.audience ?? "customers";
 
   const [defaults, zdr, businessData, contextFiles] = await Promise.all([
     resolveDefaultModels(),
@@ -143,6 +161,7 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
 
   const prompt = buildPrompt({
     ...businessData,
+    audience,
     agent: { name: agent.name, language: agent.language, tone: agent.tone, instructions: agent.instructions },
     contextFiles,
     channel: mode === "test" ? { kind: "test", simulated: input.simulateChannel } : { kind: context.channelKind ?? "webchat" },
@@ -155,12 +174,16 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
     disclosureAddedByPlatform: context.disclosureAddedByPlatform,
   });
 
-  const tools = toolsForAgent(agent.systemTools);
-  // The custom HTTP tools attached to the agent ([HER-11], [AGE-08]); never in place of a system tool.
-  for (const tool of await loadAgentHttpTools(agent.id, deps.httpTools)) if (!tools.has(tool.name)) tools.set(tool.name, tool);
+  const tools = audience === "team" ? toolsForInternalAgent() : toolsForAgent(agent.systemTools);
+  // The custom HTTP tools attached to the agent ([HER-11], [AGE-08]); never in place of a system tool, and never for
+  // an internal agent ([INT-07]).
+  if (audience === "customers") {
+    for (const tool of await loadAgentHttpTools(agent.id, deps.httpTools)) if (!tools.has(tool.name)) tools.set(tool.name, tool);
+  }
   const retrievals: AgentRetrieval[] = [];
   const toolContext: ToolContext = {
     mode,
+    audience,
     agentId: agent.id,
     conversationId: context.conversationId ?? null,
     contactId: context.contactId ?? null,
@@ -177,7 +200,7 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
   const records: ToolCallRecord[] = [];
   // «Buscar siempre»: the knowledge is searched before the model and goes into the prompt ([AGE-07]).
   if (agent.knowledgeMode === "always") {
-    const prefetch = await prefetchKnowledge(input.history, { agentId: agent.id, mode, conversationId: toolContext.conversationId, retrievals, ai: { client } });
+    const prefetch = await prefetchKnowledge(input.history, { agentId: agent.id, mode, conversationId: toolContext.conversationId, retrievals, ai: { client }, audience });
     if (prefetch) {
       messages = withSystemSection(messages, prefetch.systemSection);
       records.push(prefetch.record);
@@ -198,6 +221,7 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
     return recordAiRun({
       kind: "chat",
       mode,
+      audience,
       conversationId: context.conversationId ?? null,
       agentId: agent.id,
       modelRequested: model,
@@ -231,7 +255,7 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
         support,
         maxTokens: agent.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
         temperature: agent.temperature,
-        sessionId: context.conversationId ?? `prueba-${agent.id}`,
+        sessionId: context.conversationId ?? context.sessionId ?? `prueba-${agent.id}`,
       });
       addUsage(totals, response.usage);
       modelUsed = response.model;
@@ -240,7 +264,7 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
 
       if (response.toolCalls.length === 0) {
         // Storable (src/server/storable-text.ts): a NUL character in what the model wrote never stops the reply.
-        text = storableText(response.content ?? "").trim() || (response.refusal ? REFUSAL_REPLY : null);
+        text = storableText(response.content ?? "").trim() || (response.refusal ? (audience === "team" ? TEAM_REFUSAL_REPLY : REFUSAL_REPLY) : null);
         if (text === null) throw new AgentRunError("empty_response", "El modelo ha devuelto una respuesta vacía.", true, null);
         break;
       }
@@ -279,8 +303,9 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
   }
 
   if (text === null) {
-    const runId = await record(STEP_LIMIT_MESSAGE);
-    throw new AgentRunError("step_limit", STEP_LIMIT_MESSAGE, false, runId);
+    const stepLimitMessage = audience === "team" ? TEAM_STEP_LIMIT_MESSAGE : STEP_LIMIT_MESSAGE;
+    const runId = await record(stepLimitMessage);
+    throw new AgentRunError("step_limit", stepLimitMessage, false, runId);
   }
 
   const runId = await record(null);

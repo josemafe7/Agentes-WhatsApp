@@ -75,6 +75,14 @@ export type ConsentType = (typeof CONSENT_TYPES)[number];
 
 export const AGENT_KNOWLEDGE_MODES = ["auto", "always"] as const;
 export type AgentKnowledgeMode = (typeof AGENT_KNOWLEDGE_MODES)[number];
+/** Who an agent or a knowledge base is for ([INT-01], [INT-04]): the customers, or the business's own team. */
+export const AUDIENCES = ["customers", "team"] as const;
+export type Audience = (typeof AUDIENCES)[number];
+/** Who of the team may use an internal agent ([INT-05]): everybody, or the people listed in agent_members. */
+export const TEAM_ACCESS_MODES = ["everyone", "selected"] as const;
+export type TeamAccess = (typeof TEAM_ACCESS_MODES)[number];
+export const ASSISTANT_MESSAGE_ROLES = ["user", "assistant"] as const;
+export type AssistantMessageRole = (typeof ASSISTANT_MESSAGE_ROLES)[number];
 export const KB_SEARCH_MODES = ["hybrid", "text"] as const;
 export type KbSearchMode = (typeof KB_SEARCH_MODES)[number];
 export const KB_SOURCE_TYPES = ["file", "url", "faq", "text"] as const;

@@ -241,6 +241,10 @@ export type Report = {
     aiUsd: number;
     /** USD of «Probar agente» ([INF-08]). */
     aiTestUsd: number;
+    /** Of aiUsd, what the internal agents spent ([INT-16]). */
+    aiTeamUsd: number;
+    /** Questions the internal agents answered ([INT-16]). */
+    aiTeamQuestions: number;
     /** Estimated USD ([WA-47]). */
     whatsappUsd: number;
     /** Charged messages without a rate for their market: not estimated ([WA-47]). */
@@ -359,7 +363,7 @@ const amount = (value: string | null | undefined) => Number(value ?? 0) || 0;
 
 /**
  * [INF-07]: what OpenRouter charged in the range, apart for «Probar agente». With a channel chosen, only the runs of its
- * conversations (knowledge processing and «Probar agente» belong to no channel).
+ * conversations (knowledge processing, «Probar agente» and the internal agents belong to no channel).
  */
 async function sumAiCosts(range: Range, channelId: string | null): Promise<{ live: number; test: number }> {
   const inRange = and(gte(aiRuns.createdAt, range.start), lt(aiRuns.createdAt, range.end));
@@ -372,6 +376,20 @@ async function sumAiCosts(range: Range, channelId: string | null): Promise<{ liv
         .groupBy(aiRuns.isTest)
     : await db.select({ isTest: aiRuns.isTest, usd: sum(aiRuns.costUsd) }).from(aiRuns).where(inRange).groupBy(aiRuns.isTest);
   return { live: amount(rows.find((row) => !row.isTest)?.usd), test: amount(rows.find((row) => row.isTest)?.usd) };
+}
+
+/**
+ * [INT-16]: of the AI cost of the range, what the internal agents spent (their answers and their searches) and how
+ * many questions they answered. Each run carries who it was for, so the figures stay where they were when an agent is
+ * deleted. «Probar» of an internal agent goes with the rest of «Probar agente».
+ */
+async function sumTeamAi(range: Range): Promise<{ usd: number; questions: number }> {
+  const ofTeam = and(gte(aiRuns.createdAt, range.start), lt(aiRuns.createdAt, range.end), eq(aiRuns.audience, "team"), eq(aiRuns.isTest, false));
+  const [[cost], [answered]] = await Promise.all([
+    db.select({ usd: sum(aiRuns.costUsd) }).from(aiRuns).where(ofTeam),
+    db.select({ n: count() }).from(aiRuns).where(and(ofTeam, eq(aiRuns.kind, "chat"), eq(aiRuns.ok, true))),
+  ]);
+  return { usd: amount(cost?.usd), questions: answered?.n ?? 0 };
 }
 
 const isCharged = (pricingType: string | null) => pricingType?.trim().toLowerCase() === "regular";
@@ -496,7 +514,7 @@ export async function getReport(actor: Actor, input: unknown): Promise<Report> {
   const months = costMonths(period);
   const range: Range = { start: period.start, end: period.end };
 
-  const [conversationCounts, handoffRows, reasons, aiBookings, monthCosts, periodCosts] = await Promise.all([
+  const [conversationCounts, handoffRows, reasons, aiBookings, monthCosts, periodCosts, teamAi] = await Promise.all([
     countConversations(range, channelId),
     loadHandoffs(range, channelId),
     loadReasons(range, channelId),
@@ -504,6 +522,8 @@ export async function getReport(actor: Actor, input: unknown): Promise<Report> {
     Promise.all(months.map(async (month) => ({ month, ...(await costsOf(monthRange(month, timezone), channelId, whatsappChannelIds)) }))),
     // A month period is the last month of the chart: its costs are already there.
     period.kind === "month" ? Promise.resolve(null) : costsOf(range, channelId, whatsappChannelIds),
+    // The internal agents belong to no channel ([INT-16]).
+    channelId ? Promise.resolve({ usd: 0, questions: 0 }) : sumTeamAi(range),
   ]);
 
   const handoffsByChannel = new Map<string, number>();
@@ -539,6 +559,8 @@ export async function getReport(actor: Actor, input: unknown): Promise<Report> {
     costs: {
       aiUsd: costs.aiUsd,
       aiTestUsd: costs.aiTestUsd,
+      aiTeamUsd: teamAi.usd,
+      aiTeamQuestions: teamAi.questions,
       whatsappUsd: costs.whatsappUsd,
       whatsappUnpriced: costs.whatsappUnpriced,
       months: monthCosts,

@@ -6,7 +6,7 @@ import { agents, aiRuns, appKv, auditLog, conversations, integrationSettings } f
 import { chatCompletion, FAKE_OPENROUTER_KEY, fakeFetch, jsonResponse, routes, sampleCatalog, sequence, type FakeHandler } from "@/test/fake-openrouter";
 import { createBusiness } from "@/test/factories";
 import { AgentRunError, AiNotConfiguredError } from "./errors";
-import { MAX_TOOL_CALLS_PER_STEP, MAX_TOOL_STEPS, REFUSAL_REPLY, runAgent, type RunAgentInput } from "./run-agent";
+import { MAX_TOOL_CALLS_PER_STEP, MAX_TOOL_STEPS, REFUSAL_REPLY, runAgent, TEAM_REFUSAL_REPLY, type RunAgentInput } from "./run-agent";
 
 const IN_HOURS = "Te paso con una persona del equipo ahora mismo.";
 const OFF_HOURS = "Ahora estamos cerrados; te contestamos al abrir.";
@@ -285,5 +285,66 @@ describe("errors are typed and recorded [MOT-12: retryable flag, message and rec
     expect(body(chatCalls(fake)[0]).session_id).toBe(conversation.id);
     const [row] = await db.select().from(aiRuns).where(eq(aiRuns.id, result.runId));
     expect(row).toMatchObject({ isTest: false, conversationId: conversation.id });
+  });
+});
+
+describe("an internal agent [INT-07] [INT-08] [INT-13] [INT-16]", () => {
+  const systemOf = (call: { body: unknown }) => String((body(call).messages as { content: unknown }[])[0].content);
+  const toolsOf = (call: { body: unknown }) => ((body(call).tools ?? []) as { function: { name: string; description: string } }[]).map((tool) => tool.function);
+
+  it("only has the search of its knowledge, whatever tools its row lists, and no custom HTTP tools", async () => {
+    const agent = await createAgentRow({ audience: "team", systemTools: ["transferir_a_humano", "crear_cita", "listar_servicios"] });
+    const fake = openRouter(() => jsonResponse(chatCompletion({ content: "No lo encuentro en la documentación que tengo." })));
+    const result = await run(fake, { agent, mode: "live", context: { sessionId: "chat-1" } });
+
+    const [call] = chatCalls(fake);
+    expect(toolsOf(call).map((tool) => tool.name)).toEqual(["buscar_conocimiento"]);
+    // Told as an internal agent uses it: nobody to hand the conversation to.
+    expect(toolsOf(call)[0].description).not.toContain("pasar con una persona");
+    expect(systemOf(call)).toContain("asistente interno de Peluquería Lola");
+    expect(systemOf(call)).toContain("Apartado «Asistentes» de la app.");
+    expect(body(call).session_id).toBe("chat-1");
+    expect(result.handedOff).toBe(false);
+  });
+
+  it("its runs are recorded as internal ones, apart from those of the agents for customers", async () => {
+    const internal = await createAgentRow({ audience: "team", systemTools: [] });
+    const fake = openRouter(() => jsonResponse(chatCompletion()));
+    const result = await run(fake, { agent: internal, mode: "live" });
+    const [row] = await db.select().from(aiRuns).where(eq(aiRuns.id, result.runId));
+    expect(row).toMatchObject({ audience: "team", isTest: false, agentId: internal.id });
+
+    const other = await run(openRouter(() => jsonResponse(chatCompletion())), { mode: "live" });
+    const [otherRow] = await db.select().from(aiRuns).where(eq(aiRuns.id, other.runId));
+    expect(otherRow.audience).toBe("customers");
+  });
+
+  it("«Probar» answers as it will in «Asistentes», without a channel to simulate, and counts as a test", async () => {
+    const agent = await createAgentRow({ audience: "team", systemTools: [] });
+    const fake = openRouter(() => jsonResponse(chatCompletion()));
+    const result = await run(fake, { agent, mode: "test", simulateChannel: "email" });
+    const [call] = chatCalls(fake);
+    expect(systemOf(call)).toContain("Prueba desde el editor del agente interno.");
+    expect(systemOf(call)).not.toContain("simulando");
+    expect(toolsOf(call).map((tool) => tool.name)).toEqual(["buscar_conocimiento"]);
+    const [row] = await db.select().from(aiRuns).where(eq(aiRuns.id, result.runId));
+    expect(row).toMatchObject({ audience: "team", isTest: true });
+  });
+
+  it("never offers a person or a hand-off it does not have: not when the model refuses, nor when it runs out of steps", async () => {
+    const agent = await createAgentRow({ audience: "team", systemTools: [] });
+    const refused = chatCompletion({ content: null, finishReason: "content_filter" });
+    (refused.choices[0].message as Record<string, unknown>).refusal = "No puedo ayudar con eso.";
+    const result = await run(openRouter(() => jsonResponse(refused)), { agent, mode: "live" });
+    expect(result.text).toBe(TEAM_REFUSAL_REPLY);
+    expect(result.text).not.toMatch(/te paso|persona del equipo/);
+    expect(result.handedOff).toBe(false);
+
+    const looping = openRouter(() => jsonResponse(chatCompletion({ toolCalls: [{ name: "buscar_conocimiento", arguments: { consulta: "vacaciones" } }] })));
+    const error = await run(looping, { agent, mode: "live" }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AgentRunError);
+    expect(error).toMatchObject({ reason: "step_limit", retryable: false });
+    expect((error as AgentRunError).userMessage).toMatch(/6 pasos/);
+    expect((error as AgentRunError).userMessage).not.toMatch(/queda para una persona/);
   });
 });

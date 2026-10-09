@@ -7,7 +7,7 @@ import "server-only";
 import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor } from "@/db";
-import { agents, channels, type ChannelHealth } from "@/db/schema";
+import { channels, type ChannelHealth } from "@/db/schema";
 import { createTelegramClient } from "@/lib/telegram/client";
 import { isTelegramApiError } from "@/lib/telegram/errors";
 import { can, PERMISSIONS, type Actor } from "@/lib/permissions";
@@ -28,8 +28,9 @@ import { runTelegramHealthCheck } from "@/server/channels/telegram/jobs";
 import { cancelTelegramJobs, cancelTelegramPolling, ensureTelegramHealthChecks, ensureTelegramPolling } from "@/server/channels/telegram/schedule";
 import type { ChannelRecord } from "@/server/channels/types";
 import { maskSecret, randomToken } from "@/server/crypto";
-import { ConflictError, NotFoundError, parseInput, RateLimitError, ValidationError } from "@/server/errors";
+import { ConflictError, NotFoundError, parseInput, RateLimitError } from "@/server/errors";
 import { safeErrorMessage } from "@/server/redact";
+import { assertAnswersCustomers } from "./agent-audience";
 import { writeAudit } from "./audit";
 import { assertCan } from "./guard";
 
@@ -94,12 +95,6 @@ async function assertBotNotTaken(executor: Executor, botId: string, exceptChanne
   if (rows.some((row) => readTelegramConfig(row.config).botId === botId)) throw new ConflictError("Este bot ya está conectado en otro canal de la instalación.");
 }
 
-async function assertAgentExists(executor: Executor, agentId: string | null | undefined): Promise<void> {
-  if (!agentId) return;
-  const [agent] = await executor.select({ id: agents.id }).from(agents).where(eq(agents.id, agentId));
-  if (!agent) throw new ValidationError(undefined, { activeAgentId: ["Ese agente no existe."] });
-}
-
 /**
  * Tells Telegram how this channel receives (its webhook, or none so the poll works) and refreshes its lights. Returns
  * the Spanish reason when Telegram refuses; the channel is then left in «error» with it.
@@ -146,7 +141,7 @@ export async function connectTelegramChannel(actor: Actor, input: unknown, deps:
   const now = deps.now?.() ?? new Date();
   const channelId = await db.transaction(async (tx) => {
     await assertBotNotTaken(tx, bot.botId, existing?.id ?? null);
-    await assertAgentExists(tx, data.activeAgentId);
+    await assertAnswersCustomers(tx, data.activeAgentId);
     const agent = data.activeAgentId === undefined ? {} : { activeAgentId: data.activeAgentId };
     if (existing) {
       // Another bot in this channel starts asking for updates from the beginning.

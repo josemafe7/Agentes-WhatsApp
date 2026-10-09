@@ -39,6 +39,7 @@ export default async function NewAgentPage() {
         otherTemplates={SECTORS.filter((sector) => sector !== businessSector).map(templateOption)}
         businessWebsite={business.website}
         aiConfigured={aiConfigured}
+        canCreateInternal={can(actor, PERMISSIONS.internal.agents)}
       />
     </>
   );

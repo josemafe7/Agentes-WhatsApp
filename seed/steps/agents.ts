@@ -21,6 +21,10 @@ import { DEMO_USERS } from "../users";
 
 export const DEMO_AGENT_KEYS = ["recepcion", "correo", "fuera-de-horario"] as const;
 export type DemoAgentKey = (typeof DEMO_AGENT_KEYS)[number];
+/** The demo's internal agent ([INT-14]) in ctx.refs.agentIds: it answers the team, never a channel. */
+export const DEMO_INTERNAL_AGENT_KEY = "equipo";
+export const DEMO_INTERNAL_AGENT_NAME = "Asistente del equipo";
+const INTERNAL_AGENT_DAYS_AGO = 5;
 
 type Author = Extract<Role, "owner" | "admin">;
 export type DemoAgentVersion = { config: AgentConfig; author: Author; daysAgo: number };
@@ -80,7 +84,7 @@ function agentConfig(
 }
 
 /** The editor's own validation ([AGE-15]): a demo agent the app could not save is a bug in this file. */
-function assertValid(key: DemoAgentKey, config: AgentConfig): void {
+function assertValid(key: DemoAgentKey | typeof DEMO_INTERNAL_AGENT_KEY, config: AgentConfig): void {
   // The avatar is not a field of the editor's form (it is uploaded apart); demo agents have none.
   const input: Record<string, unknown> = { ...config };
   delete input.avatarFileKey;
@@ -197,6 +201,31 @@ export function buildDemoAgents({ preset, business, models, notifyUserIds }: Dem
   return plans;
 }
 
+/**
+ * The demo's internal agent ([INT-14]): for the whole team, with the internal manual (the knowledge step gives it
+ * that base). No tools of its own, hand-off or channels ([INT-02]).
+ */
+export function buildDemoInternalAgent(business: DemoBusiness, models: DemoAgentsInput["models"]): AgentConfig {
+  const config: AgentConfig = {
+    ...agentConfig(
+      {
+        name: DEMO_INTERNAL_AGENT_NAME,
+        description: "Responde al equipo con el manual interno.",
+        tone: "Claro y directo",
+        instructions: {
+          role: `Eres el asistente interno de ${business.name}. Ayudas a las personas del equipo a encontrar lo que necesitan en el manual interno.`,
+          style: "Responde en pocas frases. Si son varios pasos, ponlos en una lista.",
+        },
+        handoff: {},
+      },
+      models,
+    ),
+    systemTools: [],
+  };
+  assertValid(DEMO_INTERNAL_AGENT_KEY, config);
+  return config;
+}
+
 export const agentsStep: SeedStep = {
   name: "agentes",
   prepare: async (ctx) => async (tx) => {
@@ -245,6 +274,32 @@ export const agentsStep: SeedStep = {
       );
       agentIds.set(plan.key, agentId);
     }
+
+    const owner = person("owner");
+    const internal = buildDemoInternalAgent(ctx.business, demoAgentModels(defaultModels));
+    const internalId = crypto.randomUUID();
+    const internalAt = new Date(ctx.now.getTime() - INTERNAL_AGENT_DAYS_AGO * DAY_MS);
+    await tx.insert(agents).values({
+      id: internalId,
+      ...internal,
+      audience: "team",
+      teamAccess: "everyone",
+      templateSector: null,
+      currentVersion: 1,
+      createdBy: owner.id,
+      createdAt: internalAt,
+      updatedAt: internalAt,
+    });
+    await tx.insert(agentVersions).values({
+      agentId: internalId,
+      version: 1,
+      snapshot: { ...internal } as Record<string, unknown>,
+      createdBy: owner.id,
+      createdByName: owner.name,
+      createdAt: internalAt,
+      updatedAt: internalAt,
+    });
+    agentIds.set(DEMO_INTERNAL_AGENT_KEY, internalId);
     ctx.refs.agentIds = agentIds;
   },
 };

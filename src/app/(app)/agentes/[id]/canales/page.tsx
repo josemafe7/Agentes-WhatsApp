@@ -16,7 +16,7 @@ type PageProps = { params: Promise<{ id: string }> };
 
 /** Canales ([AGE-10], [AGE-11]). Seeing them is «Canales: ver»; switching the active agent, owner and admin ([PER-04]). */
 export default async function AgentChannelsPage({ params }: PageProps) {
-  const page = await loadEditorPage(params, "canales");
+  const page = await loadEditorPage(params, "canales", "channels");
   if (!page.allowed) return <NoPermission description={noPermissionDescription(page.role)} />;
   const { actor, agent } = page;
   if (!can(actor, PERMISSIONS.channels.view)) return <NoPermission description={noPermissionDescription(actor.role)} />;

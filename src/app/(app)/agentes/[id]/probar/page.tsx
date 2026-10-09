@@ -38,7 +38,9 @@ export default async function TestAgentPage({ params }: TestAgentPageProps) {
   const aiConfigured = await isAiConfigured();
   // Same rule as the global notice: only who can open Ajustes › IA gets the link ([PER-04]).
   const keyHelp = openRouterNotice(actor, false) ?? "ask";
-  const bookingsWord = can(actor, PERMISSIONS.agenda.deleteTestBookings) ? (await getAgendaSettings(actor)).terminology.bookings : null;
+  const internal = agent.audience === "team";
+  // An internal agent makes no bookings ([INT-07]): nothing of its tests to delete.
+  const bookingsWord = !internal && can(actor, PERMISSIONS.agenda.deleteTestBookings) ? (await getAgendaSettings(actor)).terminology.bookings : null;
 
   return (
     <section aria-labelledby="probar-titulo" className="space-y-4">
@@ -48,13 +50,14 @@ export default async function TestAgentPage({ params }: TestAgentPageProps) {
             Probar agente
           </h2>
           <p className="max-w-prose text-sm text-muted-foreground">
-            Escribe como si fueras un cliente. «{agent.name}» responde con su configuración guardada y no se envía nada
-            por los canales reales.
+            {internal
+              ? `Escribe como si fueras una persona del equipo. «${agent.name}» responde con su configuración guardada, igual que en «Asistentes».`
+              : `Escribe como si fueras un cliente. «${agent.name}» responde con su configuración guardada y no se envía nada por los canales reales.`}
           </p>
         </div>
         {bookingsWord ? <DeleteTestBookings bookingsWord={bookingsWord} /> : null}
       </div>
-      <TestChat agentId={agent.id} agentName={agent.name} aiConfigured={aiConfigured} keyHelp={keyHelp} />
+      <TestChat agentId={agent.id} agentName={agent.name} aiConfigured={aiConfigured} keyHelp={keyHelp} internal={internal} />
     </section>
   );
 }

@@ -18,7 +18,7 @@ type PageProps = { params: Promise<{ id: string }> };
  * custom HTTP tools ([HER-11]), only for owner and admin (spec «Agentes: herramientas HTTP personalizadas»).
  */
 export default async function AgentToolsPage({ params }: PageProps) {
-  const page = await loadEditorPage(params, "herramientas");
+  const page = await loadEditorPage(params, "herramientas", "tools");
   if (!page.allowed) return <NoPermission description={noPermissionDescription(page.role)} />;
   const { actor, agent, canManage } = page;
   const rows = toolRows(agent.systemTools, implementedSystemTools());

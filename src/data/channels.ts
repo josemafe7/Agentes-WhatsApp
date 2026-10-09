@@ -37,6 +37,7 @@ import { ycloudAdapter } from "@/server/channels/ycloud/adapter";
 import { cancelYCloudJobs, requestYCloudHealthCheckSoon } from "@/server/channels/ycloud/schedule";
 import { safeErrorMessage } from "@/server/redact";
 import { ConflictError, NotFoundError, parseInput, ValidationError } from "@/server/errors";
+import { assertAnswersCustomers } from "./agent-audience";
 import { writeAudit } from "./audit";
 import { assertCan } from "./guard";
 
@@ -168,12 +169,6 @@ function parseWebchatConfig(input: unknown, currentLogoKey: string | null): Webc
   return config;
 }
 
-async function assertAgentExists(executor: Executor, agentId: string | null | undefined): Promise<void> {
-  if (!agentId) return;
-  const [agent] = await executor.select({ id: agents.id }).from(agents).where(eq(agents.id, agentId));
-  if (!agent) throw new ValidationError(undefined, { activeAgentId: ["Ese agente no existe."] });
-}
-
 export const createWebchatSchema = z
   .object({
     name: z.string().trim().min(1, "Escribe el nombre.").max(MAX_NAME, `Como mucho ${MAX_NAME} caracteres.`),
@@ -189,7 +184,7 @@ export async function createWebchatChannel(actor: Actor, input: unknown): Promis
   const data = parseInput(createWebchatSchema, input);
   const config = parseWebchatConfig(data.config, null);
   return db.transaction(async (tx) => {
-    await assertAgentExists(tx, data.activeAgentId);
+    await assertAnswersCustomers(tx, data.activeAgentId);
     const [row] = await tx
       .insert(channels)
       .values({ type: "webchat", name: data.name, status: "connected", config, activeAgentId: data.activeAgentId ?? null, aiEnabled: data.aiEnabled, replyMode: "auto" })
@@ -306,7 +301,7 @@ export async function setActiveAgent(actor: Actor, input: unknown): Promise<SetA
   assertCan(actor, PERMISSIONS.channels.manage, { channelId: data.channelId });
   return db.transaction(async (tx): Promise<SetActiveAgentResult> => {
     const channel = await loadChannel(tx, data.channelId);
-    await assertAgentExists(tx, data.agentId);
+    await assertAnswersCustomers(tx, data.agentId);
     const [previous] = channel.activeAgentId ? await tx.select({ id: agents.id, name: agents.name }).from(agents).where(eq(agents.id, channel.activeAgentId)) : [];
     if (channel.activeAgentId === data.agentId) return { status: "unchanged", previousAgent: previous ?? null };
     if (previous && data.agentId && !data.confirmReplace) return { status: "needs_confirmation", previousAgent: previous };

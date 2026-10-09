@@ -37,6 +37,7 @@ leyendo solo esto.
 | `docs/guia-whatsapp-ycloud.md` (fase 9) | Guía para conectar WhatsApp con YCloud y coexistencia: el alta del número en YCloud, la clave, conectar, el modo pruebas, lo que se escribe desde el móvil, plantillas, el panel y los problemas frecuentes | Cuando cambia el asistente de YCloud |
 | `docs/guia-whatsapp-qr.md` (fase 9) | Guía para conectar WhatsApp por código QR: los riesgos de esta vía no oficial, qué necesita, vincular, el modo pruebas, qué lee la app, el panel y los problemas frecuentes | Cuando cambia el asistente del código QR |
 | `docs/guia-agentes-y-conocimiento.md` (fases 1 y 4) | Guía para crear, ajustar y probar agentes y darles el conocimiento del negocio: archivos de contexto, bases con documentos, webs y preguntas frecuentes, «Probar búsqueda» y las fuentes de cada respuesta | Cuando cambian los agentes o el conocimiento |
+| `docs/guia-asistentes-internos.md` (fase 10) | Guía de los agentes internos: qué son, la base interna, crear el agente, darle acceso, usarlo en «Asistentes», la privacidad de lo que se pregunta, los documentos grandes, el coste y los problemas frecuentes | Cuando cambian los agentes internos |
 | `docs/guia-agenda.md` (fase 5) | Guía para preparar la agenda: palabras, modo por recurso o por aforo, servicios, recursos, horarios, ausencias y bloqueos, el calendario, qué hace el agente con las citas, las citas de prueba y los recordatorios | Cuando cambia la agenda |
 | `docs/checklist-puesta-en-marcha.md` (fase 7) | Lista para poner en marcha un negocio real, de `pnpm db:fresh` a la primera conversación, con la privacidad de OpenRouter y las comprobaciones de cada semana y cada mes (también en la app, en `/ayuda/puesta-en-marcha`) | Cuando cambia algún paso de la puesta en marcha |
 | `docs/contrato-encargo-tratamiento.md` (fase 7) | Plantilla de contrato de encargo del tratamiento de datos personales, marcada «revisar con un abogado» ([CUM-09]); se queda en `docs/`, no en Ayuda | Cuando cambia la ley o los servicios que tratan datos |
@@ -96,3 +97,6 @@ Las decisiones de hoy:
 | 0022 | La firma de los avisos de WhatsApp, antes de leer el aviso |
 | 0023 | Cómo se cuentan las cifras de los informes |
 | 0024 | Datos y archivos en Supabase, con Postgres integrado (PGlite) para la demo y las pruebas |
+| 0025 | Telegram con el bot del propio negocio por su token, y «modo local» sin dirección pública |
+| 0026 | WhatsApp por tres vías: Meta directo, YCloud con coexistencia y código QR con Baileys |
+| 0027 | Agentes internos: un tipo de agente y un tipo de base, con sus conversaciones aparte |

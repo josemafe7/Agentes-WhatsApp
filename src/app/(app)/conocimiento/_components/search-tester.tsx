@@ -16,7 +16,7 @@ import { searchResultScores } from "../_lib/labels";
 import { knowledgeDocumentPath } from "../_lib/paths";
 import type { KnowledgeSearchResultView, KnowledgeSearchView } from "../_lib/search-view";
 
-type SearchTesterProps = { kbId: string; aiConfigured: boolean };
+type SearchTesterProps = { kbId: string; aiConfigured: boolean; /** An internal base ([INT-03]): the team asks, not customers. */ internal?: boolean };
 
 /** Why this search went only by words ([ARR-14], [CON-12]). */
 function textOnlyNote(aiConfigured: boolean): string {
@@ -35,7 +35,7 @@ function source(result: KnowledgeSearchResultView): string {
  * with the fragments numbered as the agent receives them, their scores and their source; «Nada relevante» when
  * nothing reaches the relevance bar ([CON-18]).
  */
-export function SearchTester({ kbId, aiConfigured }: SearchTesterProps) {
+export function SearchTester({ kbId, aiConfigured, internal = false }: SearchTesterProps) {
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState<{ query: string; view: KnowledgeSearchView } | null>(null);
   const [failure, setFailure] = useState<ActionFailure | null>(null);
@@ -66,7 +66,7 @@ export function SearchTester({ kbId, aiConfigured }: SearchTesterProps) {
               id="kb-test-query"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="¿Cuánto cuesta un tinte?"
+              placeholder={internal ? "¿Cómo pido las vacaciones?" : "¿Cuánto cuesta un tinte?"}
               maxLength={MAX_QUERY_CHARS}
               autoComplete="off"
               aria-invalid={errors ? true : undefined}
@@ -78,7 +78,7 @@ export function SearchTester({ kbId, aiConfigured }: SearchTesterProps) {
             </Button>
           </div>
           <p id="kb-test-query-help" className="text-sm text-muted-foreground">
-            Busca como lo haría el agente, sin gastar el modelo de chat. Escribe lo que preguntaría un cliente.
+            Busca como lo haría el agente, sin gastar el modelo de chat. Escribe lo que preguntaría {internal ? "alguien del equipo" : "un cliente"}.
           </p>
           <FieldError id="kb-test-query-error" errors={errors?.map((message) => ({ message }))} />
         </Field>

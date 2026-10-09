@@ -27,6 +27,8 @@ export default async function KnowledgeFaqPage({ params, searchParams }: FaqPage
   const page = await loadKnowledgePage(params, "faq");
   if (!page.allowed) return <NoPermission description={noPermissionDescription(page.role)} />;
   const { actor, base, canManage } = page;
+  // An internal base ([INT-03]) is asked by the team: its texts say so.
+  const internal = base.audience === "team";
   const faqs = await listKnowledgeFaqs(actor, base.id);
   const slice = pageSlice((await searchParams)[PAGE_PARAM], faqs.length, LIST_PAGE_SIZE);
 
@@ -38,9 +40,11 @@ export default async function KnowledgeFaqPage({ params, searchParams }: FaqPage
             <h2 id="new-faq-heading" className="text-lg font-semibold">
               Nueva pregunta frecuente
             </h2>
-            <p className="text-sm text-muted-foreground">Lo que tus clientes preguntan a menudo, con la respuesta que quieres que den los agentes.</p>
+            <p className="text-sm text-muted-foreground">
+              {internal ? "Lo que tu equipo pregunta a menudo" : "Lo que tus clientes preguntan a menudo"}, con la respuesta que quieres que den los agentes.
+            </p>
           </div>
-          <FaqForm kbId={base.id} idPrefix="new-faq" />
+          <FaqForm kbId={base.id} idPrefix="new-faq" internal={internal} />
         </section>
       ) : null}
       <section aria-labelledby="faq-list-heading" className="grid gap-4">
@@ -57,7 +61,7 @@ export default async function KnowledgeFaqPage({ params, searchParams }: FaqPage
           </div>
         ) : (
           <>
-            <FaqList kbId={base.id} faqs={faqs.slice(slice.start, slice.end)} canManage={canManage} />
+            <FaqList kbId={base.id} faqs={faqs.slice(slice.start, slice.end)} canManage={canManage} internal={internal} />
             <PageNav slice={slice} path={knowledgeBasePath(base.id, "faq")} label="Páginas de preguntas" />
           </>
         )}

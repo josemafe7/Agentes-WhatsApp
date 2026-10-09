@@ -60,7 +60,7 @@ Qué se prueba y cómo, para demostrar que el código funciona.
   servidores de las pruebas llevan `SUPABASE_URL` y `SUPABASE_SECRET_KEY` vacías (`next start` también lee
   `.env.local`, pero lo que ya está en el entorno manda), así que los archivos van al disco y nunca a un Storage real.
   Como cada base integrada solo la abre un proceso, las preparaciones que la usan (`create-e2e-users.ts`,
-  `create-agenda-fixtures.ts`) terminan antes de que arranquen los servidores.
+  `create-agenda-fixtures.ts`, `create-assistant-fixtures.ts`) terminan antes de que arranquen los servidores.
 - Se entra siempre por el formulario, como una persona: el inicio de sesión de Better Auth no responde por HTTP
   (`src/server/auth.ts`). En Vitest, las pruebas usan `auth.api.*`, como las Server Actions.
 - Las pruebas de Playwright van de una en una, porque comparten las bases de datos de esos servidores.
@@ -207,4 +207,18 @@ Qué se prueba y cómo, para demostrar que el código funciona.
     envío con `web-push` se prueba en Vitest con su transporte falso, sin llamar a ningún servicio de push.
   - Las respuestas y los avisos simulados copian los reales de `docs/integracion-*.md` (por ejemplo, los
     avisos de WhatsApp de `docs/integracion-whatsapp-mensajes.md`), firmas incluidas.
+  - Agentes internos (fase 10): sus reglas se prueban en `src/data/internal-agents.test.ts` para los cinco roles,
+    con el OpenRouter falso del conocimiento (`knowledgeOpenRouter`, que busca y responde) pasado a
+    `askAssistant(…, { fetchImpl })`; el tope del día, con un `RateLimiter` de la prueba. Las acciones de las
+    pantallas, en `src/app/(app)/asistentes/actions.test.ts`. Que un agente interno no puede ser el agente de un
+    canal nuevo ([INT-03]) se prueba además en cada asistente de canal (`telegram.test.ts`, `ycloud.test.ts` y
+    `whatsapp-qr.test.ts`, en `src/data/`). En Playwright, `e2e/demo/internal-agents.spec.ts`
+    recorre la fase con tres personas (propietario, agente y supervisor, cada una en su navegador) y con el PDF de
+    120 páginas de `e2e/support/knowledge-files.ts` en una base interna: la respuesta cita el documento y la página
+    112. `e2e/demo/assistant-history.spec.ts` pulsa «Cargar más» y «Cargar mensajes anteriores» con las
+    conversaciones que `e2e/support/create-assistant-fixtures.ts` deja escritas para el administrador de la demo
+    (53 conversaciones y una de 204 mensajes: preguntarlas una a una tardaría minutos, por el tope de 20 por
+    minuto). Los ayudantes de sus pantallas están en `e2e/support/assistants.ts`. La demo trae un agente interno
+    para todo el equipo, así que «Asistentes» está en el menú del propietario, el administrador, el supervisor y
+    el agente de la demo.
 - Cuando el proyecto esté en GitHub, se propone ejecutar las pruebas automáticamente en cada subida.

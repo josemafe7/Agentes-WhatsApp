@@ -7,7 +7,7 @@ import { isLinked, loadQrCreds } from "@/server/channels/whatsapp-qr/auth-store"
 import { readWhatsAppQrConfig } from "@/server/channels/whatsapp-qr/config";
 import { setQrSupervisorForTests } from "@/server/channels/whatsapp-qr/runtime";
 import { createQrSupervisor } from "@/server/channels/whatsapp-qr/supervisor";
-import { AuthError, ConflictError, NotFoundError, RateLimitError } from "@/server/errors";
+import { AuthError, ConflictError, NotFoundError, RateLimitError, ValidationError } from "@/server/errors";
 import { actorFor, createAgentRow, createBusiness, createChannel, createContactWithIdentity, createConversation } from "@/test/factories";
 import { fakeQrSockets, QR_TEST } from "@/test/fixtures/whatsapp-qr";
 import { deleteChannel, getChannel, listChannels, updateChannel } from "./channels";
@@ -218,5 +218,17 @@ describe("«Desconectar» [QR-12]", () => {
     // Another kind of channel is never touched by this way's functions.
     const meta = await createChannel({ type: "whatsapp", connectionMode: "manual", phoneNumberId: "200000000000009" });
     await expect(getWhatsAppQrPanel(owner, meta.id)).rejects.toThrow(NotFoundError);
+  });
+});
+
+describe("an internal agent never answers customers [INT-03]", () => {
+  it("it cannot be the number's agent: the wizard refuses it and creates no channel, where an agent for customers starts the link", async () => {
+    harness();
+    const internal = await createAgentRow({ audience: "team", systemTools: [] });
+    await expect(startQrLink(owner, form({ activeAgentId: internal.id }))).rejects.toBeInstanceOf(ValidationError);
+    expect(await db.select().from(channels)).toHaveLength(0);
+    const forCustomers = await createAgentRow();
+    const { channelId } = await startQrLink(owner, form({ activeAgentId: forCustomers.id }));
+    expect((await row(channelId)).activeAgentId).toBe(forCustomers.id);
   });
 });

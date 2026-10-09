@@ -12,6 +12,7 @@ import type { OpenRouterDeps } from "@/server/ai/openrouter";
 import { NotFoundError, parseInput, RateLimitError } from "@/server/errors";
 import { MAX_QUERY_CHARS } from "@/server/knowledge/constants";
 import { searchKnowledge, type KnowledgeSearchResult } from "@/server/knowledge/search";
+import { KNOWLEDGE_BASE_NOT_FOUND, seesInternalKnowledge } from "./agent-audience";
 import { assertCan } from "./guard";
 
 /** Test searches per person and minute. */
@@ -27,8 +28,11 @@ export const testKnowledgeSearchSchema = z
 export async function testKnowledgeSearch(actor: Actor, input: unknown, deps: OpenRouterDeps = {}): Promise<KnowledgeSearchResult> {
   assertCan(actor, PERMISSIONS.knowledge.testSearch);
   const data = parseInput(testKnowledgeSearchSchema, input);
-  const found = await db.select({ id: knowledgeBases.id }).from(knowledgeBases).where(inArray(knowledgeBases.id, data.kbIds));
-  if (found.length === 0) throw new NotFoundError("No se ha encontrado la base de conocimiento.");
+  // An internal base only exists for who manages internal bases ([INT-15]): for anybody else it is not searched.
+  const found = (await db.select({ id: knowledgeBases.id, audience: knowledgeBases.audience }).from(knowledgeBases).where(inArray(knowledgeBases.id, data.kbIds))).filter(
+    (base) => base.audience === "customers" || seesInternalKnowledge(actor),
+  );
+  if (found.length === 0) throw new NotFoundError(KNOWLEDGE_BASE_NOT_FOUND);
   const hit = await getRateLimiter().hit(`ai:knowledge_search:${actor.userId}`, TEST_SEARCH_LIMIT.limit, TEST_SEARCH_LIMIT.windowMs);
   if (!hit.allowed) throw new RateLimitError("Has hecho muchas búsquedas seguidas. Espera un minuto y vuelve a intentarlo.");
   return searchKnowledge({ kbIds: found.map((row) => row.id), query: data.query, run: { mode: "test" } }, deps);

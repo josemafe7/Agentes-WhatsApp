@@ -1,8 +1,8 @@
 # DominIA Agentes
 
-Plataforma de agentes IA de atención al cliente (WhatsApp, correo, chat web y Telegram) que se instala una vez por
-negocio y se configura sin tocar código. Cada instalación es de un solo negocio, con su propia base de datos y
-sus propias claves.
+Plataforma de agentes IA de atención al cliente (WhatsApp, correo, chat web y Telegram) y de agentes internos para el
+equipo, que se instala una vez por negocio y se configura sin tocar código. Cada instalación es de un solo negocio,
+con su propia base de datos y sus propias claves.
 
 **Estado: construidas las fases 0 a 7, solo en local; en marcha la fase 8 (Supabase para la app publicada).** Todo lo
 del encargo funciona ya en tu ordenador: el arranque
@@ -21,6 +21,11 @@ está probado contra esos servicios simulados.
 YCloud con coexistencia (la API oficial sin dejar de usar el móvil) y código QR con Baileys (no oficial, con su aviso
 de riesgo). Están probadas contra servicios simulados y, el código QR, generando un código real de WhatsApp; falta
 probarlas con un bot, una cuenta de YCloud y un número de verdad.
+
+**Fase 10 (2026-10-09):** agentes internos. Además de los agentes que atienden a tus clientes, puedes crear agentes
+para tu equipo: responden con los documentos de la empresa (en bases de conocimiento internas, que un agente de
+clientes nunca puede leer) a las personas a las que des acceso, desde el apartado «Asistentes». Lo que cada persona
+pregunta solo lo ve ella. Está probado con la IA simulada; falta probarlo con una clave real y tus documentos.
 
 ## Requisitos
 
@@ -318,10 +323,36 @@ revisar. La guía completa es [`docs/guia-correo.md`](docs/guia-correo.md), tamb
    tiempo máximo, con «Probar». Después se enciende en la pestaña Herramientas de cada agente.
 7. **Ayuda:** además de las guías, la **Lista de puesta en marcha** de un negocio real (`/ayuda/puesta-en-marcha`).
 
+### Agentes internos (fase 10)
+
+La demo trae un agente interno, «Asistente del equipo», con la base interna «Manual interno» (un documento de
+ejemplo con normas del equipo: apertura y cierre, vacaciones, incidencias, compras…). Lo puede usar todo el equipo.
+
+1. **Asistentes** (entra como `agente@demo.test`): está en el menú porque tienes un agente interno que usar. Ábrelo
+   y, con la clave de OpenRouter puesta, pregunta «¿Cuántos días de vacaciones tengo?». Responde con el dato del
+   manual y «Ver la fuente» dice de qué documento sale. Sin clave, lo dice y no deja enviar.
+2. **Tus conversaciones:** a la izquierda quedan las tuyas con ese agente; puedes seguir una, empezar otra o
+   borrarla. Entra después como `propietario@demo.test` y abre el mismo asistente: no ves las del agente, solo las
+   tuyas.
+3. **Crear otro** (como `propietario@demo.test`): Conocimiento › «Nueva base» con «Uso: Interna» y un documento;
+   Agentes › «Nuevo agente» › «Interno, para tu equipo»; en su pestaña Conocimiento, activa la base; en **Acceso**,
+   elige «Personas concretas» y marca a quien quieras. Solo esa persona (y propietario y administradores) lo verá
+   en «Asistentes».
+4. **Lo que no se puede:** abre Agentes › Asistente de citas › Conocimiento: las bases internas no aparecen, porque
+   ese agente atiende clientes. Y un agente interno no tiene las pestañas Canales, Herramientas ni Traspaso.
+5. **Quién ve qué:** como `supervisor@demo.test`, ni «Asistente del equipo» sale en Agentes ni «Manual interno» en
+   Conocimiento; solo puede usar el asistente desde «Asistentes». Como `lectura@demo.test` no hay «Asistentes».
+6. **Informes:** bajo el coste de IA se lee cuánto de él han gastado los agentes internos y cuántas preguntas han
+   respondido.
+
+Si tu demo se cargó antes de esta fase, no trae el agente interno de ejemplo: `pnpm db:reset` la vuelve a cargar
+(borra lo que hayas cambiado en local). Los pasos 3 a 6 funcionan igual sin recargarla.
+
 ### Lo demás
 
-- **Entrar con cada rol** y ver cómo cambia el menú: Bandeja, Contactos, Agenda, Agentes, Conocimiento,
-  Canales, Informes y Ajustes. En todas las pantallas aparece el aviso «Modo demo».
+- **Entrar con cada rol** y ver cómo cambia el menú: Bandeja, Contactos, Agenda, Asistentes (solo si tienes algún
+  agente interno que usar), Agentes, Conocimiento, Canales, Informes y Ajustes. En todas las pantallas aparece el
+  aviso «Modo demo».
 - **Ajustes › Negocio:** nombre, datos de contacto, sector, zona horaria, logo y color de la marca, con la
   vista previa en claro y oscuro. El color se aplica a todo el panel.
 - **Ajustes › Usuarios:** invitar a alguien por email con su rol, cambiar roles, elegir los canales de un
@@ -333,9 +364,9 @@ revisar. La guía completa es [`docs/guia-correo.md`](docs/guia-correo.md), tamb
   `data/outbox/` al cabo de unos segundos (lo envía el trabajo en segundo plano).
 - **Mi cuenta** (menú de tu usuario): nombre, contraseña, verificación en dos pasos con una app de
   autenticación y códigos de recuperación, tus avisos y cerrar sesión aquí o en los demás dispositivos.
-- **Agentes:** la demo trae tres agentes, creados desde la plantilla de la peluquería: «Asistente de citas»
-  (con dos versiones, para probar a restaurar), «Asistente de correo» y «Asistente fuera de horario», preparado
-  sin activar. Crea uno con «Nuevo agente» (plantilla de tu sector, de otro sector, en blanco o «Generar
+- **Agentes:** la demo trae tres agentes para clientes, creados desde la plantilla de la peluquería: «Asistente de
+  citas» (con dos versiones, para probar a restaurar), «Asistente de correo» y «Asistente fuera de horario», preparado
+  sin activar; y un agente interno, «Asistente del equipo» (ver «Agentes internos (fase 10)»). Crea uno con «Nuevo agente» (plantilla de tu sector, de otro sector, en blanco o «Generar
   borrador con IA» desde tu web o una descripción) y recorre su editor: General, Instrucciones (con «Vista
   previa del prompt»), Modelo, Conocimiento (ver «Conocimiento (fase 4)»), Herramientas («Pasar a una persona»,
   siempre activa, «Buscar en el conocimiento» y las de la agenda: consultar huecos, crear, cambiar y cancelar citas y
@@ -679,6 +710,9 @@ Guías para el negocio (también dentro de la app, en Ayuda):
 - [Crear agentes y darles el conocimiento del negocio](docs/guia-agentes-y-conocimiento.md): crear, ajustar y
   probar un agente, ponerlo a responder en un canal, y darle archivos de contexto y bases de conocimiento con sus
   documentos, webs y preguntas frecuentes.
+- [Los agentes internos](docs/guia-asistentes-internos.md): un agente para tu equipo con su base de conocimiento
+  interna, a quién le das acceso, cómo se usa en «Asistentes», la privacidad de lo que se pregunta y los documentos
+  grandes.
 - [La agenda](docs/guia-agenda.md): palabras, modo por recurso o por aforo, servicios, recursos, horarios, ausencias
   y bloqueos, el calendario, qué hace el agente con las citas, las citas de prueba y los recordatorios.
 - [Conectar WhatsApp](docs/guia-whatsapp.md): portfolio, app, token, publicación, método de pago, la prueba con

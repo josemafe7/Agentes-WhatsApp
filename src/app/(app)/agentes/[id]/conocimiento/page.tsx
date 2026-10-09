@@ -34,7 +34,9 @@ export default async function AgentKnowledgePage({ params }: PageProps) {
   const tab = await loadKnowledgeTab(actor, agent, { canManage });
   const canOpenBases = can(actor, PERMISSIONS.knowledge.view);
   const canManageKnowledge = can(actor, PERMISSIONS.knowledge.manage);
-  const hint = knowledgeSearchHint({ selectedCount: tab.selectedCount, knowledgeMode: agent.knowledgeMode, systemTools: agent.systemTools });
+  const internal = agent.audience === "team";
+  // An internal agent always has the search of its knowledge ([INT-07]): nothing to switch on in Herramientas.
+  const hint = internal ? null : knowledgeSearchHint({ selectedCount: tab.selectedCount, knowledgeMode: agent.knowledgeMode, systemTools: agent.systemTools });
 
   return (
     <div className="grid max-w-2xl gap-10">
@@ -46,7 +48,8 @@ export default async function AgentKnowledgePage({ params }: PageProps) {
           cost={tab.cost}
           canManage={canManage}
           canMove={canManage && canManageKnowledge}
-          bases={tab.bases.map(({ id, name }) => ({ id, name }))}
+          // «Pasar a una base»: one of the same kind as the agent, so what an internal agent knows stays internal ([INT-04]).
+          bases={tab.bases.filter((base) => tab.internalBaseIds.includes(base.id) === internal).map(({ id, name }) => ({ id, name }))}
         />
       </section>
 
@@ -54,7 +57,11 @@ export default async function AgentKnowledgePage({ params }: PageProps) {
         <SectionHeading
           id="knowledge-bases-heading"
           title="Bases de conocimiento"
-          description="Documentos, webs y preguntas frecuentes en los que el agente busca solo lo que necesita para cada respuesta. Puede usar varias, y solo busca en las que actives aquí."
+          description={
+            internal
+              ? "Documentos, webs y preguntas frecuentes en los que el agente busca lo que necesita para cada respuesta. Puede usar bases internas y también las de clientes; solo busca en las que actives aquí."
+              : "Documentos, webs y preguntas frecuentes en los que el agente busca solo lo que necesita para cada respuesta. Puede usar varias, y solo busca en las que actives aquí."
+          }
           action={
             canOpenBases ? (
               <Button variant="outline" asChild>
@@ -82,7 +89,7 @@ export default async function AgentKnowledgePage({ params }: PageProps) {
           </Alert>
         ) : null}
         {tab.bases.length > 0 ? (
-          <KnowledgeBasesList agentId={agent.id} bases={tab.bases} canManage={canManage} canOpen={canOpenBases} />
+          <KnowledgeBasesList agentId={agent.id} bases={tab.bases} canManage={canManage} canOpen={canOpenBases} internalIds={tab.internalBaseIds} />
         ) : canManage ? (
           <EmptyState
             icon={Library}

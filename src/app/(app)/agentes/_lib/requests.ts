@@ -52,9 +52,11 @@ export type DraftRequest = z.input<typeof draftRequestSchema>;
 
 /**
  * «Nuevo agente» ([AGE-02]): a sector template (the business's or another), blank, or the template of a sector with
- * the instructions of a generated draft the person has already reviewed ([AGE-05]).
+ * the instructions of a generated draft the person has already reviewed ([AGE-05]). `internal` is an internal agent,
+ * for the team: always blank ([INT-01]).
  */
 export const newAgentRequestSchema = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("internal"), name: z.unknown().optional() }).strict(),
   z.object({ source: z.literal("template"), sector: z.enum(SECTORS, { error: "Elige una plantilla." }), name: z.unknown().optional() }).strict(),
   z.object({ source: z.literal("blank"), name: z.unknown().optional() }).strict(),
   z

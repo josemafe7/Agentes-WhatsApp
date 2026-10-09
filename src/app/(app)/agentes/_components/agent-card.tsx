@@ -22,15 +22,22 @@ export function AgentCard({ agent, avatarUrl, timezone, canManage, modelWarning 
       <div className="flex items-start gap-3">
         <AgentAvatar name={agent.name} src={avatarUrl} />
         <div className="grid min-w-0 flex-1 gap-0.5">
-          <h2 className="truncate text-base font-semibold">
+          <h3 className="truncate text-base font-semibold">
             {/* The whole card is the link; the menu sits above it. */}
             <Link href={`/agentes/${agent.id}`} className="outline-none after:absolute after:inset-0 after:rounded-xl">
               {agent.name}
             </Link>
-          </h2>
+          </h3>
           <p className="truncate text-sm text-muted-foreground">{agent.description || "Sin descripción"}</p>
         </div>
-        {canManage ? <AgentCardMenu agentId={agent.id} agentName={agent.name} activeChannelNames={agent.activeChannels.map((channel) => channel.name)} /> : null}
+        {canManage ? (
+          <AgentCardMenu
+            agentId={agent.id}
+            agentName={agent.name}
+            activeChannelNames={agent.activeChannels.map((channel) => channel.name)}
+            internal={agent.audience === "team"}
+          />
+        ) : null}
       </div>
       <p className="truncate font-mono text-xs text-muted-foreground" title={agent.model ?? undefined}>
         {agent.model ?? "Sin modelo"}
@@ -41,14 +48,19 @@ export function AgentCard({ agent, avatarUrl, timezone, canManage, modelWarning 
           {modelWarning}
         </p>
       ) : null}
-      <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="text-muted-foreground">Activo en:</span>
-        {agent.activeChannels.length === 0 ? (
-          <span className="text-muted-foreground">ningún canal</span>
-        ) : (
-          agent.activeChannels.map((channel) => <ChannelChip key={channel.id} type={channel.type} name={channel.name} />)
-        )}
-      </div>
+      {agent.audience === "team" ? (
+        // An internal agent has no channels ([INT-03]): it answers in «Asistentes».
+        <p className="text-xs text-muted-foreground">Responde al equipo en «Asistentes».</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-muted-foreground">Activo en:</span>
+          {agent.activeChannels.length === 0 ? (
+            <span className="text-muted-foreground">ningún canal</span>
+          ) : (
+            agent.activeChannels.map((channel) => <ChannelChip key={channel.id} type={channel.type} name={channel.name} />)
+          )}
+        </div>
+      )}
       <p className="mt-auto text-xs text-muted-foreground">
         Versión {agent.currentVersion} ·{" "}
         <time dateTime={agent.updatedAt.toISOString()} className="tabular-nums">

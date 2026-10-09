@@ -25,6 +25,16 @@ export const DEMO_KNOWLEDGE_KEY_PREFIX = "knowledge/demo";
 /** A document of the demo: its text source in seed/knowledge/<sector>/ and its title in the app. */
 export type DemoDocumentSource = { source: string; title: string };
 
+/**
+ * The internal base of the demo ([INT-14]): the same for every sector, in seed/knowledge/interno/. Only the demo's
+ * internal agent uses it; no agent that answers customers can ([INT-04]).
+ */
+export const DEMO_INTERNAL_FOLDER = "interno";
+export const DEMO_INTERNAL_BASE_NAME = "Manual interno";
+export const DEMO_INTERNAL_DOCUMENTS: readonly DemoDocumentSource[] = [{ source: "manual-del-equipo.md", title: "Manual del equipo" }];
+/** Where a demo document's source lives: the folder of its sector, or the internal one. */
+type DemoFolder = Sector | typeof DEMO_INTERNAL_FOLDER;
+
 const PDF_SOURCE = /\.pdf\.md$/;
 
 export const DEMO_DOCUMENTS: Readonly<Record<Sector, readonly DemoDocumentSource[]>> = {
@@ -84,11 +94,11 @@ export type DemoKnowledgeDocument = {
 export type DemoKnowledge = { sector: Sector; name: string; description: string; documents: DemoKnowledgeDocument[] };
 
 /** The text source of a demo document, with \n line ends whatever Git did to the file. */
-export function readDemoSource(sector: Sector, source: string): string {
+export function readDemoSource(sector: DemoFolder, source: string): string {
   return fs.readFileSync(path.join(DEMO_KNOWLEDGE_DIR, sector, source), "utf8").replace(/\r\n?/g, "\n");
 }
 
-function uploadOf(sector: Sector, document: DemoDocumentSource): { file: DemoFile; kind: KnowledgeFileKind } {
+function uploadOf(sector: DemoFolder, document: DemoDocumentSource): { file: DemoFile; kind: KnowledgeFileKind } {
   const text = readDemoSource(sector, document.source);
   const isPdf = PDF_SOURCE.test(document.source);
   const fileName = isPdf ? document.source.replace(PDF_SOURCE, ".pdf") : document.source;
@@ -100,7 +110,7 @@ function uploadOf(sector: Sector, document: DemoDocumentSource): { file: DemoFil
 }
 
 /** The bytes the business «uploaded»: the Markdown itself, or the PDF written from its source. */
-export function demoDocumentFile(sector: Sector, document: DemoDocumentSource): DemoFile {
+export function demoDocumentFile(sector: DemoFolder, document: DemoDocumentSource): DemoFile {
   return uploadOf(sector, document).file;
 }
 
@@ -111,7 +121,7 @@ function processed(input: Omit<DemoKnowledgeDocument, "summary" | "chunks">): De
   return { ...input, summary: fallbackSummary(markdown), chunks };
 }
 
-async function fileDocument(sector: Sector, document: DemoDocumentSource): Promise<DemoKnowledgeDocument> {
+async function fileDocument(sector: DemoFolder, document: DemoDocumentSource): Promise<DemoKnowledgeDocument> {
   const { file, kind } = uploadOf(sector, document);
   const extracted = await extractFileToMarkdown(kind, file.bytes);
   return processed({
@@ -149,6 +159,18 @@ export async function buildDemoKnowledge(sector: Sector): Promise<DemoKnowledge>
     sector,
     name: DEMO_KNOWLEDGE_BASE_NAME,
     description: `Servicios, precios, normas, cómo llegar y preguntas frecuentes de ${business.name}.`,
+    documents,
+  };
+}
+
+/** The internal base of the demo ([INT-14]): the team's manual, processed like any other upload. */
+export async function buildDemoInternalKnowledge(sector: Sector): Promise<DemoKnowledge> {
+  const documents: DemoKnowledgeDocument[] = [];
+  for (const document of DEMO_INTERNAL_DOCUMENTS) documents.push(await fileDocument(DEMO_INTERNAL_FOLDER, document));
+  return {
+    sector,
+    name: DEMO_INTERNAL_BASE_NAME,
+    description: `Cómo trabajamos en ${DEMO_BUSINESSES[sector].name}: apertura y cierre, vacaciones, incidencias, compras y protección de datos. Solo para el equipo.`,
     documents,
   };
 }

@@ -70,6 +70,14 @@ export const PERMISSIONS = {
     /** Probar búsqueda. */
     testSearch: "knowledge.test_search",
   },
+  internal: {
+    /** Agentes internos: ver, crear, configurar, probar y decidir quién los usa ([INT-15]). */
+    agents: "internal.agents",
+    /** Ver y gestionar las bases internas ([INT-15]). */
+    knowledge: "internal.knowledge",
+    /** Preguntar a los agentes internos a los que se tiene acceso, y ver y borrar las conversaciones propias ([INT-05]). */
+    use: "internal.use",
+  },
   channels: {
     /** Ver lista, estado y panel, sin credenciales. */
     view: "channels.view",
@@ -143,6 +151,10 @@ const RULES: Record<Action, readonly [Rule, Rule, Rule, Rule, Rule]> = {
   "knowledge.view": [Y, Y, Y, N, Y],
   "knowledge.manage": [Y, Y, Y, N, N],
   "knowledge.test_search": [Y, Y, Y, N, N],
+  "internal.agents": [Y, Y, N, N, N],
+  "internal.knowledge": [Y, Y, N, N, N],
+  // Supervisor and agent: only the internal agents they were given ([INT-05]); src/data/assistants.ts checks it.
+  "internal.use": [Y, Y, Y, Y, N],
   "channels.view": [Y, Y, N, N, Y],
   "channels.manage": [Y, Y, N, N, N],
   "reports.view": [Y, Y, Y, N, Y],

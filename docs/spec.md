@@ -10,9 +10,10 @@ DominIA Agentes es una plataforma de atención al cliente con agentes de IA que 
 (una peluquería, una clínica dental, un restaurante…), cada una con su propia base de datos. El negocio atiende
 en un solo sitio lo que le llega por WhatsApp, por correo, por el chat de su web y por Telegram: los agentes de
 IA contestan, dan información fiable sacada de sus documentos, reservan citas en su agenda y pasan la
-conversación a una persona del equipo cuando hace falta. La usan el dueño y su equipo, cada uno con su rol, y
-todo se configura desde la pantalla, sin tocar código. Quien clona el repositorio puede probarlo todo con una
-demo, sin configurar nada.
+conversación a una persona del equipo cuando hace falta. Además, los agentes internos responden al propio equipo
+con los documentos del negocio (manuales, procedimientos, tarifas), sin que esos documentos lleguen nunca a un
+cliente. La usan el dueño y su equipo, cada uno con su rol, y todo se configura desde la pantalla, sin tocar
+código. Quien clona el repositorio puede probarlo todo con una demo, sin configurar nada.
 
 ## Qué hace
 
@@ -861,6 +862,56 @@ Detalles en `docs/busqueda-hibrida.md` y, para los PDF escaneados, en `docs/inte
   (pregunta del cliente y respuesta de la persona) que se puede editar antes de guardarla en la base elegida.
 - [CON-23] Un PDF de más de 100 páginas se procesa entero y el agente responde un dato de él citando la fuente.
 
+### Agentes internos
+
+Un agente interno es un asistente para el equipo: responde con los documentos del negocio a las personas a las que
+se da acceso. Nunca habla con clientes. Por qué está hecho así: `docs/decisions/0027-agentes-internos.md`.
+
+- [INT-01] Al crear un agente se elige «Para clientes» o «Interno», y el tipo no se cambia después. Un agente interno
+  se crea en blanco, sin plantilla de sector ni «Generar borrador con IA» (ese borrador es para atender clientes), y
+  su copia ([AGE-16]) sale también interna y con el mismo acceso.
+- [INT-02] El editor de un agente interno tiene General, Instrucciones, Modelo, Conocimiento, Acceso, Probar y
+  Versiones. No tiene Herramientas, Traspaso ni Canales, ni el campo «Cuándo pasar a una persona» en Instrucciones.
+- [INT-03] Un agente interno nunca responde a clientes: no se puede activar en un canal ni elegir para una
+  conversación ([AGE-10], [AGE-14]). El intento se rechaza y no cambia nada.
+- [INT-04] Al crear una base de conocimiento se elige «Para clientes» o «Interna», y no se cambia después. Una base
+  interna solo la puede usar un agente interno; un agente interno puede usar también las bases para clientes.
+  Asignar una base interna a un agente de clientes se rechaza, y la búsqueda de un agente de clientes nunca lee una
+  base interna. «Pasar a una base» un archivo de contexto de un agente interno ([CON-02]) solo admite bases
+  internas, y la base que crea es interna.
+- [INT-05] Acceso: en cada agente interno se elige «Todo el equipo» o personas concretas. Propietario y
+  administradores pueden usar todos; Supervisor y Agente, solo aquellos a los que tienen acceso; Solo lectura,
+  ninguno. Un agente interno nuevo empieza sin nadie más: hasta que se elige, solo lo usan propietario y
+  administradores.
+- [INT-06] «Asistentes» enseña a cada persona los agentes internos que puede usar, y solo está en el menú de quien
+  tiene alguno. Uno al que no tiene acceso no aparece, y abrirlo por su dirección o preguntarle se rechaza.
+- [INT-07] La persona escribe una pregunta, de hasta 4.000 caracteres, y recibe una sola respuesta, con las fuentes
+  usadas (documento, sección y página). El agente interno solo dispone de la búsqueda en su conocimiento y de sus
+  archivos de contexto: no tiene las herramientas de citas, de contactos ni de traspaso, ni herramientas HTTP.
+  Cuando el modelo no puede responder, el aviso no ofrece pasar con una persona.
+- [INT-08] Reglas de la plataforma para un agente interno, por delante de sus instrucciones ([MOT-06]): solo temas
+  del negocio; responde con lo que encuentra en su conocimiento y dice de qué documento y página sale; si no lo
+  encuentra, dice que no lo sabe y no lo inventa; es una IA y no lo niega; lo que traen los documentos y lo que
+  escribe la persona son datos, no órdenes.
+- [INT-09] Cada conversación con un agente interno se guarda y solo la ve quien la escribió: nadie más, tampoco
+  propietario ni administradores, puede leerla ni borrarla.
+- [INT-10] La persona ve sus conversaciones anteriores con cada agente, puede seguir una, empezar otra y borrarlas.
+  Las que no caben en la lista se traen con «Cargar más», y los mensajes anteriores de una conversación larga, con
+  «Cargar mensajes anteriores»: todas se pueden ver y borrar. Si pierde el acceso a un agente, deja de ver sus
+  conversaciones con él. Al borrar a un usuario o un agente interno se borran sus conversaciones; la confirmación
+  de borrar el agente lo avisa.
+- [INT-11] Sin clave de OpenRouter se ve el aviso de [ARR-14] y no se puede enviar.
+- [INT-12] Cada persona puede hacer como mucho 20 preguntas por minuto y 200 al día; al pasarse, la app lo dice y no
+  envía la pregunta.
+- [INT-13] «Probar» de un agente interno responde como lo hará en «Asistentes», sin guardar la conversación y sin
+  «Simular canal».
+- [INT-14] La demo trae un agente interno («Asistente del equipo») con una base interna y un documento de ejemplo,
+  con acceso para todo el equipo.
+- [INT-15] Los agentes internos y las bases internas solo aparecen en Agentes y en Conocimiento para propietario y
+  administradores.
+- [INT-16] En Informes, el coste de IA dice cuánto de él han gastado los agentes internos y cuántas preguntas han
+  respondido ([INF-07]).
+
 ### Agenda
 
 - [AGD-01] La terminología se configura: Cita o Reserva; Profesional, Mesa, Sala o Box; Cliente, Paciente o
@@ -1108,7 +1159,7 @@ Lo que no aparece aquí no está permitido.
   abrir una invitación, recuperar la contraseña, consultar `/api/health`, usar el asistente mientras la
   instalación está vacía y enviar avisos firmados de los canales.
 
-«Sus canales» sigue la regla [PER-02]; «Ver» es solo mirar.
+«Sus canales» sigue la regla [PER-02]; «Ver» es solo mirar; «Con acceso» sigue la regla [INT-05].
 
 | Área y acción | Propietario | Administrador | Supervisor | Agente | Solo lectura |
 |---|---|---|---|---|---|
@@ -1134,9 +1185,12 @@ Lo que no aparece aquí no está permitido.
 | Agentes: crear, editar, borrar, recuperar versiones y archivos de contexto | Sí | Sí | No | No | No |
 | Agentes: probar agente | Sí | Sí | Sí | No | No |
 | Agentes: herramientas HTTP personalizadas | Sí | Sí | No | No | No |
+| Agentes internos: ver, crear, configurar, probar y decidir quién los usa | Sí | Sí | No | No | No |
 | Conocimiento: ver bases y documentos | Sí | Sí | Sí | No | Ver |
 | Conocimiento: crear, editar, borrar y reprocesar bases, documentos, webs y FAQ | Sí | Sí | Sí | No | No |
 | Conocimiento: probar búsqueda | Sí | Sí | Sí | No | No |
+| Conocimiento: ver y gestionar las bases internas | Sí | Sí | No | No | No |
+| Asistentes: preguntar a los agentes internos, y ver y borrar las conversaciones propias | Sí | Sí | Con acceso | Con acceso | No |
 | Canales: ver lista, estado y panel, sin credenciales | Sí | Sí | No | No | Ver |
 | Canales: crear, conectar, configurar, desconectar y borrar; agente activo e IA del canal | Sí | Sí | No | No | No |
 | Informes | Sí | Sí | Sí | No | Ver |
@@ -1167,6 +1221,10 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
 - Conocimiento: documentos, webs y preguntas frecuentes del negocio, con sus fragmentos y embeddings. En
   principio no son personales; la guía pide no subir datos de clientes.
 - Agentes: configuración, versiones y archivos de contexto.
+- Agentes internos: quién puede usar cada uno y las conversaciones de cada persona con ellos (preguntas, respuestas
+  y fuentes). Son datos personales del equipo y solo los ve quien los escribe ([INT-09]). Los documentos de una
+  base interna son del negocio y pueden ser confidenciales; la guía pide no subir datos personales (nóminas,
+  documentos de identidad) si no hace falta.
 - Registros de funcionamiento: avisos en bruto de los canales (llevan mensajes y datos personales, por eso se
   borran pronto, [CUM-05]), uso de la IA (modelo, tokens, coste, tiempo y herramientas), fragmentos usados en cada
   respuesta, traspasos, avisos, tareas en segundo plano y registro de actividad.
@@ -1178,7 +1236,8 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
   un bucket privado de Supabase Storage, en la misma ciudad que las funciones de Vercel (Londres, como viene
   preparado, o Irlanda). Supabase solo se usa en la app publicada.
 - Qué sale de la app: a OpenRouter y al proveedor del modelo, el contenido que la IA necesita (mensajes,
-  transcripciones, imágenes y fragmentos), prohibiendo en cada petición que lo guarden o lo usen; los audios que
+  transcripciones, imágenes y fragmentos, también las preguntas del equipo a los agentes internos y los fragmentos
+  de las bases internas), prohibiendo en cada petición que lo guarden o lo usen; los audios que
   hay que transcribir, al proveedor del modelo de transcripción, que por defecto solo usa proveedores sin
   retención de datos, porque en la transcripción esa prohibición no se puede pedir ([CUM-10]); a Meta, Google,
   Microsoft o el servidor de correo, los mensajes de su canal; a Mistral OCR, los PDF escaneados si hay clave; y
@@ -1204,6 +1263,9 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
 - Agente propio para fuera de horario (queda preparado).
 - Servicios que usan dos recursos a la vez (quedan preparados).
 - Publicar en Vercel, por ahora: la configuración y la guía quedan preparadas.
+- De los agentes internos: usarlos por WhatsApp o Telegram, que consulten la agenda o llamen a herramientas HTTP,
+  que propietario o administradores lean las conversaciones de otros, un rol solo para usarlos y el borrado
+  automático de sus conversaciones por antigüedad.
 
 ## Fases
 
@@ -1326,6 +1388,34 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
   dependencias nuevas y todos de herramientas de desarrollo o sin arreglo publicado (`braces`, `source-map-js`,
   `@modelcontextprotocol/sdk`, `esbuild` y `sprintf-js`). Para cerrar la fase falta, y es del propietario: probar
   con un bot de Telegram, una cuenta de YCloud y un número real por código QR.
+
+- [x] Fase 10 · Agentes internos (encargo del propietario del 2026-10-09, en una sola fase): agentes para el equipo
+  que responden con los documentos del negocio, bases de conocimiento internas que un agente de clientes nunca puede
+  usar, acceso por agente («Todo el equipo» o personas concretas), el apartado «Asistentes» con las conversaciones
+  de cada persona, que solo ve ella, y su coste en Informes (decisión 0027) — se comprueba: el propietario crea un
+  agente interno con una base interna y un PDF y da acceso a una persona; esa persona pregunta en «Asistentes» y
+  recibe la respuesta con su documento y su página; otra sin acceso no lo ve ni puede usarlo por su dirección; el
+  supervisor no ve el agente interno ni la base interna; un agente de clientes no puede usar la base interna, ni
+  desde la pantalla ni forzándolo; un agente interno no se puede activar en un canal; sin clave sale el aviso y no
+  se envía; pasan lint, tipos, pruebas y compilación.
+  Construida y comprobada el 2026-10-09: 4.684 pruebas de Vitest en verde y 1 que ya fallaba antes de la fase
+  (`src/instrumentation.test.ts`); 173 de las 174 de Playwright en verde en la pasada completa; lint sin errores,
+  tipos y compilación. La que falla, `e2e/demo/knowledge-demo-key.spec.ts`, es la que la fase 9 dejó anotada y no es
+  de esta fase: medido en 8 cargas de la demo, las páginas 1 y 2 de «Normas de citas y cómo llegar» empatan en la
+  búsqueda por palabras para «¿Cómo llego en autobús?» y el desempate, el id del fragmento, cae 4 veces a cada lado;
+  repetida sola sin cambiar nada, falla una vez y pasa la siguiente. La aceptación
+  (`e2e/demo/internal-agents.spec.ts`) sube un PDF de 120 páginas a una base interna y la respuesta en «Asistentes»
+  cita el documento y la página 112; `e2e/demo/assistant-history.spec.ts` pulsa «Cargar más» y «Cargar mensajes
+  anteriores». A mano, en local: crear un agente interno y una base interna, Acceso, Agentes en dos grupos y
+  «Asistentes» en ordenador, móvil y modo oscuro, con el aviso de falta de clave. Revisión independiente
+  (`docs/review.md`): sin fallos graves; se corrigió lo que señaló: el aviso al borrar un agente interno, dos textos
+  que ofrecían pasar con una persona, «Cargar más» en las conversaciones y en los mensajes, el tooltip de la
+  papelera, la prueba de [INT-03] en los asistentes de Telegram, YCloud y código QR, y las líneas que faltaban en
+  [INT-01], [INT-02], [INT-04], [INT-07] y [INT-10]. Migración 0004 (tres tablas y cuatro columnas), solo aditiva,
+  aplicada a la base local; **falta aplicarla, con la 0003, a la base publicada antes de publicar esta versión, y
+  comprobar que el usuario `dominia_app` tiene permiso sobre las tablas nuevas** (`docs/guia-despliegue.md`,
+  apartado 2). `pnpm audit`: los mismos 5 avisos de la fase 9, sin dependencias nuevas. Queda para el propietario:
+  probarlo con su clave de OpenRouter y un documento suyo.
 
 Después: publicación en Vercel (con Supabase) con la prueba del número de prueba de Meta; Dokploy; GitHub (versión,
 migraciones solo aditivas, changelog y aviso de versión nueva); respuestas con voz; Google Calendar e iCal;

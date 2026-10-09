@@ -3,8 +3,9 @@
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import { FREE_TEXT_MAX, INSTRUCTION_MAX } from "@/lib/agent-input";
+import type { Audience } from "@/lib/enums";
 import type { InstructionValues } from "../_lib/instructions";
-import { INSTRUCTION_FIELDS, type InstructionFieldKey } from "../_lib/labels";
+import { instructionFieldsFor, type InstructionFieldKey } from "../_lib/labels";
 
 type InstructionFieldsProps = {
   values: InstructionValues;
@@ -12,13 +13,15 @@ type InstructionFieldsProps = {
   /** Messages of «instructions.<field>». */
   errorsFor?: (path: string) => string[] | undefined;
   idPrefix?: string;
+  /** team = an internal agent: no «Cuándo pasar a una persona» ([INT-02]). */
+  audience?: Audience;
 };
 
 /** Guided instructions ([AGE-04]): role, business information, what it can and cannot do, style and hand-off. */
-export function InstructionFields({ values, onChange, errorsFor, idPrefix = "instructions" }: InstructionFieldsProps) {
+export function InstructionFields({ values, onChange, errorsFor, idPrefix = "instructions", audience = "customers" }: InstructionFieldsProps) {
   return (
     <FieldGroup>
-      {INSTRUCTION_FIELDS.map((field) => {
+      {instructionFieldsFor(audience).map((field) => {
         const id = `${idPrefix}-${field.key}`;
         const errors = errorsFor?.(`instructions.${field.key}`);
         const max = field.key === "freeText" ? FREE_TEXT_MAX : INSTRUCTION_MAX;

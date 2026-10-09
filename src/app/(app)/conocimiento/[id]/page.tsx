@@ -40,7 +40,7 @@ export default async function KnowledgeDocumentsPage({ params, searchParams }: D
         <h2 id="documents-heading" className="text-lg font-semibold">
           Documentos
         </h2>
-        {canManage && documents.length > 0 ? <AddContentDialog kbId={base.id} /> : null}
+        {canManage && documents.length > 0 ? <AddContentDialog kbId={base.id} internal={base.audience === "team"} /> : null}
       </div>
       {base.reindexing ? (
         <p role="status" className="flex items-center gap-2 rounded-lg bg-info-soft px-3 py-2 text-sm text-info">
@@ -54,7 +54,7 @@ export default async function KnowledgeDocumentsPage({ params, searchParams }: D
             icon={FileText}
             title="Aún no hay documentos"
             description="Sube archivos PDF, Word, Excel, CSV, texto o Markdown, añade páginas de tu web o escribe preguntas frecuentes."
-            action={canManage ? <AddContentDialog kbId={base.id} /> : undefined}
+            action={canManage ? <AddContentDialog kbId={base.id} internal={base.audience === "team"} /> : undefined}
           />
         </div>
       ) : (

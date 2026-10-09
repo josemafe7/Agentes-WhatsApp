@@ -28,7 +28,7 @@ export default async function KnowledgeTestSearchPage({ params }: TestSearchPage
           Los fragmentos que encontraría el agente en «{page.base.name}», numerados como los recibe, con su puntuación y su fuente.
         </p>
       </div>
-      <SearchTester kbId={page.base.id} aiConfigured={aiConfigured} />
+      <SearchTester kbId={page.base.id} aiConfigured={aiConfigured} internal={page.base.audience === "team"} />
     </section>
   );
 }

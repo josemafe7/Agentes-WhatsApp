@@ -126,16 +126,19 @@ cerrarse la sesión desde el móvil y al borrar el canal.
 
 | Tabla | Qué guarda y campos clave | Reglas |
 |---|---|---|
-| `agents` | Nombre, descripción, avatar, idioma, tono, instrucciones guiadas (rol, negocio, qué puede y qué no, estilo, cuándo pasar a una persona y «Otras instrucciones»), número de la versión actual, modelo y respaldo, temperatura, razonamiento, longitud máxima, modo de conocimiento (`auto` o `always`), configuración de traspaso (palabras clave, número de «no lo sé», temas sensibles, mensajes dentro y fuera de horario, a quién avisar) y herramientas del sistema activas. | [AGE-03]–[AGE-09], [MOD-05], [MOD-07] |
+| `agents` | A quién va (`audience`: `customers`, que atiende clientes, o `team`, un agente interno; no cambia) y, en los internos, quién lo usa (`team_access`: `everyone` o `selected`). Nombre, descripción, avatar, idioma, tono, instrucciones guiadas (rol, negocio, qué puede y qué no, estilo, cuándo pasar a una persona y «Otras instrucciones»), número de la versión actual, modelo y respaldo, temperatura, razonamiento, longitud máxima, modo de conocimiento (`auto` o `always`), configuración de traspaso (palabras clave, número de «no lo sé», temas sensibles, mensajes dentro y fuera de horario, a quién avisar) y herramientas del sistema activas. | [AGE-03]–[AGE-09], [MOD-05], [MOD-07], [INT-01], [INT-05] |
 | `agent_versions` | Copia completa del agente en cada guardado, con número de versión, autor y fecha. Único agente + número. Recuperar una crea otra nueva. | [AGE-12] |
 | `agent_context_files` | Archivos de contexto del nivel 1: título, Markdown editable, tamaño en tokens y archivo de origen (clave `context-files/…` en el almacén de archivos). | [CON-01], [CON-02] |
 | `custom_tools` | Herramientas HTTP: nombre (único), descripción, parámetros, método, URL, tiempo máximo y cabeceras secretas cifradas. | [HER-11]–[HER-14] |
 | `agent_custom_tools` | Qué herramientas HTTP usa cada agente. Único agente + herramienta. | [AGE-08] |
-| `knowledge_bases` | Nombre, descripción, modelo y dimensiones de los embeddings (1536) y versión del índice en uso y en construcción. | [CON-03], [CON-11], [CON-13], [AJU-05] |
-| `agent_knowledge_bases` | Qué bases usa cada agente. Único agente + base. | [CON-03] |
+| `knowledge_bases` | A quién va (`audience`: `customers` o `team`, una base interna; no cambia). Nombre, descripción, modelo y dimensiones de los embeddings (1536) y versión del índice en uso y en construcción. | [CON-03], [CON-11], [CON-13], [AJU-05], [INT-04] |
+| `agent_knowledge_bases` | Qué bases usa cada agente. Único agente + base. Una base interna solo cuenta para un agente interno: se comprueba al asignarla y otra vez al buscar. | [CON-03], [INT-04] |
 | `kb_documents` | Documento de una base: tipo (archivo, página web o pregunta frecuente), título, origen (archivo, URL o sitemap), estado `queued`, `extracting`, `chunking`, `embedding`, `ready` o `error` con su motivo, huella del contenido (no se repite dentro de la base), páginas, resumen, fecha de lectura y refresco de las URL. | [CON-04]–[CON-09], [CON-14], [CON-15], [CON-22] |
 | `kb_chunks` | Fragmentos: documento, base, versión del índice, título, sección, página, texto, tokens, embedding (`halfvec(1536)`, vacío hasta que hay clave) y `search_vector` (columna `tsvector` que calcula la propia base con `es_unaccent` a partir del título, la sección y el texto). Sus índices (HNSW para el embedding y GIN para el texto) están en `docs/busqueda-hibrida.md`. | [CON-10]–[CON-13], [CON-16]–[CON-19] |
 | `message_retrievals` | Fragmentos usados en cada respuesta, con su posición y puntuación y una copia del título, la sección y la página: si se borra el fragmento, el documento o la base, su enlace queda vacío y la fuente se sigue viendo. | [CON-20], [PRU-02] |
+| `agent_members` | Quién puede usar un agente interno con acceso «Personas concretas»: agente + usuario (único). | [INT-05] |
+| `assistant_chats` | Conversación de una persona con un agente interno: agente, usuario (su dueño, el único que la lee) y título (el principio de su primera pregunta). Nunca es una fila de `conversations`: no sale en la bandeja ni en los informes de atención. | [INT-09], [INT-10] |
+| `assistant_messages` | Pregunta (`user`) o respuesta (`assistant`) de una de esas conversaciones: texto, fuentes de la respuesta (copia del documento, la sección, la página y la base) y la llamada a la IA que la escribió. | [INT-07], [INT-09] |
 
 Detalles del conocimiento que salieron al construirlo (fase 4, sin cambiar el esquema):
 
@@ -150,7 +153,18 @@ Detalles del conocimiento que salieron al construirlo (fase 4, sin cambiar el es
   repite en la base) y `content_hash`, la del texto extraído (una página web que no ha cambiado al refrescarla no se
   vuelve a procesar).
 - **Archivos:** los originales de los documentos se guardan con claves `knowledge/…` y se sirven por `/api/files` a
-  quien puede ver Conocimiento; al borrar el documento se borra también el archivo.
+  quien puede ver Conocimiento; al borrar el documento se borra también el archivo. Los de una base interna, solo a
+  propietario y administradores ([INT-15]).
+
+Agentes internos (fase 10, migración 0004, que solo añade: `agents.audience`, `agents.team_access`,
+`knowledge_bases.audience`, `ai_runs.audience` y las tres tablas de arriba; por qué, en la decisión 0027):
+
+- **Quién usa un agente interno** no se guarda entero: propietario y administradores, siempre; supervisor y agente,
+  si `team_access` es `everyone` o están en `agent_members`; solo lectura, nunca. Se calcula en cada petición, así
+  que cambiar el rol de alguien o desactivarlo le quita el acceso sin tocar esas filas.
+- **Borrados:** borrar un agente interno borra sus `agent_members` y todas sus conversaciones; borrar un usuario,
+  las suyas y su sitio en las listas; borrar una conversación la hace quien la escribió. Los `ai_runs` se quedan
+  (sin el enlace al agente si este se borra), con su marca `team`, así que las cifras de Informes no cambian.
 
 ## Contactos
 
@@ -228,7 +242,7 @@ Detalles del conocimiento que salieron al construirlo (fase 4, sin cambiar el es
 | `internal_notes` | Notas del equipo en una conversación, con autor. Nunca se envían. | [BAN-07] |
 | `handoff_events` | Cada traspaso: conversación, quién lo lanza (herramienta, regla o persona), motivo, resumen, urgencia, a quién se asigna, hora de la petición, hora y mensaje de la primera respuesta humana y `closed_at`, cuando terminó sin respuesta porque se resolvió la conversación o se reactivó la IA (deja de estar abierto y una respuesta posterior no cuenta como la suya). De aquí salen los informes de traspasos y del tiempo de respuesta. | [TRA-01], [TRA-06], [TRA-07], [INF-04], [INF-05], [CUM-11] |
 | `webhook_events` | Avisos en bruto de los canales: origen, canal, cuerpo, si la firma era correcta, cuándo se procesó y error. Para un número de WhatsApp que no es de ningún canal, solo la hora y el número. Se borran a los 14 días por defecto. | [CAN-09], [WA-34], [WA-35], [CUM-05], [AJU-11] |
-| `ai_runs` | Cada uso de la IA (chat, transcripción, embeddings, reordenación, descripción de imágenes, borradores de «Generar con IA» y el resumen acumulado de las conversaciones largas, tipo `summary`): modelo pedido y usado, proveedor, tokens (de entrada, de salida, de razonamiento y leídos de la caché), coste de `usage.cost`, tiempo, herramientas usadas, error y si fue de «Probar agente». | [MOT-11], [MED-01], [INF-07], [PRU-02] |
+| `ai_runs` | Cada uso de la IA (chat, transcripción, embeddings, reordenación, descripción de imágenes, borradores de «Generar con IA» y el resumen acumulado de las conversaciones largas, tipo `summary`): modelo pedido y usado, proveedor, tokens (de entrada, de salida, de razonamiento y leídos de la caché), coste de `usage.cost`, tiempo, herramientas usadas, error, si fue de «Probar agente» y para quién se gastó (`audience`: `team` cuando responde un agente interno, para sus cifras en Informes). | [MOT-11], [MED-01], [INF-07], [PRU-02], [INT-16] |
 
 ## Operación
 
@@ -336,6 +350,9 @@ Cómo lo hace (fase 7, `src/server/compliance/retention.ts`, sin cambiar el esqu
 - **Por tandas:** cada tanda vuelve a buscar lo caducado, así que se puede parar en cualquier momento y nada se borra
   dos veces; los totales de una ronda que no cabe en un trabajo se guardan en `app_kv`
   (`compliance.retention.round`) y el resumen final, en el registro de actividad y en `compliance.retention.last_round`.
+
+Las conversaciones del equipo con los agentes internos (`assistant_chats`, `assistant_messages`) no entran en esta
+limpieza: no son datos de clientes. Las borra quien las escribió, o se van con su usuario o con el agente ([INT-10]).
 
 Bajas ([CUM-03]): la baja por «BAJA» o «STOP» se guarda en `consents` con `source` `keyword` (y la palabra en
 `note`); la que quita una persona, como `opt_in` con `source` `person`, quién y cuándo. Manda la más reciente de las

@@ -28,10 +28,12 @@ type KnowledgeBasesListProps = {
   canManage: boolean;
   /** May open the base in Conocimiento. */
   canOpen: boolean;
+  /** The internal bases among them ([INT-04]): marked «Interna». */
+  internalIds?: readonly string[];
 };
 
 /** Level 2 of the agent's knowledge ([AGE-07], [CON-03]): one switch per base; the agent searches only these. */
-export function KnowledgeBasesList({ agentId, bases, canManage, canOpen }: KnowledgeBasesListProps) {
+export function KnowledgeBasesList({ agentId, bases, canManage, canOpen, internalIds = [] }: KnowledgeBasesListProps) {
   // One change at a time: each one is computed on the server from the bases saved at that moment.
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -66,6 +68,11 @@ export function KnowledgeBasesList({ agentId, bases, canManage, canOpen }: Knowl
                 ) : (
                   <span className="text-sm font-medium break-words">{base.name}</span>
                 )}
+                {internalIds.includes(base.id) ? (
+                  <Badge variant="outline" className="h-[22px]">
+                    Interna
+                  </Badge>
+                ) : null}
                 {base.state && style && StateIcon ? (
                   <Badge variant="outline" className={cn("h-[22px] border-transparent", style.className)}>
                     <StateIcon aria-hidden />

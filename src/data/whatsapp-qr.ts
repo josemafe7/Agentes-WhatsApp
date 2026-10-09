@@ -7,7 +7,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor } from "@/db";
-import { agents, channels, type ChannelHealth } from "@/db/schema";
+import { channels, type ChannelHealth } from "@/db/schema";
 import type { ChannelStatus } from "@/lib/enums";
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
@@ -16,8 +16,9 @@ import type { ChannelRecord } from "@/server/channels/types";
 import { hasLinkedQrSession, readWhatsAppQrConfig, whatsappQrUnsupportedReason } from "@/server/channels/whatsapp-qr/config";
 import { whatsappQrHealth } from "@/server/channels/whatsapp-qr/health";
 import { existingQrSupervisor, qrSupervisor, type QrSessionState } from "@/server/channels/whatsapp-qr/runtime";
-import { ConflictError, parseInput, RateLimitError, ValidationError } from "@/server/errors";
+import { ConflictError, parseInput, RateLimitError } from "@/server/errors";
 import { QR_CODE_LARGE_SIZE, qrCodeDataUrl } from "@/server/qr";
+import { assertAnswersCustomers } from "./agent-audience";
 import { writeAudit } from "./audit";
 import { assertCan } from "./guard";
 import { loadWhatsAppChannel } from "./whatsapp";
@@ -53,12 +54,6 @@ export const startQrLinkSchema = z
   })
   .strict();
 
-async function assertAgentExists(executor: Executor, agentId: string | null | undefined): Promise<void> {
-  if (!agentId) return;
-  const [agent] = await executor.select({ id: agents.id }).from(agents).where(eq(agents.id, agentId));
-  if (!agent) throw new ValidationError(undefined, { activeAgentId: ["Ese agente no existe."] });
-}
-
 async function enforceLinkLimit(userId: string): Promise<void> {
   const result = await getRateLimiter().hit(`qr:link:${userId}`, LINK_LIMIT, LINK_WINDOW_MS);
   if (!result.allowed) throw new RateLimitError("Has generado muchos códigos seguidos. Espera unos minutos: a WhatsApp no le gusta que se insista.");
@@ -77,7 +72,7 @@ export async function startQrLink(actor: Actor, input: unknown): Promise<{ chann
   const existing = data.channelId ? await loadWhatsAppQrChannel(data.channelId) : null;
   const now = new Date();
   const channelId = await db.transaction(async (tx) => {
-    await assertAgentExists(tx, data.activeAgentId);
+    await assertAnswersCustomers(tx, data.activeAgentId);
     const agent = data.activeAgentId === undefined ? {} : { activeAgentId: data.activeAgentId };
     if (existing) {
       // A channel that is linked and working is left as it is: there is nothing to scan.

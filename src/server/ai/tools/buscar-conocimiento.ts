@@ -8,6 +8,7 @@ import { KNOWLEDGE_TOOL_NAME, searchForAgent } from "@/server/knowledge/agent-kn
 import { ANSWER_MAX_TOKENS } from "@/server/knowledge/constants";
 import { charsForTokens } from "@/server/knowledge/tokens";
 import { defineTool } from "./registry";
+import type { ToolContext, ToolOutput } from "./types";
 
 /** Room for the ~3,500-token answer once JSON-escaped. */
 const MAX_RESULT_CHARS = Math.ceil(charsForTokens(ANSWER_MAX_TOKENS) * 1.3);
@@ -21,20 +22,36 @@ const parameters = z.object({
     .describe("Lo que hay que buscar, con las palabras clave del cliente (p. ej. «precio del tinte» o «política de cancelación»)."),
 });
 
+async function execute(args: z.output<typeof parameters>, context: ToolContext): Promise<ToolOutput> {
+  const { answer } = await searchForAgent(args.consulta, {
+    agentId: context.agentId,
+    mode: context.mode,
+    conversationId: context.conversationId,
+    retrievals: context.retrievals,
+    ai: context.ai,
+    audience: context.audience,
+  });
+  return { result: { ok: true, resultado: answer } };
+}
+
 export const buscarConocimiento = defineTool({
   name: KNOWLEDGE_TOOL_NAME,
   description:
     "Busca en los documentos, webs y preguntas frecuentes del negocio. Úsala antes de responder sobre precios, servicios, condiciones, políticas o cualquier dato del negocio que no tengas aquí. Devuelve fragmentos numerados con su fuente; si devuelve SIN_RESULTADOS, di que no lo sabes y ofrece pasar con una persona.",
   parameters,
   maxResultChars: MAX_RESULT_CHARS,
-  async execute(args, context) {
-    const { answer } = await searchForAgent(args.consulta, {
-      agentId: context.agentId,
-      mode: context.mode,
-      conversationId: context.conversationId,
-      retrievals: context.retrievals,
-      ai: context.ai,
-    });
-    return { result: { ok: true, resultado: answer } };
-  },
+  execute,
+});
+
+/**
+ * The same search as an internal agent is told to use it ([INT-07], [INT-08]): who asks is a person of the team, and
+ * there is nobody to hand the conversation to.
+ */
+export const buscarConocimientoInterno = defineTool({
+  name: KNOWLEDGE_TOOL_NAME,
+  description:
+    "Busca en los documentos, webs y preguntas frecuentes del negocio, también en su documentación interna. Úsala antes de responder cualquier dato del negocio que no tengas aquí, con las palabras clave de la pregunta. Devuelve fragmentos numerados con su fuente; si devuelve SIN_RESULTADOS, di que no lo encuentras en la documentación que tienes.",
+  parameters,
+  maxResultChars: MAX_RESULT_CHARS,
+  execute,
 });

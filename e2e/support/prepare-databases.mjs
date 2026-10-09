@@ -1,5 +1,6 @@
 // Prepares the e2e databases before the app is built and started (docs/testing.md):
-//   demo        (DATABASE_URL)                 delete → migrate → demo seed → e2e-only users → agenda fixtures
+//   demo        (DATABASE_URL)                 delete → migrate → demo seed → e2e-only users → agenda fixtures →
+//                                              «Asistentes» fixtures
 //   fresh       (E2E_FRESH_DATABASE_URL)       delete → migrate (empty install: the setup wizard)
 //   restaurant  (E2E_RESTAURANT_DATABASE_URL)  delete → migrate → restaurant demo seed (the agenda by capacity)
 // Each one is an embedded database (PGlite): a folder under data/ that only its app server opens. The steps run one
@@ -73,6 +74,7 @@ function main() {
   run("pnpm run seed", { DATABASE_URL: demoUrl, DEMO_MODE: "true" });
   run("pnpm exec tsx --conditions=react-server e2e/support/create-e2e-users.ts", { DATABASE_URL: demoUrl });
   run("pnpm exec tsx --conditions=react-server e2e/support/create-agenda-fixtures.ts", { DATABASE_URL: demoUrl });
+  run("pnpm exec tsx --conditions=react-server e2e/support/create-assistant-fixtures.ts", { DATABASE_URL: demoUrl });
 
   run("pnpm run db:migrate", { DATABASE_URL: freshUrl });
 

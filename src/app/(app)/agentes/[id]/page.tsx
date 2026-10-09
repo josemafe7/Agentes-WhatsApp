@@ -46,7 +46,7 @@ export default async function AgentGeneralPage({ params }: AgentPageProps) {
     <div className="grid gap-8">
       <AvatarForm agentId={agent.id} name={agent.name} avatarUrl={avatarUrl} maxBytes={MAX_LOGO_BYTES} />
       {/* Re-mounted when the saved values change, so a save shows what the server kept. */}
-      <GeneralForm key={JSON.stringify(initial)} agentId={agent.id} initial={initial} />
+      <GeneralForm key={JSON.stringify(initial)} agentId={agent.id} initial={initial} internal={agent.audience === "team"} />
     </div>
   );
 }

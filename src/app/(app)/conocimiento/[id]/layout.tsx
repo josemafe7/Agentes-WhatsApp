@@ -34,6 +34,11 @@ export default async function KnowledgeBaseLayout({ children, params }: BaseLayo
         description={base.description ?? undefined}
         actions={
           <>
+            {base.audience === "team" ? (
+              <Badge variant="outline" className="h-[22px]">
+                Interna
+              </Badge>
+            ) : null}
             <BaseStateBadge state={base.state} />
             {canManage ? null : (
               <Badge variant="outline" className="h-[22px] gap-1">

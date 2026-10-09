@@ -29,6 +29,11 @@ export const HELP_GUIDES: readonly HelpGuide[] = [
     description: "Crear un agente desde la plantilla de tu sector, darle el conocimiento del negocio (archivos y bases), probarlo y ver de dónde saca cada respuesta.",
   },
   {
+    slug: "asistentes-internos",
+    file: "guia-asistentes-internos.md",
+    description: "Crear un agente interno para tu equipo: su base de conocimiento interna, a quién le das acceso, cómo se usa en «Asistentes», la privacidad de lo que se pregunta y los documentos grandes.",
+  },
+  {
     slug: "correo",
     file: "guia-correo.md",
     description: "Conectar un buzón de Gmail (Google Cloud), Outlook o Microsoft 365 (Microsoft Entra) u otro servidor IMAP/SMTP: paso a paso, modos de respuesta, filtros y problemas.",

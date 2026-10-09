@@ -52,13 +52,15 @@ type ModelFormProps = {
   /** What the saved model accepts, from the cached list; null when unknown. */
   initialSupport: ModelSettingsSupport | null;
   defaultMaxOutputTokens: number;
+  /** The agent answers the team ([INT-01]): the help text says so. */
+  internal?: boolean;
 };
 
 /**
  * Modelo ([MOD-01]–[MOD-07]): principal and fallback of another provider, temperature only when the model accepts it,
  * reasoning (low by default) and maximum length.
  */
-export function ModelForm({ agentId, initial, initialSupport, defaultMaxOutputTokens }: ModelFormProps) {
+export function ModelForm({ agentId, initial, initialSupport, defaultMaxOutputTokens, internal = false }: ModelFormProps) {
   const section = useAgentSection(agentId, initial, toInput);
   const { values, set, errorsFor } = section;
   const [support, setSupport] = useState(initialSupport);
@@ -106,7 +108,9 @@ export function ModelForm({ agentId, initial, initialSupport, defaultMaxOutputTo
             aria-invalid={modelErrors ? true : undefined}
             aria-describedby="agent-model-help"
           />
-          <FieldDescription id="agent-model-help">El que responde a los clientes. Solo aparecen modelos que usan herramientas.</FieldDescription>
+          <FieldDescription id="agent-model-help">
+            {internal ? "El que responde a tu equipo." : "El que responde a los clientes."} Solo aparecen modelos que usan herramientas.
+          </FieldDescription>
           <FieldError errors={modelErrors?.map((message) => ({ message }))} />
         </Field>
         <Field data-invalid={fallbackErrors ? true : undefined}>

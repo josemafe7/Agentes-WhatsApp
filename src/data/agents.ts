@@ -2,6 +2,8 @@
 // (every save is a snapshot; restoring saves a new one), duplicate, delete and avatar. Permissions from
 // «Quién puede hacer qué»: see = owner, admin, supervisor and viewer; change = owner and admin; test = owner, admin
 // and supervisor. Agents are configuration only: no secrets here.
+// Internal agents ([INT-01]–[INT-05], [INT-15]) are rows of the same table with audience = team: only owner and
+// admin see and configure them, and each has its list of who may use it (src/data/assistants.ts is where they answer).
 import "server-only";
 import { and, asc, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -10,19 +12,23 @@ import {
   agentContextFiles,
   agentCustomTools,
   agentKnowledgeBases,
+  agentMembers,
   agents,
   agentVersions,
   aiRuns,
+  assistantChats,
+  assistantMessages,
   channels,
   conversations,
   messages,
+  user,
   userRoles,
   type AgentHandoffConfig,
   type AgentInstructions,
 } from "@/db/schema";
 import { agentCreateSchema, agentInputFromTemplate, agentUpdateSchema } from "@/lib/agent-input";
 import { DEFAULT_SYSTEM_TOOLS } from "@/lib/agent-tools";
-import type { ChannelType, Sector } from "@/lib/enums";
+import { TEAM_ACCESS_MODES, type Audience, type ChannelType, type Role, type Sector, type TeamAccess } from "@/lib/enums";
 import { defaultFallbackFor } from "@/lib/openrouter/default-models";
 import { can, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { getSectorPreset } from "@/lib/sectors";
@@ -31,8 +37,9 @@ import { generateFileKey, getFileStorage, readAll, safeExtension, type FileStora
 import { catalogForValidation, validateModelChoice } from "@/server/ai/models";
 import { resolveDefaultModels } from "@/server/ai/openrouter";
 import type { AgentRunConfig } from "@/server/ai/run-agent";
-import { ConflictError, NotFoundError, ValidationError } from "@/server/errors";
+import { ConflictError, NotFoundError, parseInput, ValidationError } from "@/server/errors";
 import { safeErrorMessage } from "@/server/redact";
+import { AGENT_NOT_FOUND, agentAction, assertAgentAudience, seesInternalAgents } from "./agent-audience";
 import { writeAudit } from "./audit";
 import { detectLogoFormat, MAX_LOGO_BYTES } from "./business";
 import { deleteUnusedContextOriginals } from "./knowledge-context-files";
@@ -41,7 +48,7 @@ import { loadBusinessSettings } from "./settings";
 
 export type Agent = typeof agents.$inferSelect;
 
-const NOT_FOUND = "No se ha encontrado el agente.";
+const NOT_FOUND = AGENT_NOT_FOUND;
 /** Prefix of avatar keys; served only to who may see agents (src/app/api/files). */
 export const AVATAR_KEY_PREFIX = "avatars";
 
@@ -182,6 +189,16 @@ async function loadAgent(executor: Executor, agentId: string): Promise<Agent> {
   return row;
 }
 
+/**
+ * The agent, for a person who already passed the area's permission: an internal one only exists for who manages
+ * internal agents ([INT-15]).
+ */
+async function loadAgentFor(actor: Actor, agentId: string): Promise<Agent> {
+  const agent = await loadAgent(db, agentId);
+  assertAgentAudience(actor, agent);
+  return agent;
+}
+
 /** Saves new values of an existing agent as a new version, in one transaction ([AGE-12]). */
 async function saveNewVersion(actor: Actor, agentId: string, changes: Partial<AgentConfig>, action: string, metadata: Record<string, unknown>): Promise<Agent> {
   return db.transaction(async (tx) => {
@@ -203,22 +220,32 @@ async function saveNewVersion(actor: Actor, agentId: string, changes: Partial<Ag
 export type AgentChannelRef = { id: string; name: string; type: ChannelType };
 export type AgentListItem = Pick<
   Agent,
-  "id" | "name" | "description" | "avatarFileKey" | "model" | "fallbackModel" | "templateSector" | "currentVersion" | "updatedAt"
+  "id" | "audience" | "name" | "description" | "avatarFileKey" | "model" | "fallbackModel" | "templateSector" | "currentVersion" | "updatedAt"
 > & {
   /** Channels where it is the active agent ([AGE-01], [AGE-11]). */
   activeChannels: AgentChannelRef[];
 };
 
-/** Agentes: every agent with its model and the channels where it is active ([AGE-01]). */
-export async function listAgents(actor: Actor): Promise<AgentListItem[]> {
+/**
+ * Agents with their model and the channels where they are active ([AGE-01]). By default only those that answer
+ * customers, which is what every agent picker of a channel or a conversation needs ([INT-03]); `all` adds the
+ * internal ones for who may see them ([INT-15]).
+ */
+export async function listAgents(actor: Actor, options: { audience?: "customers" | "all" } = {}): Promise<AgentListItem[]> {
   assertCan(actor, PERMISSIONS.agents.view);
-  const rows = await db.select().from(agents).orderBy(asc(agents.name));
+  const withInternal = options.audience === "all" && seesInternalAgents(actor);
+  const rows = await db
+    .select()
+    .from(agents)
+    .where(withInternal ? undefined : eq(agents.audience, "customers"))
+    .orderBy(asc(agents.name));
   const active = await db
     .select({ id: channels.id, name: channels.name, type: channels.type, agentId: channels.activeAgentId })
     .from(channels)
     .orderBy(asc(channels.name));
   return rows.map((row) => ({
     id: row.id,
+    audience: row.audience,
     name: row.name,
     description: row.description,
     avatarFileKey: row.avatarFileKey,
@@ -234,27 +261,41 @@ export async function listAgents(actor: Actor): Promise<AgentListItem[]> {
 /** The editor: the whole configuration (read-only for supervisor and viewer). */
 export async function getAgent(actor: Actor, agentId: string): Promise<Agent> {
   assertCan(actor, PERMISSIONS.agents.view);
-  return loadAgent(db, agentId);
+  return loadAgentFor(actor, agentId);
 }
 
 /** What runAgent needs ([PRU-01]): the saved configuration of an agent that the actor may test. */
 export async function getAgentForTesting(actor: Actor, agentId: string): Promise<AgentRunConfig> {
   assertCan(actor, PERMISSIONS.agents.test);
-  return loadAgent(db, agentId);
+  return loadAgentFor(actor, agentId);
 }
 
-/** System: the saved configuration for the reply engine, or null when the agent no longer exists. */
+/**
+ * System: the saved configuration for the reply engine, or null when the agent no longer exists. Never an internal
+ * agent: whatever a channel or a conversation points to, only an agent for customers answers a customer ([INT-03]).
+ */
 export async function loadAgentForRun(agentId: string): Promise<AgentRunConfig | null> {
-  const [row] = await db.select().from(agents).where(eq(agents.id, agentId));
+  const [row] = await db
+    .select()
+    .from(agents)
+    .where(and(eq(agents.id, agentId), eq(agents.audience, "customers")));
   return row ?? null;
 }
 
 // ─── Create and edit ────────────────────────────────────────────────────────────────────────────────────
 
-/** A new agent, blank or with the given starting values ([AGE-02]). Models default to Settings › IA. Version 1. */
+/**
+ * A new agent, blank or with the given starting values ([AGE-02]). Models default to Settings › IA. Version 1.
+ * `audience: "team"` makes it an internal agent ([INT-01]): blank, with no tools, hand-off or channels, and used by
+ * nobody but owner and admins until its access is chosen ([INT-05]).
+ */
 export async function createAgent(actor: Actor, input: unknown, options: { templateSector?: Sector | null } = {}): Promise<Agent> {
   assertCan(actor, PERMISSIONS.agents.manage);
   const data = parseAgentInput(agentCreateSchema, input);
+  const audience: Audience = data.audience ?? "customers";
+  assertCan(actor, agentAction(audience, PERMISSIONS.agents.manage));
+  const internal = audience === "team";
+  if (internal && options.templateSector) throw new ValidationError("Un agente interno se crea en blanco, sin plantilla de sector.");
   const defaults = await resolveDefaultModels();
   const model = data.model ?? defaults.chat;
   const config: AgentConfig = {
@@ -270,8 +311,8 @@ export async function createAgent(actor: Actor, input: unknown, options: { templ
     reasoningEffort: data.reasoningEffort ?? null,
     maxOutputTokens: data.maxOutputTokens ?? null,
     knowledgeMode: data.knowledgeMode ?? "auto",
-    handoff: cleanHandoff(data.handoff),
-    systemTools: data.systemTools ?? [...DEFAULT_SYSTEM_TOOLS],
+    handoff: internal ? {} : cleanHandoff(data.handoff),
+    systemTools: internal ? [] : (data.systemTools ?? [...DEFAULT_SYSTEM_TOOLS]),
   };
   // A new agent is a new choice: both models are checked, also those that come from Ajustes › IA ([MOD-05]).
   await assertValidModels(
@@ -284,11 +325,11 @@ export async function createAgent(actor: Actor, input: unknown, options: { templ
   return db.transaction(async (tx) => {
     const [created] = await tx
       .insert(agents)
-      .values({ ...config, templateSector: options.templateSector ?? null, currentVersion: 1, createdBy: actor.userId })
+      .values({ ...config, audience, teamAccess: internal ? "selected" : "everyone", templateSector: options.templateSector ?? null, currentVersion: 1, createdBy: actor.userId })
       .returning();
     await insertVersion(tx, created.id, 1, created, actor);
     await writeAudit(
-      { actor, action: "agent.created", targetType: "agent", targetId: created.id, metadata: { template: options.templateSector ?? null } },
+      { actor, action: "agent.created", targetType: "agent", targetId: created.id, metadata: { template: options.templateSector ?? null, audience } },
       tx,
     );
     return created;
@@ -307,7 +348,7 @@ export async function updateAgent(actor: Actor, agentId: string, input: unknown)
   assertCan(actor, PERMISSIONS.agents.manage);
   const data = parseAgentInput(agentUpdateSchema, input);
   const changes = changesFrom(data);
-  const current = await loadAgent(db, agentId);
+  const current = await loadAgentFor(actor, agentId);
   const next: AgentConfig = { ...configOf(current), ...changes };
   await assertValidModels(next, current, { model: data.model !== undefined, fallbackModel: data.fallbackModel !== undefined });
   if (changes.handoff) await assertNotifiableUsers(changes.handoff);
@@ -321,7 +362,7 @@ export type AgentVersionItem = { version: number; createdAt: Date; createdByName
 /** Versiones: number, date and author, newest first ([AGE-12]). */
 export async function listAgentVersions(actor: Actor, agentId: string): Promise<AgentVersionItem[]> {
   assertCan(actor, PERMISSIONS.agents.view);
-  const agent = await loadAgent(db, agentId);
+  const agent = await loadAgentFor(actor, agentId);
   const rows = await db
     .select({ version: agentVersions.version, createdAt: agentVersions.createdAt, createdByName: agentVersions.createdByName })
     .from(agentVersions)
@@ -346,7 +387,7 @@ async function loadVersion(agentId: string, version: unknown): Promise<{ number:
 /** «Ver» a version: its saved configuration. */
 export async function getAgentVersion(actor: Actor, agentId: string, version: unknown): Promise<AgentConfig> {
   assertCan(actor, PERMISSIONS.agents.view);
-  const agent = await loadAgent(db, agentId);
+  const agent = await loadAgentFor(actor, agentId);
   return (await loadVersion(agent.id, version)).config;
 }
 
@@ -357,7 +398,7 @@ export async function getAgentVersion(actor: Actor, agentId: string, version: un
  */
 export async function restoreAgentVersion(actor: Actor, agentId: string, version: unknown, storage: FileStorage = getFileStorage()): Promise<Agent> {
   assertCan(actor, PERMISSIONS.agents.manage);
-  const agent = await loadAgent(db, agentId);
+  const agent = await loadAgentFor(actor, agentId);
   const old = await loadVersion(agent.id, version);
   // Fields added after that version was saved keep their current value.
   const restored = configOf({ ...configOf(agent), ...old.config });
@@ -395,7 +436,7 @@ async function copyAvatar(storage: FileStorage, key: string): Promise<string | n
 /** A copy named «Copia de …» with its context files and knowledge bases, starting at version 1. */
 export async function duplicateAgent(actor: Actor, agentId: string, storage: FileStorage = getFileStorage()): Promise<Agent> {
   assertCan(actor, PERMISSIONS.agents.manage);
-  const source = await loadAgent(db, agentId);
+  const source = await loadAgentFor(actor, agentId);
   const name = `Copia de ${source.name}`.slice(0, 80);
   const avatarFileKey = source.avatarFileKey ? await copyAvatar(storage, source.avatarFileKey) : null;
   try {
@@ -410,7 +451,17 @@ async function insertCopy(actor: Actor, source: Agent, name: string, avatarFileK
   return db.transaction(async (tx) => {
     const [copy] = await tx
       .insert(agents)
-      .values({ ...configOf(source), name, avatarFileKey, templateSector: source.templateSector, currentVersion: 1, createdBy: actor.userId })
+      .values({
+        ...configOf(source),
+        // The copy of an internal agent is internal too, with the same access ([INT-01]).
+        audience: source.audience,
+        teamAccess: source.teamAccess,
+        name,
+        avatarFileKey,
+        templateSector: source.templateSector,
+        currentVersion: 1,
+        createdBy: actor.userId,
+      })
       .returning();
     await insertVersion(tx, copy.id, 1, copy, actor);
     const files = await tx.select().from(agentContextFiles).where(eq(agentContextFiles.agentId, source.id));
@@ -431,6 +482,8 @@ async function insertCopy(actor: Actor, source: Agent, name: string, avatarFileK
     if (bases.length > 0) await tx.insert(agentKnowledgeBases).values(bases.map((base) => ({ agentId: copy.id, knowledgeBaseId: base.id })));
     const tools = await tx.select({ id: agentCustomTools.customToolId }).from(agentCustomTools).where(eq(agentCustomTools.agentId, source.id));
     if (tools.length > 0) await tx.insert(agentCustomTools).values(tools.map((tool) => ({ agentId: copy.id, customToolId: tool.id })));
+    const members = await tx.select({ userId: agentMembers.userId }).from(agentMembers).where(eq(agentMembers.agentId, source.id));
+    if (members.length > 0) await tx.insert(agentMembers).values(members.map((member) => ({ agentId: copy.id, userId: member.userId })));
     await writeAudit({ actor, action: "agent.duplicated", targetType: "agent", targetId: copy.id, metadata: { from: source.id } }, tx);
     return copy;
   });
@@ -447,7 +500,7 @@ export async function deleteAgent(
   options: { confirmActiveChannels?: boolean; storage?: FileStorage } = {},
 ): Promise<{ detachedChannelIds: string[] }> {
   assertCan(actor, PERMISSIONS.agents.manage);
-  const agent = await loadAgent(db, agentId);
+  const agent = await loadAgentFor(actor, agentId);
   const contextOriginals = await db.select({ key: agentContextFiles.sourceFileKey }).from(agentContextFiles).where(eq(agentContextFiles.agentId, agent.id));
   const detached = await db.transaction(async (tx) => {
     const activeIn = await tx.select({ id: channels.id, name: channels.name }).from(channels).where(eq(channels.activeAgentId, agent.id));
@@ -465,6 +518,11 @@ export async function deleteAgent(
     await tx.delete(agentContextFiles).where(eq(agentContextFiles.agentId, agent.id));
     await tx.delete(agentKnowledgeBases).where(eq(agentKnowledgeBases.agentId, agent.id));
     await tx.delete(agentCustomTools).where(eq(agentCustomTools.agentId, agent.id));
+    // An internal agent takes with it who could use it and every conversation the team had with it ([INT-10]).
+    await tx.delete(agentMembers).where(eq(agentMembers.agentId, agent.id));
+    const chats = tx.select({ id: assistantChats.id }).from(assistantChats).where(eq(assistantChats.agentId, agent.id));
+    await tx.delete(assistantMessages).where(inArray(assistantMessages.chatId, chats));
+    await tx.delete(assistantChats).where(eq(assistantChats.agentId, agent.id));
     await tx.delete(agents).where(eq(agents.id, agent.id));
     await writeAudit(
       { actor, action: "agent.deleted", targetType: "agent", targetId: agent.id, metadata: { name: agent.name, detachedChannels: activeIn.length } },
@@ -493,7 +551,7 @@ async function deleteQuietly(storage: FileStorage, key: string): Promise<void> {
 /** New avatar (PNG, JPG or WebP checked by content, [SEG-13]); saved as a new version. The old file is deleted. */
 export async function saveAgentAvatar(actor: Actor, agentId: string, upload: { bytes: Uint8Array }, storage: FileStorage = getFileStorage()): Promise<Agent> {
   assertCan(actor, PERMISSIONS.agents.manage);
-  const agent = await loadAgent(db, agentId);
+  const agent = await loadAgentFor(actor, agentId);
   if (upload.bytes.byteLength > MAX_LOGO_BYTES) throw new ValidationError(undefined, { avatar: ["La imagen puede ocupar como mucho 512 KB."] });
   const format = detectLogoFormat(upload.bytes);
   if (!format) throw new ValidationError(undefined, { avatar: ["La imagen tiene que ser PNG, JPG o WebP."] });
@@ -512,7 +570,7 @@ export async function saveAgentAvatar(actor: Actor, agentId: string, upload: { b
 
 export async function removeAgentAvatar(actor: Actor, agentId: string, storage: FileStorage = getFileStorage()): Promise<Agent> {
   assertCan(actor, PERMISSIONS.agents.manage);
-  const agent = await loadAgent(db, agentId);
+  const agent = await loadAgentFor(actor, agentId);
   if (!agent.avatarFileKey) return agent;
   const updated = await saveNewVersion(actor, agent.id, { avatarFileKey: null }, "agent.avatar_removed", {});
   await deleteQuietly(storage, agent.avatarFileKey);
@@ -522,7 +580,93 @@ export async function removeAgentAvatar(actor: Actor, agentId: string, storage: 
 /** For /api/files: whether `key` is the avatar of an agent the actor may see. */
 export async function canViewAgentAvatar(actor: Actor, key: string): Promise<boolean> {
   if (!key.startsWith(`${AVATAR_KEY_PREFIX}/`)) return false;
-  if (!can(actor, PERMISSIONS.agents.view)) return false;
-  const [row] = await db.select({ id: agents.id }).from(agents).where(eq(agents.avatarFileKey, key));
+  const [row] = await db.select({ id: agents.id, audience: agents.audience, teamAccess: agents.teamAccess }).from(agents).where(eq(agents.avatarFileKey, key));
+  if (!row) return false;
+  if (row.audience === "customers") return can(actor, PERMISSIONS.agents.view);
+  // An internal agent's picture: who configures it, or who may use it in «Asistentes» ([INT-06]).
+  return seesInternalAgents(actor) || canUseInternalAgent(actor, row);
+}
+
+// ─── Access to an internal agent ([INT-05]) ─────────────────────────────────────────────────────────────
+
+/** Roles that use an internal agent only when it was given to them; owner and admin use them all, a viewer none. */
+const MEMBER_ROLES: readonly Role[] = ["supervisor", "agent"];
+
+async function isAgentMember(agentId: string, userId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: agentMembers.id })
+    .from(agentMembers)
+    .where(and(eq(agentMembers.agentId, agentId), eq(agentMembers.userId, userId)));
   return Boolean(row);
+}
+
+/**
+ * Whether `actor` may use this internal agent in «Asistentes» ([INT-05]): never a viewer; owner and admin, all;
+ * supervisor and agent, those open to the whole team or where they are listed.
+ */
+export async function canUseInternalAgent(actor: Actor, agent: { id: string; audience: Audience; teamAccess: TeamAccess }): Promise<boolean> {
+  if (agent.audience !== "team" || !can(actor, PERMISSIONS.internal.use)) return false;
+  if (seesInternalAgents(actor) || agent.teamAccess === "everyone") return true;
+  return isAgentMember(agent.id, actor.userId);
+}
+
+export type AgentAccessPerson = { id: string; name: string; role: Role; member: boolean };
+export type AgentAccess = {
+  teamAccess: TeamAccess;
+  /** Active supervisors and agents: the people an internal agent can be given to one by one. */
+  people: AgentAccessPerson[];
+};
+
+/** The Acceso tab of an internal agent: who may use it ([INT-05]). */
+export async function getAgentAccess(actor: Actor, agentId: string): Promise<AgentAccess> {
+  assertCan(actor, PERMISSIONS.internal.agents);
+  const agent = await loadAgent(db, agentId);
+  if (agent.audience !== "team") throw new NotFoundError(NOT_FOUND);
+  const [people, members] = await Promise.all([
+    db
+      .select({ id: user.id, name: user.name, role: userRoles.role })
+      .from(user)
+      .innerJoin(userRoles, eq(userRoles.userId, user.id))
+      .where(and(inArray(userRoles.role, [...MEMBER_ROLES]), isNull(userRoles.disabledAt)))
+      .orderBy(asc(user.name)),
+    db.select({ userId: agentMembers.userId }).from(agentMembers).where(eq(agentMembers.agentId, agent.id)),
+  ]);
+  const listed = new Set(members.map((member) => member.userId));
+  return { teamAccess: agent.teamAccess, people: people.map((person) => ({ ...person, member: listed.has(person.id) })) };
+}
+
+export const agentAccessSchema = z
+  .object({
+    teamAccess: z.enum(TEAM_ACCESS_MODES, { error: "Elige «Todo el equipo» o «Personas concretas»." }),
+    userIds: z.array(idSchema).max(500, "Demasiadas personas."),
+  })
+  .strict();
+
+/**
+ * Who may use an internal agent ([INT-05]). The list is kept while the access is «Todo el equipo», so switching back
+ * to «Personas concretas» brings the same people. Only active supervisors and agents can be listed.
+ */
+export async function setAgentAccess(actor: Actor, agentId: string, input: unknown): Promise<void> {
+  assertCan(actor, PERMISSIONS.internal.agents);
+  const data = parseInput(agentAccessSchema, input);
+  const wanted = [...new Set(data.userIds)];
+  await db.transaction(async (tx) => {
+    const agent = await loadAgent(tx, agentId);
+    if (agent.audience !== "team") throw new NotFoundError(NOT_FOUND);
+    const valid =
+      wanted.length > 0
+        ? await tx
+            .select({ userId: userRoles.userId })
+            .from(userRoles)
+            .where(and(inArray(userRoles.userId, wanted), inArray(userRoles.role, [...MEMBER_ROLES]), isNull(userRoles.disabledAt)))
+        : [];
+    if (valid.length !== wanted.length) {
+      throw new ValidationError(undefined, { userIds: ["Alguna de las personas elegidas ya no existe, está desactivada o no puede usar agentes internos."] });
+    }
+    await tx.delete(agentMembers).where(eq(agentMembers.agentId, agent.id));
+    if (wanted.length > 0) await tx.insert(agentMembers).values(wanted.map((userId) => ({ agentId: agent.id, userId })));
+    await tx.update(agents).set({ teamAccess: data.teamAccess, updatedAt: new Date() }).where(eq(agents.id, agent.id));
+    // Without names: how many people, never who.
+    await writeAudit({ actor, action: "agent.access_changed", targetType: "agent", targetId: agent.id, metadata: { teamAccess: data.teamAccess, people: wanted.length } }, tx);
+  });
 }

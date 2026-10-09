@@ -94,6 +94,11 @@ datos de cada servicio (límites, cabeceras, planes), en `docs/plataforma-despli
 - Las páginas, acciones y rutas nunca consultan la base de datos directamente. El trabajo en segundo plano
   (`src/server/`) actúa como sistema, y la IA solo con sus herramientas, sobre el contacto de su
   conversación ([PER-08], [HER-04]).
+- Lo interno (un agente para el equipo o una base de conocimiento interna, fase 10) pide su propio permiso además
+  del de su área, en `src/data/agent-audience.ts`: para quien no lo tiene, un agente interno o una base interna es
+  «no encontrado», también por su dirección, sus documentos y sus archivos ([INT-15]). Y las conversaciones de una
+  persona con un agente interno llevan a su dueño en la propia consulta (`src/data/assistants.ts`): no existe
+  función ni pantalla para leer, continuar o borrar las de otro, sea cual sea su rol ([INT-09]).
 - Cada función de `src/data/` tiene pruebas de que otro usuario no ve ni cambia lo ajeno y de que cada rol
   recibe «no permitido» donde «Quién puede hacer qué» lo niega (ver `docs/testing.md`).
 - Todas las tablas tienen Row Level Security desde la migración que las crea: cada tabla del esquema lleva
@@ -309,6 +314,9 @@ datos de cada servicio (límites, cabeceras, planes), en `docs/plataforma-despli
     (`src/server/channels/webchat/limits.ts`);
   - todo lo que gasta IA, por persona y minuto (`src/server/ai/limits.ts`): 20 mensajes de «Probar agente», 5
     borradores con IA y 10 veces «Actualizar lista» o comprobaciones de un modelo de embeddings;
+  - agentes internos (fase 10): 20 preguntas por persona y minuto y 200 al día (`src/data/assistants.ts`,
+    [INT-12]). Se cuentan después de comprobar el acceso y que hay clave, así que una pregunta que no se puede
+    enviar no gasta el cupo;
   - conocimiento (fase 4): 20 búsquedas de «Probar búsqueda» por persona y minuto, 60 altas de contenido
     (archivos, páginas web y preguntas frecuentes, también las de «Convertir en FAQ» desde la bandeja) por persona
     cada 10 minutos, porque cada documento gasta IA en su resumen y sus embeddings, y 30 veces cada 10 minutos lo
@@ -463,6 +471,16 @@ cuenta.
   el canal, nunca el email o el teléfono del formulario del chat web ([CAN-06]).
 - La IA nunca tiene más permisos que la persona que la usa. Aquí los agentes no son usuarios: solo actúan
   con sus herramientas y sobre el contacto de su conversación ([PER-08]).
+- Un documento interno nunca llega a un cliente ([INT-03], [INT-04], decisión 0027). Hay tres cierres, y cada uno
+  basta por sí solo: una base interna no se puede asignar a un agente que atiende clientes; la búsqueda de un agente
+  de clientes solo lee bases para clientes, diga lo que diga la tabla (`agentKnowledgeBaseIds`); y un agente
+  interno no puede ser el agente de un canal ni el de una conversación, ni lo carga el motor de respuesta
+  (`loadAgentForRun`). A quién va un agente o una base se elige al crearlos y no se cambia. «Pasar a una base» lleva
+  el archivo de contexto de un agente interno solo a una base interna.
+- Un agente interno responde solo a quien tiene acceso a él, comprobado en el servidor en cada pregunta, y solo
+  dispone de la búsqueda en sus bases: ni herramientas de citas o de contactos, ni traspaso, ni herramientas HTTP,
+  aunque su fila las tuviera ([INT-07]). Sus reglas de plataforma ([INT-08]) van delante de sus instrucciones, como
+  las de cualquier agente, y lo mantienen en los temas del negocio.
 - El remitente de un correo (From) lo escribe quien lo envía, así que nadie se hace pasar por un cliente con solo
   poner su dirección ([COR-25]): un correo cuenta como suyo solo si el servidor que lo recibió lo dice en la cabecera
   Authentication-Results de más arriba, la que ese servidor añade (DMARC superado o, sin resultado de DMARC, SPF o DKIM
@@ -507,6 +525,11 @@ cuenta.
   (`eu-west-1` con `dub1`).
 - Con cada servicio que trata datos de clientes hace falta un contrato de encargo del tratamiento; hay una
   plantilla en `docs/contrato-encargo-tratamiento.md` (fase 7), marcada «revisar con un abogado».
+- Lo que el equipo pregunta a los agentes internos son datos personales de quien trabaja en el negocio: cada
+  persona ve solo sus conversaciones y las puede borrar, y se borran con su usuario o con el agente ([INT-09],
+  [INT-10]). El propietario ve cuánto se usan y cuánto cuestan, no su contenido. Las preguntas y los fragmentos de
+  las bases internas salen hacia OpenRouter como el resto, con la prohibición de guardarlos ([CUM-10]); la guía pide
+  no subir a una base interna datos personales (nóminas, documentos de identidad) si no hace falta.
 - Datos de salud u otros especialmente protegidos: se avisa antes de construir, porque exigen medidas extra y
   conviene consultarlo con un profesional. En clínicas, la app lo avisa y recomienda precauciones
   ([CUM-12]).

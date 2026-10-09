@@ -124,6 +124,28 @@ con la dirección de la base.
 Repite este apartado **antes de publicar cada versión nueva** (apartado 9). Las migraciones del proyecto solo
 añaden, nunca borran, así que la versión que ya está publicada sigue funcionando con la base puesta al día.
 
+**Si la app entra con el usuario `dominia_app`** (apartado 1): una migración que crea tablas no le da permiso sobre
+ellas por sí sola. Después de migrar, comprueba en el **SQL Editor** de Supabase que no le falta ninguna:
+
+```sql
+select table_name from information_schema.tables
+where table_schema = 'public'
+  and not has_table_privilege('dominia_app', format('%I.%I', table_schema, table_name), 'INSERT');
+```
+
+No debe salir ninguna fila. Si sale alguna tabla, dale permiso sobre las que hay y deja dicho que lo tenga también
+sobre las que creen las próximas migraciones (el segundo permiso vale para las que cree `postgres`, que es quien
+migra):
+
+```sql
+grant select, insert, update, delete on all tables in schema public to dominia_app;
+alter default privileges for role postgres in schema public
+  grant select, insert, update, delete on tables to dominia_app;
+```
+
+Sin ese permiso, la versión nueva falla al abrir cualquier pantalla que use una tabla nueva. Desde la fase 10 eso
+incluye el menú de cada persona, que consulta las tablas de los agentes internos.
+
 ### ¿Vacía o con la demo?
 
 - **Vacía, para un negocio real:** no hagas nada más. Al abrir la app, el asistente de arranque crea el propietario

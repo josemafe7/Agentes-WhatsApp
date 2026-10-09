@@ -4,12 +4,14 @@
 import "server-only";
 import { db, type Executor } from "@/db";
 import { aiRuns } from "@/db/schema";
-import type { AiRunKind } from "@/lib/enums";
+import type { AiRunKind, Audience } from "@/lib/enums";
 import { safeErrorMessage } from "@/server/redact";
 
 export type AiRunRecord = {
   kind: AiRunKind;
   mode: "test" | "live";
+  /** team = an internal agent spent it ([INT-16]); customers when omitted. */
+  audience?: Audience;
   conversationId?: string | null;
   messageId?: string | null;
   agentId?: string | null;
@@ -58,6 +60,7 @@ export async function recordAiRun(record: AiRunRecord, executor: Executor = db):
       // Already a generic Spanish message; redacted and cut anyway, so no key or long payload is ever stored.
       error: record.error ? safeErrorMessage(record.error, MAX_ERROR_LENGTH) : null,
       isTest: record.mode === "test",
+      audience: record.audience ?? "customers",
     })
     .returning({ id: aiRuns.id });
   return row.id;

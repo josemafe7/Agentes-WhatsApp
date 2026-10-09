@@ -5,7 +5,7 @@ import { appKv, auditLog, channels, jobs, notifications, rateLimits } from "@/db
 import type { Role } from "@/lib/enums";
 import { readTelegramConfig, readTelegramSecrets, telegramWebhookUrl } from "@/server/channels/telegram/config";
 import { TELEGRAM_HEALTH_CHECK_JOB, TELEGRAM_POLL_JOB } from "@/server/channels/telegram/schedule";
-import { AuthError, ConflictError, NotFoundError, RateLimitError } from "@/server/errors";
+import { AuthError, ConflictError, NotFoundError, RateLimitError, ValidationError } from "@/server/errors";
 import { actorFor, createAgentRow, createBusiness, createChannel } from "@/test/factories";
 import { botResponse, connectedBotRoutes, fakeTelegramFetch, TG_TEST, tgError, tgOk, webhookInfoResponse, type TelegramHandler } from "@/test/fixtures/telegram";
 import { updateChannel } from "./channels";
@@ -265,5 +265,16 @@ describe("«Desconectar» [TG-04]", () => {
     await updateChannel(owner, channelId, { enabled: true });
     expect((await row(channelId)).status).toBe("connecting");
     expect(await pendingJobs(TELEGRAM_HEALTH_CHECK_JOB)).toHaveLength(1);
+  });
+});
+
+describe("an internal agent never answers customers [INT-03]", () => {
+  it("it cannot be the bot's agent: the wizard refuses it and creates no channel, where an agent for customers connects", async () => {
+    const internal = await createAgentRow({ audience: "team", systemTools: [] });
+    await expect(connectTelegramChannel(owner, form({ activeAgentId: internal.id }), telegram().deps)).rejects.toBeInstanceOf(ValidationError);
+    expect(await db.select().from(channels)).toHaveLength(0);
+    const forCustomers = await createAgentRow();
+    expect(await connectTelegramChannel(owner, form({ activeAgentId: forCustomers.id }), telegram().deps)).toMatchObject({ status: "connected" });
+    expect((await db.select().from(channels)).map((channel) => channel.activeAgentId)).toEqual([forCustomers.id]);
   });
 });

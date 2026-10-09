@@ -70,6 +70,8 @@ function sampleReport(overrides: Partial<Report> = {}): Report {
     costs: {
       aiUsd: 0.0039,
       aiTestUsd: 0.0007,
+      aiTeamUsd: 0,
+      aiTeamQuestions: 0,
       whatsappUsd: 0.0456,
       whatsappUnpriced: 1,
       months: [
@@ -93,6 +95,17 @@ describe("indicators", () => {
     expect(kpis["ai-bookings"]).toMatchObject({ label: "Citas creadas por la IA", value: "3" });
     expect(kpis["ai-cost"]).toMatchObject({ label: "Coste de IA", value: "0,0039 US$", caption: "Según OpenRouter · además, 0,0007 US$ en «Probar agente»" });
     expect(kpis["whatsapp-cost"]).toMatchObject({ label: "WhatsApp (estimado)", value: "0,05 US$", caption: "Coste estimado · 1 mensaje sin tarifa, sin estimar" });
+  });
+
+  it("[INT-16] the AI cost says how much of it the internal agents spent, and how many questions they answered", () => {
+    const spaces = (value: string) => value.replace(/\u00a0/g, " ");
+    const captionOf = (costs: Partial<ReturnType<typeof sampleReport>["costs"]>, channelId: string | null = null) =>
+      spaces(reportKpis(sampleReport({ channelId, costs: { ...sampleReport().costs, ...costs } })).find((kpi) => kpi.key === "ai-cost")?.caption ?? "");
+    expect(captionOf({ aiTeamUsd: 0.0012, aiTeamQuestions: 5, aiTestUsd: 0 })).toBe("Según OpenRouter · de ello, 0,0012 US$ de los agentes internos (5 preguntas)");
+    expect(captionOf({ aiTeamUsd: 0.0012, aiTeamQuestions: 1 })).toBe("Según OpenRouter · de ello, 0,0012 US$ de los agentes internos (1 pregunta) · además, 0,0007 US$ en «Probar agente»");
+    // Nothing internal in the period: nothing is said. With a channel chosen, neither (they belong to no channel).
+    expect(captionOf({ aiTestUsd: 0 })).toBe("Según OpenRouter");
+    expect(captionOf({ aiTeamUsd: 0.0012, aiTeamQuestions: 5 }, "canal-1")).toBe("Solo el de las conversaciones de este canal");
   });
 
   it("[AGD-01] uses the business's word for bookings", () => {
@@ -216,7 +229,15 @@ describe("charts", () => {
       handoffs: { total: 0, byOrigin: [], reasons: [], otherReasons: 0 },
       firstResponse: { ...sampleReport().firstResponse, answered: 0, counted: 0, withinTarget: 0, waiting: 0, medianMs: null, p90Ms: null, buckets: buckets({}) },
       bookings: { createdByAi: 0 },
-      costs: { aiUsd: 0, aiTestUsd: 0, whatsappUsd: 0, whatsappUnpriced: 0, months: [{ month: "2026-09", aiUsd: 0, aiTestUsd: 0, whatsappUsd: 0, whatsappUnpriced: 0 }] },
+      costs: {
+        aiUsd: 0,
+        aiTestUsd: 0,
+        aiTeamUsd: 0,
+        aiTeamQuestions: 0,
+        whatsappUsd: 0,
+        whatsappUnpriced: 0,
+        months: [{ month: "2026-09", aiUsd: 0, aiTestUsd: 0, whatsappUsd: 0, whatsappUnpriced: 0 }],
+      },
     });
     expect(emptyCharts(empty)).toEqual({ channels: true, origins: true, response: "no-handoffs", costs: true });
     expect(hasActivity(empty)).toBe(false);

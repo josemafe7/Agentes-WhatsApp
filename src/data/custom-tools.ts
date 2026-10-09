@@ -353,8 +353,12 @@ export async function testCustomTool(actor: Actor, toolId: unknown, args: unknow
 
 export type AgentCustomToolRow = { id: string; name: string; description: string; method: HttpMethod; host: string | null; attached: boolean };
 
+/** Only agents that answer customers have tools: an internal one has none to list or switch on ([INT-07]). */
 async function assertAgentExists(agentId: string): Promise<void> {
-  const [agent] = await db.select({ id: agents.id }).from(agents).where(eq(agents.id, agentId));
+  const [agent] = await db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(and(eq(agents.id, agentId), eq(agents.audience, "customers")));
   if (!agent) throw new NotFoundError(AGENT_NOT_FOUND);
 }
 

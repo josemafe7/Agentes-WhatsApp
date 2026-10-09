@@ -1,5 +1,6 @@
 import { Bot } from "lucide-react";
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
 import type { KnowledgeBaseSummary } from "@/data/knowledge";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { countLabel } from "../_lib/labels";
@@ -22,7 +23,14 @@ export function BaseCard({ base, timezone }: { base: KnowledgeBaseSummary; timez
           </h2>
           <p className="truncate text-sm text-muted-foreground">{base.description || "Sin descripción"}</p>
         </div>
-        <BaseStateBadge state={base.state} />
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          {base.audience === "team" ? (
+            <Badge variant="outline" className="h-[22px]">
+              Interna
+            </Badge>
+          ) : null}
+          <BaseStateBadge state={base.state} />
+        </div>
       </div>
       <p className="text-sm tabular-nums">
         {countLabel(base.documentCount, "documento", "documentos")} · {countLabel(base.chunkCount, "fragmento", "fragmentos")}

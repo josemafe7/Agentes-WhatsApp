@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { bigint, doublePrecision, index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 import {
   AI_RUN_KINDS,
+  AUDIENCES,
   AUDIT_ACTOR_TYPES,
   JOB_STATUSES,
   OAUTH_PROVIDERS,
@@ -71,6 +72,8 @@ export const aiRuns = pgTable(
     error: text("error"),
     /** «Probar agente» runs do not count in the reports ([INF-08]). */
     isTest: bool("is_test").notNull().default(false),
+    /** team = spent by an internal agent ([INT-16]); kept on the run itself, so it survives the agent. */
+    audience: text("audience", { enum: AUDIENCES }).notNull().default("customers"),
     ...timestamps(),
   },
   (t) => [

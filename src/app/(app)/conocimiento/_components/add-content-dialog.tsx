@@ -13,7 +13,7 @@ import { UrlForm } from "./url-form";
  * «Añadir contenido» (docs/pantallas.md «Base de conocimiento»): files, a web page (with optional sitemap) or a
  * frequently asked question ([CON-04]). Everything is processed in the background, step by step ([CON-05]).
  */
-export function AddContentDialog({ kbId }: { kbId: string }) {
+export function AddContentDialog({ kbId, internal = false }: { kbId: string; internal?: boolean }) {
   const [open, setOpen] = useState(false);
   const [formKey, setFormKey] = useState(0);
 
@@ -59,7 +59,7 @@ export function AddContentDialog({ kbId }: { kbId: string }) {
             <UrlForm kbId={kbId} onDone={() => setOpen(false)} />
           </TabsContent>
           <TabsContent value="faq">
-            <FaqForm kbId={kbId} idPrefix="add-faq" onDone={() => setOpen(false)} />
+            <FaqForm kbId={kbId} idPrefix="add-faq" internal={internal} onDone={() => setOpen(false)} />
           </TabsContent>
         </Tabs>
       </DialogContent>

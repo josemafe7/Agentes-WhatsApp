@@ -21,9 +21,14 @@ export function reportKpis(report: Report): Kpi[] {
       : waitingInTime > 0
         ? `${countOf(waitingInTime, "traspaso", "traspasos")} aún a tiempo`
         : "Ningún traspaso en el periodo";
+  // [INT-16]: what the internal agents spent is part of the figure, said apart with their questions.
+  const teamNote =
+    costs.aiTeamUsd > 0 || costs.aiTeamQuestions > 0
+      ? ` · de ello, ${formatCurrencyUSD(costs.aiTeamUsd)} de los agentes internos (${countOf(costs.aiTeamQuestions, "pregunta", "preguntas")})`
+      : "";
   const aiCaption = report.channelId
     ? "Solo el de las conversaciones de este canal"
-    : `Según OpenRouter${costs.aiTestUsd > 0 ? ` · además, ${formatCurrencyUSD(costs.aiTestUsd)} en «Probar agente»` : ""}`;
+    : `Según OpenRouter${teamNote}${costs.aiTestUsd > 0 ? ` · además, ${formatCurrencyUSD(costs.aiTestUsd)} en «Probar agente»` : ""}`;
   return [
     { key: "conversations", label: "Conversaciones", value: formatNumber(conversations.total), caption: "Con mensajes de clientes en el periodo" },
     {

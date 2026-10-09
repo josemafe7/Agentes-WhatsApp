@@ -37,11 +37,15 @@ export const E2E_USERS = {
   },
 } as const;
 
-/** The eight sections of the main menu (docs/pantallas.md «Navegación»). */
+/**
+ * The sections of the main menu (docs/pantallas.md «Navegación»). «Asistentes» is only in the menu of who has an
+ * internal agent to use ([INT-06]); the demo brings one for the whole team ([INT-14]).
+ */
 export const SECTIONS = {
   bandeja: { label: "Bandeja", href: "/bandeja" },
   contactos: { label: "Contactos", href: "/contactos" },
   agenda: { label: "Agenda", href: "/agenda" },
+  asistentes: { label: "Asistentes", href: "/asistentes" },
   agentes: { label: "Agentes", href: "/agentes" },
   conocimiento: { label: "Conocimiento", href: "/conocimiento" },
   canales: { label: "Canales", href: "/canales" },
@@ -56,10 +60,11 @@ export type SectionKey = keyof typeof SECTIONS;
  * and Acerca de are for every role.
  */
 export const VISIBLE_SECTIONS: Record<RoleKey, readonly SectionKey[]> = {
-  owner: ["bandeja", "contactos", "agenda", "agentes", "conocimiento", "canales", "informes", "ajustes"],
-  admin: ["bandeja", "contactos", "agenda", "agentes", "conocimiento", "canales", "informes", "ajustes"],
-  supervisor: ["bandeja", "contactos", "agenda", "agentes", "conocimiento", "informes", "ajustes"],
-  agent: ["bandeja", "contactos", "agenda", "ajustes"],
+  owner: ["bandeja", "contactos", "agenda", "asistentes", "agentes", "conocimiento", "canales", "informes", "ajustes"],
+  admin: ["bandeja", "contactos", "agenda", "asistentes", "agentes", "conocimiento", "canales", "informes", "ajustes"],
+  supervisor: ["bandeja", "contactos", "agenda", "asistentes", "agentes", "conocimiento", "informes", "ajustes"],
+  agent: ["bandeja", "contactos", "agenda", "asistentes", "ajustes"],
+  // «Solo lectura» never uses internal agents ([INT-05]).
   viewer: ["bandeja", "contactos", "agenda", "agentes", "conocimiento", "canales", "informes", "ajustes"],
 };
 
@@ -95,5 +100,5 @@ export const FORBIDDEN_PAGES: Record<RoleKey, readonly string[]> = {
     SETTINGS_PATHS.diagnostico,
     SETTINGS_PATHS.whatsapp,
   ],
-  viewer: [SETTINGS_PATHS.usuarios, SETTINGS_PATHS.ia, SETTINGS_PATHS.actividad, SETTINGS_PATHS.diagnostico, SETTINGS_PATHS.negocio, SETTINGS_PATHS.whatsapp],
+  viewer: [SECTIONS.asistentes.href, SETTINGS_PATHS.usuarios, SETTINGS_PATHS.ia, SETTINGS_PATHS.actividad, SETTINGS_PATHS.diagnostico, SETTINGS_PATHS.negocio, SETTINGS_PATHS.whatsapp],
 };

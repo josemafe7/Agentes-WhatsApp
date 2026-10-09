@@ -106,6 +106,7 @@ const ACTION_LABELS: Record<string, string> = {
   "agent.avatar_updated": "Cambió el avatar de un agente",
   "agent.avatar_removed": "Quitó el avatar de un agente",
   "agent.knowledge_bases_changed": "Cambió las bases de conocimiento de un agente",
+  "agent.access_changed": "Cambió quién puede usar un agente interno",
   "agent.context_file_added": "Añadió un archivo de contexto a un agente",
   "agent.context_file_updated": "Cambió un archivo de contexto de un agente",
   "agent.context_file_deleted": "Borró un archivo de contexto de un agente",

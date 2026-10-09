@@ -11,8 +11,11 @@ import { useAgentSection } from "./use-agent-section";
 
 export type GeneralValues = { name: string; description: string; language: string; tone: string };
 
-/** General ([AGE-03]): name, description, language and tone. The avatar has its own form (it saves on upload). */
-export function GeneralForm({ agentId, initial }: { agentId: string; initial: GeneralValues }) {
+/**
+ * General ([AGE-03]): name, description, language and tone. The avatar has its own form (it saves on upload).
+ * `internal`: the agent answers the team ([INT-01]), so the help texts speak of the team and not of customers.
+ */
+export function GeneralForm({ agentId, initial, internal = false }: { agentId: string; initial: GeneralValues; internal?: boolean }) {
   const section = useAgentSection(agentId, initial, (values) => ({ ...values }));
   const { values, set, errorsFor } = section;
   const nameErrors = errorsFor("name");
@@ -33,7 +36,9 @@ export function GeneralForm({ agentId, initial }: { agentId: string; initial: Ge
             aria-invalid={nameErrors ? true : undefined}
             aria-describedby="agent-name-help"
           />
-          <FieldDescription id="agent-name-help">Es el nombre con el que se presenta a los clientes.</FieldDescription>
+          <FieldDescription id="agent-name-help">
+            {internal ? "Es el nombre con el que lo ve tu equipo en «Asistentes»." : "Es el nombre con el que se presenta a los clientes."}
+          </FieldDescription>
           <FieldError errors={nameErrors?.map((message) => ({ message }))} />
         </Field>
         <Field data-invalid={descriptionErrors ? true : undefined}>
@@ -47,7 +52,11 @@ export function GeneralForm({ agentId, initial }: { agentId: string; initial: Ge
             aria-invalid={descriptionErrors ? true : undefined}
             aria-describedby="agent-description-help"
           />
-          <FieldDescription id="agent-description-help">Para tu equipo: se ve en la lista de agentes, no la leen los clientes.</FieldDescription>
+          <FieldDescription id="agent-description-help">
+            {internal
+              ? "La ve tu equipo en «Asistentes»: cuenta para qué sirve."
+              : "Para tu equipo: se ve en la lista de agentes, no la leen los clientes."}
+          </FieldDescription>
           <FieldError errors={descriptionErrors?.map((message) => ({ message }))} />
         </Field>
         <Field data-invalid={languageErrors ? true : undefined}>
@@ -64,7 +73,9 @@ export function GeneralForm({ agentId, initial }: { agentId: string; initial: Ge
               ))}
             </SelectContent>
           </Select>
-          <FieldDescription id="agent-language-help">Si el cliente escribe en otro idioma, le contesta en el suyo.</FieldDescription>
+          <FieldDescription id="agent-language-help">
+            {internal ? "Si alguien le escribe en otro idioma, le contesta en el suyo." : "Si el cliente escribe en otro idioma, le contesta en el suyo."}
+          </FieldDescription>
           <FieldError errors={languageErrors?.map((message) => ({ message }))} />
         </Field>
         <Field data-invalid={toneErrors ? true : undefined}>

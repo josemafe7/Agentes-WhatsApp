@@ -1,6 +1,6 @@
 // Spanish labels and options of the agent screens ([AGE-03], [AGE-07], [MOD-07]). Pure data, shared by the list, the
 // new-agent form and the editor tabs.
-import type { AgentKnowledgeMode } from "@/lib/enums";
+import type { AgentKnowledgeMode, Audience } from "@/lib/enums";
 import type { ReasoningEffort } from "@/lib/openrouter/types";
 
 /** Languages an agent answers in by default (codes accepted by agentUpdateSchema.language). */
@@ -50,6 +50,24 @@ export const INSTRUCTION_FIELDS = [
   { key: "freeText", label: "Otras instrucciones (opcional)", help: "Cualquier otra indicación. Va después de las anteriores." },
 ] as const;
 export type InstructionFieldKey = (typeof INSTRUCTION_FIELDS)[number]["key"];
+export type InstructionField = { key: InstructionFieldKey; label: string; help: string };
+
+/** What each guided field means for an internal agent: it helps the team and never hands a conversation over. */
+const TEAM_INSTRUCTION_HELP: Partial<Record<InstructionFieldKey, string>> = {
+  role: "Quién es el agente y en qué ayuda al equipo.",
+  businessInfo: "Lo que debe saber del negocio además del perfil, el horario, los servicios y sus documentos.",
+  can: "Lo que sí puede responder por su cuenta.",
+  cannot: "Lo que nunca debe hacer ni afirmar.",
+  style: "Cómo escribe: trato, longitud de las respuestas, listas…",
+};
+
+/** The guided fields of an agent of that audience ([AGE-04], [INT-02]). */
+export function instructionFieldsFor(audience: Audience): InstructionField[] {
+  if (audience === "customers") return [...INSTRUCTION_FIELDS];
+  return INSTRUCTION_FIELDS.filter((field) => field.key !== "handoff").map((field) => ({ ...field, help: TEAM_INSTRUCTION_HELP[field.key] ?? field.help }));
+}
+
+export const AUDIENCE_LABELS: Record<Audience, string> = { customers: "Para clientes", team: "Interno" };
 
 /** Tabs of the editor, each with its own route (docs/pantallas.md «Editor del agente»). */
 export const EDITOR_TABS = [
@@ -60,10 +78,21 @@ export const EDITOR_TABS = [
   { key: "tools", label: "Herramientas", segment: "herramientas" },
   { key: "handoff", label: "Traspaso", segment: "traspaso" },
   { key: "channels", label: "Canales", segment: "canales" },
+  { key: "access", label: "Acceso", segment: "acceso" },
   { key: "test", label: "Probar", segment: "probar" },
   { key: "versions", label: "Versiones", segment: "versiones" },
 ] as const;
 export type EditorTabKey = (typeof EDITOR_TABS)[number]["key"];
+
+/** Tabs an internal agent does not have ([INT-02]): it has no tools of its own, hand-off or channels. */
+const CUSTOMERS_ONLY_TABS: readonly EditorTabKey[] = ["tools", "handoff", "channels"];
+/** Tabs only an internal agent has: who of the team may use it ([INT-05]). */
+const TEAM_ONLY_TABS: readonly EditorTabKey[] = ["access"];
+
+/** Whether the editor of an agent of that audience has this tab. */
+export function hasEditorTab(audience: Audience, key: EditorTabKey): boolean {
+  return audience === "team" ? !CUSTOMERS_ONLY_TABS.includes(key) : !TEAM_ONLY_TABS.includes(key);
+}
 
 export function agentPath(agentId: string, segment = ""): string {
   return segment ? `/agentes/${agentId}/${segment}` : `/agentes/${agentId}`;

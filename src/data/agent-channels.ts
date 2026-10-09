@@ -10,6 +10,7 @@ import type { ChannelStatus, ChannelType } from "@/lib/enums";
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
 import { ConflictError, NotFoundError, parseInput } from "@/server/errors";
+import { assertAnswersCustomers } from "./agent-audience";
 import { applyActiveAgent } from "./channels";
 import { assertCan } from "./guard";
 
@@ -67,6 +68,8 @@ export async function setAgentChannelActive(actor: Actor, input: unknown): Promi
   return db.transaction(async (tx) => {
     const [agent] = await tx.select({ id: agents.id, name: agents.name }).from(agents).where(eq(agents.id, data.agentId));
     if (!agent) throw new NotFoundError("No se ha encontrado el agente.");
+    // An internal agent never answers customers ([INT-03]).
+    if (data.active) await assertAnswersCustomers(tx, agent.id, "agentId");
     const [channel] = await tx
       .select({ id: channels.id, name: channels.name, activeAgentId: channels.activeAgentId, activeAgentName: agents.name })
       .from(channels)

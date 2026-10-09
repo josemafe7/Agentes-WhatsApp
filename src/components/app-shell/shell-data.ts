@@ -1,6 +1,7 @@
 // What the app shell needs for the signed-in actor: business brand, the person, allowed sections and notices.
 // Only display data: never a secret ([SEG-02]).
 import "server-only";
+import { hasAssistants } from "@/data/assistants";
 import { getInboxCounts } from "@/data/conversations";
 import { getBusinessProfile, isAiConfigured } from "@/data/settings";
 import { primaryStyleSheet } from "@/lib/color";
@@ -30,10 +31,11 @@ export type ShellData = {
 };
 
 export async function loadShellData(actor: SessionActor): Promise<ShellData> {
-  const [profile, aiConfigured, inboxUnread] = await Promise.all([
+  const [profile, aiConfigured, inboxUnread, assistants] = await Promise.all([
     getBusinessProfile(actor),
     isAiConfigured(),
     can(actor, PERMISSIONS.inbox.view) ? getInboxCounts(actor).then((counts) => counts.unreadConversations) : Promise.resolve(null),
+    hasAssistants(actor),
   ]);
   const name = profile.name.trim() || DEFAULT_BUSINESS_NAME;
   return {
@@ -43,7 +45,7 @@ export async function loadShellData(actor: SessionActor): Promise<ShellData> {
       logoUrl: profile.logoFileKey ? fileUrl(profile.logoFileKey) : null,
     },
     user: { name: actor.name, email: actor.email, roleLabel: ROLE_LABELS[actor.role] },
-    sectionKeys: visibleSections(actor).map((section) => section.key),
+    sectionKeys: visibleSections(actor, { hasAssistants: assistants }).map((section) => section.key),
     brandStyleSheet: primaryStyleSheet(profile.color),
     openRouterNotice: openRouterNotice(actor, aiConfigured),
     inboxUnread,

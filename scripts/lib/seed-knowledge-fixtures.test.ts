@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isNull } from "drizzle-orm";
+import { eq, isNull } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@/db";
 import { kbChunks, knowledgeBases } from "@/db/schema";
@@ -19,7 +19,7 @@ import { searchKnowledge } from "@/server/knowledge/search";
 import { bagOfWordsVector, embeddingCalls, knowledgeOpenRouter } from "@/server/knowledge/test-helpers";
 import { FAKE_OPENROUTER_KEY, jsonResponse } from "@/test/fake-openrouter";
 import { DEMO_BUSINESSES } from "../../seed/businesses";
-import { buildDemoKnowledge, DEMO_DOCUMENTS, demoEmbeddingTexts, readDemoSource } from "../../seed/knowledge";
+import { buildDemoInternalKnowledge, buildDemoKnowledge, DEMO_DOCUMENTS, demoEmbeddingTexts, readDemoSource } from "../../seed/knowledge";
 import { MISSING_KEY_MESSAGE, runSeedEmbeddingsCommand } from "../../seed/knowledge/embeddings-command";
 import * as fixturesModule from "../../seed/knowledge/fixtures";
 import { demoEmbeddingFor, emptyDemoEmbeddings, loadDemoEmbeddings, parseDemoEmbeddings, serializeDemoEmbeddings, type DemoEmbeddings } from "../../seed/knowledge/fixtures";
@@ -49,6 +49,8 @@ async function fixturesFor(sectors: readonly Sector[], model = MODEL): Promise<D
   const items: Record<string, string> = {};
   for (const sector of sectors) {
     for (const { key, text } of demoEmbeddingTexts(await buildDemoKnowledge(sector), model, DIMS)) items[key] = encodeEmbedding(bagOfWordsVector(text));
+    // The internal manual of the demo ([INT-14]) is processed like the rest.
+    for (const { key, text } of demoEmbeddingTexts(await buildDemoInternalKnowledge(sector), model, DIMS)) items[key] = encodeEmbedding(bagOfWordsVector(text));
   }
   return { ...emptyDemoEmbeddings(model), generatedAt: "2026-09-26T10:00:00.000Z", items };
 }
@@ -178,7 +180,7 @@ describe("pnpm seed with precomputed embeddings [ARR-12]", () => {
 
     vi.stubEnv("OPENROUTER_API_KEY", FAKE_OPENROUTER_KEY);
     const fake = knowledgeOpenRouter();
-    const [base] = await db.select().from(knowledgeBases);
+    const [base] = await db.select().from(knowledgeBases).where(eq(knowledgeBases.audience, "customers"));
     const result = await searchKnowledge({ kbIds: [base.id], query: "precio de las mechas y el tinte de raíz" }, { fetchImpl: fake.fetch });
     expect(result).toMatchObject({ status: "ok", mode: "hybrid" });
     expect(result.results[0].vectorScore).toBeGreaterThan(0);
@@ -225,9 +227,10 @@ describe("pnpm seed:embeddings [ARR-13]", () => {
     expect(keys).toEqual([...keys].sort());
     expect(fs.readFileSync(file, "utf8").endsWith("}\n")).toBe(true);
 
-    // Exactly the chunks of the nine sectors' demos, each with its own vector.
+    // Exactly the chunks of the nine sectors' demos and of the internal manual ([INT-14]), each with its own vector.
     const expected = new Set<string>();
     for (const sector of SECTORS) for (const { key } of demoEmbeddingTexts(await buildDemoKnowledge(sector), MODEL, DIMS)) expected.add(key);
+    for (const { key } of demoEmbeddingTexts(await buildDemoInternalKnowledge("peluqueria"), MODEL, DIMS)) expected.add(key);
     expect(new Set(keys)).toEqual(expected);
     expect(calls.reduce((sum, call) => sum + (call.body as { input: string[] }).input.length, 0)).toBe(expected.size);
     for (const sector of SECTORS) {

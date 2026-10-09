@@ -14,12 +14,13 @@ import { agentKnowledgeBases, aiRuns, kbChunks, kbDocuments, knowledgeBases, mes
 import { EMBEDDING_DIMENSIONS } from "@/db/schema/columns";
 import type { SystemToolName } from "@/lib/agent-tools";
 import { DEFAULT_MODELS } from "@/lib/openrouter/default-models";
-import { buildDemoKnowledge, demoChunkText, type DemoKnowledge } from "../knowledge";
+import { buildDemoInternalKnowledge, buildDemoKnowledge, demoChunkText, type DemoKnowledge } from "../knowledge";
 import { demoEmbeddingFor, loadDemoEmbeddings, type DemoEmbeddings } from "../knowledge/fixtures";
 import { pickDemoSources, type SourceCandidate } from "../knowledge/sources";
 import { writeDemoMedia } from "../media";
 import type { SeedContext, SeedStep } from "../types";
 import { DEMO_USERS } from "../users";
+import { DEMO_INTERNAL_AGENT_KEY } from "./agents";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -193,8 +194,9 @@ export const knowledgeStep: SeedStep = {
     // Extraction and chunking (no network, no database) and the files, outside the transaction: fixed keys, so
     // loading the demo again just overwrites them.
     const knowledge = await buildDemoKnowledge(ctx.sector);
+    const internalKnowledge = await buildDemoInternalKnowledge(ctx.sector);
     const fixtures = loadDemoEmbeddings();
-    await writeDemoMedia(knowledge.documents.flatMap((document) => (document.file ? [document.file] : [])));
+    await writeDemoMedia([...knowledge.documents, ...internalKnowledge.documents].flatMap((document) => (document.file ? [document.file] : [])));
 
     return async (tx) => {
       const agentIds = ctx.refs.agentIds;
@@ -202,19 +204,26 @@ export const knowledgeStep: SeedStep = {
       const owner = DEMO_USERS.find((candidate) => candidate.role === "owner");
       // Read inside the transaction: the settings step of this same load may have (re)created the row.
       const { defaultModels } = await loadIntegrationSettings(tx);
-      const rows = buildDemoKnowledgeRows(knowledge, {
+      const common = {
         model: defaultModels.embeddings || DEFAULT_MODELS.embeddings,
         dims: EMBEDDING_DIMENSIONS,
         fixtures,
         now: ctx.now,
         createdBy: owner ? (ctx.refs.userIds.get(owner.email) ?? null) : null,
-        agentIds: [...agentIds.values()],
-      });
+      };
+      // The business information goes to every demo agent that answers customers.
+      const internalAgentId = agentIds.get(DEMO_INTERNAL_AGENT_KEY);
+      const rows = buildDemoKnowledgeRows(knowledge, { ...common, agentIds: [...agentIds.values()].filter((agentId) => agentId !== internalAgentId) });
       await insertDemoKnowledge(tx, rows);
       await insertDemoSources(tx, ctx, rows);
-      if (rows.missingEmbeddings > 0 && !process.env.VITEST) {
+      // The internal manual ([INT-14]): an internal base, only for the demo's internal agent ([INT-04]).
+      const internalRows = buildDemoKnowledgeRows(internalKnowledge, { ...common, agentIds: internalAgentId ? [internalAgentId] : [] });
+      internalRows.base.audience = "team";
+      await insertDemoKnowledge(tx, internalRows);
+      const missing = rows.missingEmbeddings + internalRows.missingEmbeddings;
+      if (missing > 0 && !process.env.VITEST) {
         console.log(
-          `Conocimiento de la demo: ${rows.missingEmbeddings} de ${rows.chunks.length} fragmentos sin embeddings guardados. La búsqueda funciona por palabras; para buscar también por significado, ejecuta pnpm seed:embeddings con la clave de OpenRouter en .env.local.`,
+          `Conocimiento de la demo: ${missing} de ${rows.chunks.length + internalRows.chunks.length} fragmentos sin embeddings guardados. La búsqueda funciona por palabras; para buscar también por significado, ejecuta pnpm seed:embeddings con la clave de OpenRouter en .env.local.`,
         );
       }
     };

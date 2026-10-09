@@ -1,7 +1,7 @@
 # DominIA Agentes
 
-Plataforma de agentes IA de atención al cliente (WhatsApp, correo y chat web) que se instala una vez por
-negocio y se configura sin tocar código. Para negocios de cualquier sector y para quien los implanta.
+Plataforma de agentes IA de atención al cliente (WhatsApp, correo y chat web) y de agentes internos para el equipo.
+Se instala una vez por negocio y se configura sin tocar código, para cualquier sector y para quien la implanta.
 
 ## Reglas
 
@@ -77,7 +77,7 @@ Salen del encargo y se cumplen siempre, como las de «Seguridad».
 - Nunca respuestas duplicadas ni troceadas en varios mensajes.
 - Nunca el teléfono como clave de un contacto.
 - Nunca Gmail en modo «Testing» ni apps de Google o Microsoft compartidas entre negocios.
-- Nunca agentes de propósito general: solo temas del negocio.
+- Nunca agentes de propósito general: solo temas del negocio. Una base interna solo la usan agentes internos.
 - Nunca inventes endpoints, campos ni límites: usa los comprobados en `docs/integracion-*.md` o la
   documentación oficial.
 

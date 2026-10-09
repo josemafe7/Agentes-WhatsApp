@@ -41,7 +41,7 @@ import { documentsWithPendingEmbeddings } from "@/server/knowledge/maintenance";
 import { searchKnowledge } from "@/server/knowledge/search";
 import { budget } from "@/server/knowledge/test-helpers";
 import { DEMO_BUSINESSES } from "../../seed/businesses";
-import { DEMO_DOCUMENTS, DEMO_KNOWLEDGE_BASE_NAME, demoDocumentFile } from "../../seed/knowledge";
+import { DEMO_DOCUMENTS, DEMO_INTERNAL_BASE_NAME, DEMO_INTERNAL_DOCUMENTS, DEMO_KNOWLEDGE_BASE_NAME, demoDocumentFile } from "../../seed/knowledge";
 import { DEMO_USERS } from "../../seed/users";
 import { runSeedCommand } from "./seed-command";
 import { captureOutput, emptyDatabase } from "./testing";
@@ -76,8 +76,9 @@ async function demoActor(role: Role): Promise<Actor> {
   return { userId: row.id, role, name: row.name, channelIds: null };
 }
 
+/** The demo's base for customers. The internal manual ([INT-14]) has its own tests at the end. */
 async function demoBase() {
-  const bases = await db.select().from(knowledgeBases);
+  const bases = await db.select().from(knowledgeBases).where(eq(knowledgeBases.audience, "customers"));
   expect(bases).toHaveLength(1);
   return bases[0];
 }
@@ -254,7 +255,7 @@ describe("demo knowledge base (pnpm seed)", () => {
     expect(await db.select({ id: kbChunks.id }).from(kbChunks).where(isNotNull(kbChunks.embedding))).toEqual([]);
     const documents = await listKnowledgeDocuments(await demoActor("owner"), base.id);
     expect(documents.every((document) => document.status === "ready" && document.textOnly)).toBe(true);
-    expect((await documentsWithPendingEmbeddings()).length).toBe(documents.length);
+    expect((await documentsWithPendingEmbeddings()).filter((row) => row.kbId === base.id).length).toBe(documents.length);
     // The seed never calls the AI and schedules nothing: the embeddings job starts when a key is saved, or when the app
     // starts with one ([ARR-15]).
     expect(await db.select().from(jobs)).toEqual([]);
@@ -263,7 +264,7 @@ describe("demo knowledge base (pnpm seed)", () => {
 
   it("[AGE-07] [CON-03] [HER-01] the three demo agents search this base, with buscar_conocimiento on («Automático»)", async () => {
     const base = await demoBase();
-    const demoAgents = await db.select({ id: agents.id, knowledgeMode: agents.knowledgeMode, systemTools: agents.systemTools }).from(agents);
+    const demoAgents = await db.select({ id: agents.id, knowledgeMode: agents.knowledgeMode, systemTools: agents.systemTools }).from(agents).where(eq(agents.audience, "customers"));
     expect(demoAgents).toHaveLength(3);
     for (const agent of demoAgents) {
       expect(await agentKnowledgeBaseIds(agent.id)).toEqual([base.id]);
@@ -271,8 +272,8 @@ describe("demo knowledge base (pnpm seed)", () => {
       // In «Automático» the model searches with the tool: without it the base would never be read.
       expect(agent.systemTools).toEqual(expect.arrayContaining(["buscar_conocimiento", "transferir_a_humano"]));
     }
-    const [summary] = await listKnowledgeBases(await demoActor("owner"));
-    expect(summary.agents).toHaveLength(3);
+    const summary = (await listKnowledgeBases(await demoActor("owner"))).find((item) => item.id === base.id);
+    expect(summary?.agents).toHaveLength(3);
   });
 
   it("[CON-20] [BAN-07] «¿Por qué respondió esto?» has data: the hours, the address and the voice-note answer show their fragments", async () => {
@@ -346,5 +347,50 @@ describe("demo knowledge base (pnpm seed)", () => {
     const result = await searchKnowledge({ kbIds: [base.id], query: "blanqueamiento" });
     expect(result.results[0]?.title).toBe("Tratamientos y precios");
     expect(await db.select().from(jobs)).toEqual([]);
+  });
+});
+
+describe("the demo's internal base [INT-14] [INT-04]", () => {
+  beforeAll(async () => {
+    await emptyDatabase();
+    await seed();
+  });
+
+  it("«Manual interno»: an internal base with the team's manual, «listo» and searchable by words at once", async () => {
+    const bases = await db.select().from(knowledgeBases).where(eq(knowledgeBases.audience, "team"));
+    expect(bases).toHaveLength(1);
+    const [base] = bases;
+    expect(base).toMatchObject({ name: DEMO_INTERNAL_BASE_NAME, embeddingModel: DEFAULT_MODELS.embeddings, searchMode: "hybrid" });
+    expect(base.description).toContain(DEMO_BUSINESSES.peluqueria.name);
+    const documents = await documentsOf(base.id);
+    expect(documents.map((document) => [document.title, document.status, document.sourceType])).toEqual(DEMO_INTERNAL_DOCUMENTS.map((document) => [document.title, "ready", "file"]));
+    // The manual's own facts are found, in its document.
+    const holidays = await searchKnowledge({ kbIds: [base.id], query: "¿cuántos días de vacaciones tengo?" });
+    expect(holidays.status).toBe("ok");
+    expect(holidays.results[0].title).toBe("Manual del equipo");
+    expect(holidays.results.map((result) => result.content).join("\n")).toContain("23 días laborables");
+  });
+
+  it("only the demo's internal agent uses it: no agent that answers customers reads it, and the base for customers is not its", async () => {
+    const [internalBase] = await db.select().from(knowledgeBases).where(eq(knowledgeBases.audience, "team"));
+    const business = await demoBase();
+    const all = await db.select({ id: agents.id, audience: agents.audience }).from(agents);
+    const internal = all.filter((agent) => agent.audience === "team");
+    expect(internal).toHaveLength(1);
+    expect(await agentKnowledgeBaseIds(internal[0].id)).toEqual([internalBase.id]);
+    for (const agent of all.filter((item) => item.audience === "customers")) {
+      expect(await agentKnowledgeBaseIds(agent.id)).toEqual([business.id]);
+    }
+    // What a customer could ask about the team's manual finds nothing in the base for customers.
+    const leak = await searchKnowledge({ kbIds: [business.id], query: "fondo fijo de la caja al abrir" });
+    expect(leak.results.map((result) => result.title)).not.toContain("Manual del equipo");
+  });
+
+  it("supervisor and viewer of the demo do not see it in Conocimiento [INT-15]", async () => {
+    const [internalBase] = await db.select().from(knowledgeBases).where(eq(knowledgeBases.audience, "team"));
+    for (const role of ["supervisor", "viewer"] as const) {
+      expect((await listKnowledgeBases(await demoActor(role))).map((base) => base.id)).not.toContain(internalBase.id);
+    }
+    expect((await listKnowledgeBases(await demoActor("owner"))).map((base) => base.id)).toContain(internalBase.id);
   });
 });

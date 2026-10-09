@@ -15,7 +15,7 @@ type PageProps = { params: Promise<{ id: string }> };
 
 /** Traspaso ([AGE-09]): keywords, «no lo sé», sensitive topics, messages in and out of hours and who is told. */
 export default async function AgentHandoffPage({ params }: PageProps) {
-  const page = await loadEditorPage(params, "traspaso");
+  const page = await loadEditorPage(params, "traspaso", "handoff");
   if (!page.allowed) return <NoPermission description={noPermissionDescription(page.role)} />;
   const { actor, agent, canManage } = page;
   const handoff = agent.handoff;

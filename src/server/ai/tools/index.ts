@@ -2,7 +2,7 @@
 // its tool module to IMPLEMENTED (buscar_conocimiento in phase 4, the booking tools in phase 5…).
 import "server-only";
 import { ALWAYS_ENABLED_TOOLS, isSystemToolName, type SystemToolName } from "@/lib/agent-tools";
-import { buscarConocimiento } from "./buscar-conocimiento";
+import { buscarConocimiento, buscarConocimientoInterno } from "./buscar-conocimiento";
 import { cancelarCita } from "./cancelar-cita";
 import { consultarDisponibilidad } from "./consultar-disponibilidad";
 import { crearCita } from "./crear-cita";
@@ -53,6 +53,14 @@ export function implementedSystemTools(): SystemToolName[] {
 export function toolsForAgent(enabled: readonly string[]): Map<string, RegisteredTool> {
   const wanted = new Set<string>([...enabled, ...ALWAYS_ENABLED_TOOLS]);
   return new Map([...BY_NAME].filter(([name]) => wanted.has(name)));
+}
+
+/**
+ * The tools of an internal agent ([INT-07]): the search in its knowledge and nothing else. No hand-off, bookings,
+ * contact data or custom HTTP tools, whatever its row says.
+ */
+export function toolsForInternalAgent(): Map<string, RegisteredTool> {
+  return new Map([[buscarConocimientoInterno.name, buscarConocimientoInterno]]);
 }
 
 /** The `tools` field of the chat request. */

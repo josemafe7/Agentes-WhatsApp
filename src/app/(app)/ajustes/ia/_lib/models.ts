@@ -83,7 +83,8 @@ export type ModelUseWarning = {
 export async function loadModelUseWarnings(actor: Actor, defaults: AiModels, timeZone: string): Promise<ModelUseWarning[]> {
   const catalog = await getCachedModelCatalog();
   if (!catalog) return [];
-  const agentList = await listAgents(actor);
+  // Internal agents use models too ([MOD-06], [INT-15]): who opens Ajustes › IA sees them all.
+  const agentList = await listAgents(actor, { audience: "all" });
   const inUse = [
     ...DEFAULT_MODEL_FIELDS.map((field) => defaults[field]),
     ...agentList.flatMap((agent) => [agent.model, agent.fallbackModel]).filter((id): id is string => Boolean(id)),

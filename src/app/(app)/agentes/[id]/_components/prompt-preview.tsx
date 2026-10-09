@@ -23,13 +23,15 @@ type PromptPreviewProps = {
   agentId: string;
   /** Unsaved values of the form: the preview shows what would be sent once saved. Omit to preview what is saved. */
   draft?: PreviewDraft;
+  /** An internal agent has no channels: the preview has none to choose ([INT-02]). */
+  withChannels?: boolean;
 };
 
 /**
  * «Vista previa del prompt» ([AGE-06]): the whole text the model receives, in the order of [MOT-07], with the
  * platform rules first; they cannot be removed ([MOT-06]). Read-only, and no AI is called.
  */
-export function PromptPreview({ agentId, draft }: PromptPreviewProps) {
+export function PromptPreview({ agentId, draft, withChannels = true }: PromptPreviewProps) {
   const [channel, setChannel] = useState<SimulatedChannel>("whatsapp");
   const [result, setResult] = useState<ActionResult<{ sections: PromptSection[] }> | null>(null);
   const [pending, startTransition] = useTransition();
@@ -61,25 +63,27 @@ export function PromptPreview({ agentId, draft }: PromptPreviewProps) {
           </SheetDescription>
         </SheetHeader>
         <div className="grid gap-4 px-4 pb-6">
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            size="sm"
-            value={channel}
-            onValueChange={(value) => {
-              const next = CHANNELS.find((option) => option.value === value)?.value;
-              if (!next) return;
-              setChannel(next);
-              load(next);
-            }}
-            aria-label="Canal de la vista previa"
-          >
-            {CHANNELS.map((option) => (
-              <ToggleGroupItem key={option.value} value={option.value}>
-                {option.label}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+          {withChannels ? (
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              size="sm"
+              value={channel}
+              onValueChange={(value) => {
+                const next = CHANNELS.find((option) => option.value === value)?.value;
+                if (!next) return;
+                setChannel(next);
+                load(next);
+              }}
+              aria-label="Canal de la vista previa"
+            >
+              {CHANNELS.map((option) => (
+                <ToggleGroupItem key={option.value} value={option.value}>
+                  {option.label}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          ) : null}
           <PreviewBody result={result} pending={pending} />
         </div>
       </SheetContent>

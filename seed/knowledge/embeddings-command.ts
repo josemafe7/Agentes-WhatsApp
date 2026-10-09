@@ -10,7 +10,7 @@ import { DEFAULT_MODELS } from "@/lib/openrouter/default-models";
 import { isOpenRouterError } from "@/lib/openrouter/errors";
 import { EMBEDDING_BATCH_SIZE } from "@/server/knowledge/constants";
 import { encodeEmbedding } from "@/server/knowledge/embeddings";
-import { buildDemoKnowledge, demoEmbeddingTexts } from "./index";
+import { buildDemoInternalKnowledge, buildDemoKnowledge, demoEmbeddingTexts } from "./index";
 import { DEMO_EMBEDDINGS_FILE, writeDemoEmbeddings, type DemoEmbeddings } from "./fixtures";
 
 export type CommandOutput = { log: (line: string) => void; error: (line: string) => void };
@@ -43,6 +43,8 @@ export async function runSeedEmbeddingsCommand(options: SeedEmbeddingsOptions = 
   const dims = EMBEDDING_DIMENSIONS;
   const texts = new Map<string, string>();
   for (const sector of SECTORS) for (const { key, text } of demoEmbeddingTexts(await buildDemoKnowledge(sector), model, dims)) texts.set(key, text);
+  // The internal manual ([INT-14]) is the same text in every sector: once.
+  for (const { key, text } of demoEmbeddingTexts(await buildDemoInternalKnowledge(SECTORS[0]), model, dims)) texts.set(key, text);
   const entries = [...texts];
   out.log(`Calculando ${entries.length} embeddings de la demo (${SECTORS.length} sectores) con ${model}…`);
 
