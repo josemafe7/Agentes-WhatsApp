@@ -190,7 +190,8 @@ export async function WhatsAppPanel({ actor, channel, canManage, timezone }: Wha
             />
           ) : null}
         </div>
-        <div className="grid gap-3">
+        {/* Eleven checks: in two columns from tablets up, so they are read at a glance instead of scrolled through. */}
+        <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
           {lights.map((light) => (
             <StatusLight key={light.key} status={light.status} label={light.label} detail={light.detail} />
           ))}
@@ -261,7 +262,7 @@ export async function WhatsAppPanel({ actor, channel, canManage, timezone }: Wha
 
       <TemplatesSection channelId={panel.id} templates={templates} canSync={metaActions} timezone={timezone} />
       <NoticesSection notices={notices} timezone={timezone} />
-      <MetaLimits />
+      <MetaLimits folded />
     </>
   );
 }

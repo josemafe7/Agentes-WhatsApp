@@ -1,21 +1,36 @@
 "use client";
 
 import { ChevronRight, ListChecks, Plus, X } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import type { ServiceItem } from "@/data/agenda-config";
 import type { AgendaMode } from "@/lib/enums";
-import { formatNumber } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { ColorDot } from "../../_components/color-dot";
-import { formatMinutes } from "../_lib/service-form";
+import { serviceFacts } from "../_lib/service-list";
 import { ServiceForm, type ResourceChoice, type ServiceWords } from "./service-form";
 
 type ServicesManagerProps = { services: ServiceItem[]; resources: ResourceChoice[]; mode: AgendaMode; words: ServiceWords };
 
-/** Services list; «Nuevo servicio» and each row open the form in a side panel (docs/pantallas.md «Servicios»). */
+/**
+ * Columns of the list once it is at least 56rem wide (measured on the list, not on the window: the side menu takes its
+ * share). The header and every row use the same ones, so they line up.
+ */
+const COLUMNS = "@4xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_7.5rem_minmax(0,2fr)_minmax(0,1.2fr)] @4xl:gap-x-6";
+const FACT_SEPARATOR = " · ";
+/**
+ * What joins a group of facts to the one before while the row is stacked (« · precio orientativo »). With columns the
+ * header says it by eye, so it is kept for screen readers only: a row reads as the same sentence at any width.
+ */
+const LEAD_IN = "@4xl:sr-only";
+
+/**
+ * Services list; «Nuevo servicio» and each row open the form in a side panel (docs/pantallas.md «Servicios»). With room,
+ * one column per kind of fact, to compare durations and prices; narrower, each row stacks its facts in one line.
+ */
 export function ServicesManager({ services, resources, mode, words }: ServicesManagerProps) {
   const [editing, setEditing] = useState<ServiceItem | "new" | null>(null);
   const byId = new Map(resources.map((resource) => [resource.id, resource]));
@@ -41,43 +56,77 @@ export function ServicesManager({ services, resources, mode, words }: ServicesMa
       {services.length === 0 ? (
         <EmptyState icon={ListChecks} title="Aún no hay servicios" description="Añade lo que tus clientes pueden reservar: el agente y el equipo solo ven huecos de un servicio." action={newButton} />
       ) : (
-        <ul className="divide-y overflow-hidden rounded-xl border">
-          {services.map((service) => {
-            const doers = service.resourceIds.flatMap((id) => byId.get(id) ?? []);
-            return (
-              <li key={service.id}>
-                <button
-                  type="button"
-                  onClick={() => setEditing(service)}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
-                >
-                  <span className="grid min-w-0 flex-1 gap-1">
-                    <span className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium">{service.name}</span>
-                      {service.category ? <span className="text-xs text-muted-foreground">{service.category}</span> : null}
-                      {service.requiresManualConfirmation ? <Badge variant="outline">Confirmación manual</Badge> : null}
-                      {service.active ? null : <Badge variant="secondary">Inactivo</Badge>}
-                    </span>
-                    <span className="text-xs text-muted-foreground tabular-nums">{serviceFacts(service)}</span>
-                    <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                      {doers.length === 0 ? (
-                        <span className="text-warning">Nadie lo hace todavía</span>
-                      ) : (
-                        doers.map((resource) => (
-                          <span key={resource.id} className="inline-flex items-center gap-1.5">
-                            <ColorDot color={resource.color} />
-                            {resource.name}
+        <div className="@container overflow-hidden rounded-xl border">
+          {/* Only for the eye: a screen reader hears each row as the same sentence at any width (see LEAD_IN). */}
+          <div aria-hidden className="hidden h-10 items-center gap-3 border-b px-4 text-xs font-medium text-muted-foreground @4xl:flex">
+            <div className={cn("grid min-w-0 flex-1", COLUMNS)}>
+              <span>Servicio</span>
+              <span>Duración</span>
+              <span className="text-right">Precio orientativo</span>
+              <span>Reserva</span>
+              <span>Quién lo hace</span>
+            </div>
+            {/* The width of the rows' arrow. */}
+            <span className="size-4 shrink-0" />
+          </div>
+          <ul className="divide-y">
+            {services.map((service) => {
+              const doers = service.resourceIds.flatMap((id) => byId.get(id) ?? []);
+              const facts = serviceFacts(service);
+              return (
+                <li key={service.id}>
+                  <button
+                    type="button"
+                    onClick={() => setEditing(service)}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset pointer-coarse:min-h-12"
+                  >
+                    <span className={cn("grid min-w-0 flex-1 gap-1 @4xl:items-baseline", COLUMNS)}>
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="min-w-0 text-sm font-medium break-words">{service.name}</span>
+                        {service.category ? <span className="text-xs text-muted-foreground">{service.category}</span> : null}
+                        {service.requiresManualConfirmation ? <Badge variant="outline">Confirmación manual</Badge> : null}
+                        {service.active ? null : <Badge variant="secondary">Inactivo</Badge>}
+                      </span>
+                      {/* Stacked, one line of facts; with columns this wrapper steps aside and each group of facts is a cell. */}
+                      <span className="text-xs text-muted-foreground tabular-nums @4xl:contents">
+                        <span className="@4xl:text-sm">
+                          <FactList facts={facts.duration} firstClassName="@4xl:text-foreground" />
+                        </span>
+                        {facts.price === null ? (
+                          <span aria-hidden className="hidden text-right @4xl:block">
+                            —
                           </span>
-                        ))
-                      )}
+                        ) : (
+                          <span className="@4xl:text-right @4xl:text-sm @4xl:text-foreground">
+                            <span className={LEAD_IN}>{`${FACT_SEPARATOR}precio orientativo `}</span>
+                            {facts.price}
+                          </span>
+                        )}
+                        <span>
+                          <span className={LEAD_IN}>{FACT_SEPARATOR}</span>
+                          <FactList facts={facts.booking} />
+                        </span>
+                      </span>
+                      <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs @4xl:text-sm">
+                        {doers.length === 0 ? (
+                          <span className="text-warning">Nadie lo hace todavía</span>
+                        ) : (
+                          doers.map((resource) => (
+                            <span key={resource.id} className="inline-flex items-center gap-1.5">
+                              <ColorDot color={resource.color} />
+                              {resource.name}
+                            </span>
+                          ))
+                        )}
+                      </span>
                     </span>
-                  </span>
-                  <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+                    <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
 
       <Sheet open={editing !== null} onOpenChange={(open) => (open ? undefined : setEditing(null))}>
@@ -109,14 +158,19 @@ export function ServicesManager({ services, resources, mode, words }: ServicesMa
   );
 }
 
-/** «30 min · 10 min después · 18 · 1 persona · desde 2 h antes». */
-function serviceFacts(service: ServiceItem): string {
-  const parts = [formatMinutes(service.durationMin)];
-  if (service.bufferBeforeMin > 0) parts.push(`${formatMinutes(service.bufferBeforeMin)} antes`);
-  if (service.bufferAfterMin > 0) parts.push(`${formatMinutes(service.bufferAfterMin)} después`);
-  if (service.price !== null) parts.push(`precio orientativo ${formatNumber(service.price, { maximumFractionDigits: 2 })}`);
-  parts.push(service.minPeople === service.maxPeople ? `${service.maxPeople} ${service.maxPeople === 1 ? "persona" : "personas"}` : `de ${service.minPeople} a ${service.maxPeople} personas`);
-  if (service.minAdvanceMin > 0) parts.push(`con ${formatMinutes(service.minAdvanceMin)} de antelación`);
-  if (service.maxAdvanceDays !== null) parts.push(`hasta ${service.maxAdvanceDays} días antes`);
-  return parts.join(" · ");
+/**
+ * Facts joined with « · » while the row is stacked. In a column each one takes its own line, the first as the figure
+ * and the rest as its small print, and the « · » stays for screen readers only: no dot is left hanging at a line end.
+ */
+function FactList({ facts, firstClassName }: { facts: readonly string[]; firstClassName?: string }) {
+  return (
+    <>
+      {facts.map((fact, index) => (
+        <Fragment key={fact}>
+          {index > 0 ? <span className="@4xl:sr-only">{FACT_SEPARATOR}</span> : null}
+          <span className={cn("@4xl:block", index === 0 ? firstClassName : "@4xl:text-xs @4xl:text-muted-foreground")}>{fact}</span>
+        </Fragment>
+      ))}
+    </>
+  );
 }

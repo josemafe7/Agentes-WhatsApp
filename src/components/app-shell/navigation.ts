@@ -79,10 +79,16 @@ export type SettingsPage = {
   icon: LucideIcon;
   /** One line for the settings index. */
   description: string;
+  /** Sub-navigation group: separators go between groups, never titles, as in the main menu. */
+  group: 0 | 1 | 2 | 3 | 4;
   permission: Action;
 };
 
-/** Settings sub-navigation, in order. Permissions from «Quién puede hacer qué» ([PER-03], [PER-04]). */
+/**
+ * Settings sub-navigation, in order: Negocio, Usuarios, Horario | IA, Correo del sistema, WhatsApp | Privacidad y
+ * legal, Notificaciones, Recordatorios | Registro de actividad, Diagnóstico | Mi cuenta, Acerca de. Permissions from
+ * «Quién puede hacer qué» ([PER-03], [PER-04]).
+ */
 export const SETTINGS_PAGES: readonly SettingsPage[] = [
   {
     key: "negocio",
@@ -90,6 +96,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     href: "/ajustes/negocio",
     icon: Store,
     description: "Nombre, logo, color, sector, zona horaria y datos de contacto.",
+    group: 0,
     permission: PERMISSIONS.settings.business,
   },
   {
@@ -98,6 +105,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     href: "/ajustes/usuarios",
     icon: UsersRound,
     description: "Equipo, invitaciones, roles y verificación en dos pasos.",
+    group: 0,
     permission: PERMISSIONS.settings.users,
   },
   {
@@ -106,6 +114,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     href: "/ajustes/horario",
     icon: Clock,
     description: "Horario semanal, festivos y cierres.",
+    group: 0,
     permission: PERMISSIONS.settings.business,
   },
   {
@@ -114,6 +123,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     href: "/ajustes/ia",
     icon: Sparkles,
     description: "Clave de OpenRouter, modelos por defecto y privacidad de la IA.",
+    group: 1,
     permission: PERMISSIONS.settings.integrations,
   },
   {
@@ -122,6 +132,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     href: "/ajustes/correo",
     icon: Mail,
     description: "Servidor de correo para invitaciones, recuperación de contraseña y avisos.",
+    group: 1,
     permission: PERMISSIONS.settings.integrations,
   },
   {
@@ -130,6 +141,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     href: "/ajustes/whatsapp",
     icon: MessageCircle,
     description: "Tarifas por mensaje de Meta y dirección de avisos de la instalación.",
+    group: 1,
     permission: PERMISSIONS.settings.business,
   },
   {
@@ -138,6 +150,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     href: "/ajustes/privacidad",
     icon: ShieldCheck,
     description: "Textos legales, aviso de IA y plazos de conservación.",
+    group: 2,
     permission: PERMISSIONS.settings.business,
   },
   {
@@ -146,6 +159,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     href: "/ajustes/notificaciones",
     icon: Bell,
     description: "Qué sucesos avisan y a quién.",
+    group: 2,
     permission: PERMISSIONS.settings.business,
   },
   {
@@ -154,6 +168,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     href: "/ajustes/recordatorios",
     icon: BellRing,
     description: "Aviso a los clientes antes de su cita, por WhatsApp o por email.",
+    group: 2,
     permission: PERMISSIONS.agenda.configure,
   },
   {
@@ -162,6 +177,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     href: "/ajustes/actividad",
     icon: ScrollText,
     description: "Lo que hacen las personas y la IA en la app.",
+    group: 3,
     permission: PERMISSIONS.settings.auditLog,
   },
   {
@@ -170,6 +186,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     href: "/ajustes/diagnostico",
     icon: Activity,
     description: "Estado de la base de datos, de la cola de trabajo y de los envíos.",
+    group: 3,
     permission: PERMISSIONS.settings.diagnostics,
   },
   {
@@ -178,6 +195,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     href: ACCOUNT_HREF,
     icon: UserRound,
     description: "Tu nombre, tu contraseña y la verificación en dos pasos.",
+    group: 4,
     permission: PERMISSIONS.account.self,
   },
   {
@@ -186,6 +204,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     href: "/ajustes/acerca",
     icon: Info,
     description: "Versión de la app y enlace a la Ayuda.",
+    group: 4,
     permission: PERMISSIONS.account.self,
   },
 ];
@@ -233,17 +252,34 @@ export function visibleSections(actor: Actor | null, context: SectionContext = {
   return SECTIONS.filter((section) => section.anyOf.some((action) => can(actor, action)) && (section.key !== "asistentes" || context.hasAssistants === true));
 }
 
+/** Entries of a menu split in their groups, in group order and without empty groups. */
+function splitInGroups<Entry extends { group: number }>(entries: readonly Entry[]): Entry[][] {
+  const groups = [...new Set(entries.map((entry) => entry.group))].sort((a, b) => a - b);
+  return groups.map((group) => entries.filter((entry) => entry.group === group));
+}
+
 /** Sections split in their groups, without empty groups. */
 export function groupSections(sections: readonly NavSection[]): NavSection[][] {
-  const groups: NavSection[][] = [[], [], []];
-  for (const section of sections) groups[section.group].push(section);
-  return groups.filter((group) => group.length > 0);
+  return splitInGroups(sections);
 }
 
 /** Settings pages the actor may open, in sub-navigation order. */
 export function visibleSettingsPages(actor: Actor | null): SettingsPage[] {
   if (!actor) return [];
   return SETTINGS_PAGES.filter((page) => can(actor, page.permission));
+}
+
+/** Settings pages split in their groups, without empty groups. */
+export function groupSettingsPages(pages: readonly SettingsPage[]): SettingsPage[][] {
+  return splitInGroups(pages);
+}
+
+/**
+ * Pages of the settings sub-navigation for who is looking. None until they set up the two-step verification the
+ * business requires: only «Mi cuenta» opens then ([USU-12]), so the menu would lead nowhere.
+ */
+export function settingsNavKeys(actor: Actor & { twoFactorSetupRequired: boolean }): SettingsPageKey[] {
+  return actor.twoFactorSetupRequired ? [] : visibleSettingsPages(actor).map((page) => page.key);
 }
 
 function cleanPath(pathname: string): string {
@@ -283,9 +319,17 @@ export function noPermissionDescription(role: Role): string {
   return `Tu rol (${ROLE_LABELS[role]}) no incluye esta sección. Si la necesitas, pídesela al propietario.`;
 }
 
-/** Settings page of a path (not the settings index). */
+/** Settings page of a path (not the settings index). «Mi cuenta» is one too, although it lives at /perfil. */
 export function settingsPageForPath(pathname: string): SettingsPage | null {
-  return (
-    SETTINGS_PAGES.find((page) => page.href.startsWith(`${SETTINGS_HREF}/`) && isActivePath(pathname, page.href)) ?? null
-  );
+  return SETTINGS_PAGES.find((page) => isActivePath(pathname, page.href)) ?? null;
+}
+
+/**
+ * Top bar trail of a path: its section and, in Ajustes, the page («Ajustes › IA»). «Mi cuenta» is outside /ajustes,
+ * so its section comes from being a settings page, not from its address.
+ */
+export function trailForPath(pathname: string): { section: NavSection; page: SettingsPage | null } | null {
+  const page = settingsPageForPath(pathname);
+  const section = sectionForPath(page ? SETTINGS_HREF : pathname);
+  return section ? { section, page } : null;
 }

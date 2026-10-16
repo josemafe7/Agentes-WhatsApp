@@ -35,7 +35,9 @@ export function ActivityFilters({ query, actions }: ActivityFiltersProps) {
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-4 rounded-xl border p-4 sm:grid-cols-2 lg:grid-cols-[10rem_1fr_10rem_10rem_auto] lg:items-end">
+    // Two rows: the settings column is at most 720 px wide, and the five controls in one row pushed «Filtrar» out of
+    // the box. Who and what first; the dates with the button under them.
+    <form onSubmit={submit} className="grid gap-4 rounded-xl border p-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
       <Field>
         <FieldLabel htmlFor="filter-who">Quién</FieldLabel>
         <Select name="quien" defaultValue={query.quien ?? ALL}>
@@ -50,7 +52,7 @@ export function ActivityFilters({ query, actions }: ActivityFiltersProps) {
           </SelectContent>
         </Select>
       </Field>
-      <Field>
+      <Field className="lg:col-span-2">
         <FieldLabel htmlFor="filter-action">Acción</FieldLabel>
         <Select name="accion" defaultValue={query.accion ?? ALL}>
           <SelectTrigger id="filter-action" className="w-full">

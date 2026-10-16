@@ -39,18 +39,22 @@ export function ChannelCard({ channel, address, agents, canManage, timezone }: C
           <identity.icon aria-hidden className={cn("size-5", identity.iconClassName)} />
         </span>
         <div className="grid min-w-0 flex-1 gap-0.5">
-          <h2 className="truncate text-base font-semibold">
-            <Link href={href} className="rounded-sm hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-              {channel.name}
-            </Link>
-          </h2>
-          <p className="truncate text-sm text-muted-foreground" title={address ?? undefined}>
+          <div className="flex items-start justify-between gap-2">
+            <h2 className="min-w-0 truncate text-base font-semibold">
+              <Link href={href} className="rounded-sm hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                {channel.name}
+              </Link>
+            </h2>
+            <ChannelStatusBadge status={channel.status} />
+          </div>
+          {/* Under the name and the state, with the whole width: the number or the address is what tells two channels
+              of the same type apart, so it wraps instead of being cut. */}
+          <p className="text-sm break-words text-muted-foreground">
             {identity.label}
             {via ? ` · ${via}` : null}
             {address ? ` · ${address}` : null}
           </p>
         </div>
-        <ChannelStatusBadge status={channel.status} />
       </div>
       {channel.testMode || channel.isDemo ? (
         <div className="flex flex-wrap gap-1.5">

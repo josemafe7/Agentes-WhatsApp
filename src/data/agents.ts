@@ -5,7 +5,7 @@
 // Internal agents ([INT-01]–[INT-05], [INT-15]) are rows of the same table with audience = team: only owner and
 // admin see and configure them, and each has its list of who may use it (src/data/assistants.ts is where they answer).
 import "server-only";
-import { and, asc, desc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor } from "@/db";
 import {
@@ -220,10 +220,12 @@ async function saveNewVersion(actor: Actor, agentId: string, changes: Partial<Ag
 export type AgentChannelRef = { id: string; name: string; type: ChannelType };
 export type AgentListItem = Pick<
   Agent,
-  "id" | "audience" | "name" | "description" | "avatarFileKey" | "model" | "fallbackModel" | "templateSector" | "currentVersion" | "updatedAt"
+  "id" | "audience" | "teamAccess" | "name" | "description" | "avatarFileKey" | "model" | "fallbackModel" | "templateSector" | "currentVersion" | "updatedAt"
 > & {
   /** Channels where it is the active agent ([AGE-01], [AGE-11]). */
   activeChannels: AgentChannelRef[];
+  /** Internal agents: the people listed in its Acceso tab who can still use it ([INT-05]); 0 for the rest. */
+  accessPeople: number;
 };
 
 /**
@@ -243,9 +245,21 @@ export async function listAgents(actor: Actor, options: { audience?: "customers"
     .select({ id: channels.id, name: channels.name, type: channels.type, agentId: channels.activeAgentId })
     .from(channels)
     .orderBy(asc(channels.name));
+  // Who each internal agent was given to, counted as the Acceso tab lists them: active supervisors and agents.
+  const listed = withInternal
+    ? await db
+        .select({ agentId: agentMembers.agentId, people: count() })
+        .from(agentMembers)
+        .innerJoin(userRoles, eq(userRoles.userId, agentMembers.userId))
+        .where(and(inArray(userRoles.role, [...MEMBER_ROLES]), isNull(userRoles.disabledAt)))
+        .groupBy(agentMembers.agentId)
+    : [];
+  const peopleOf = new Map(listed.map((row) => [row.agentId, row.people]));
   return rows.map((row) => ({
     id: row.id,
     audience: row.audience,
+    teamAccess: row.teamAccess,
+    accessPeople: peopleOf.get(row.id) ?? 0,
     name: row.name,
     description: row.description,
     avatarFileKey: row.avatarFileKey,
@@ -644,7 +658,9 @@ export const agentAccessSchema = z
 
 /**
  * Who may use an internal agent ([INT-05]). The list is kept while the access is «Todo el equipo», so switching back
- * to «Personas concretas» brings the same people. Only active supervisors and agents can be listed.
+ * to «Personas concretas» brings the same people. Only active supervisors and agents can be listed, and only they
+ * are changed: somebody deactivated (or with another role for now) is not on the screen, so saving it neither adds
+ * nor removes them, and they find their assistants again when they come back.
  */
 export async function setAgentAccess(actor: Actor, agentId: string, input: unknown): Promise<void> {
   assertCan(actor, PERMISSIONS.internal.agents);
@@ -653,17 +669,16 @@ export async function setAgentAccess(actor: Actor, agentId: string, input: unkno
   await db.transaction(async (tx) => {
     const agent = await loadAgent(tx, agentId);
     if (agent.audience !== "team") throw new NotFoundError(NOT_FOUND);
-    const valid =
-      wanted.length > 0
-        ? await tx
-            .select({ userId: userRoles.userId })
-            .from(userRoles)
-            .where(and(inArray(userRoles.userId, wanted), inArray(userRoles.role, [...MEMBER_ROLES]), isNull(userRoles.disabledAt)))
-        : [];
+    // The people the Acceso tab lists.
+    const listable = tx
+      .select({ userId: userRoles.userId })
+      .from(userRoles)
+      .where(and(inArray(userRoles.role, [...MEMBER_ROLES]), isNull(userRoles.disabledAt)));
+    const valid = wanted.length > 0 ? await tx.select({ userId: userRoles.userId }).from(userRoles).where(and(inArray(userRoles.userId, wanted), inArray(userRoles.userId, listable))) : [];
     if (valid.length !== wanted.length) {
       throw new ValidationError(undefined, { userIds: ["Alguna de las personas elegidas ya no existe, está desactivada o no puede usar agentes internos."] });
     }
-    await tx.delete(agentMembers).where(eq(agentMembers.agentId, agent.id));
+    await tx.delete(agentMembers).where(and(eq(agentMembers.agentId, agent.id), inArray(agentMembers.userId, listable)));
     if (wanted.length > 0) await tx.insert(agentMembers).values(wanted.map((userId) => ({ agentId: agent.id, userId })));
     await tx.update(agents).set({ teamAccess: data.teamAccess, updatedAt: new Date() }).where(eq(agents.id, agent.id));
     // Without names: how many people, never who.

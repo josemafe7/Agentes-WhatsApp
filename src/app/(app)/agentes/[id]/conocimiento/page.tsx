@@ -23,9 +23,9 @@ export const metadata: Metadata = { title: "Conocimiento del agente" };
 type PageProps = { params: Promise<{ id: string }> };
 
 /**
- * Conocimiento ([AGE-07]): level 1, the context files that go whole in the prompt with their size against the
- * 30,000-token cap ([CON-01], [CON-02]); level 2, the knowledge bases it searches ([CON-03]); and when it searches.
- * Owner and admin change it; supervisor and viewer see it read-only ([PER-01]).
+ * Conocimiento ([AGE-07]), what most agents use first: level 2, the knowledge bases it searches ([CON-03]), and when it
+ * searches; last, level 1, the context files that go whole in the prompt with their size against the 30,000-token cap
+ * ([CON-01], [CON-02]). Owner and admin change it; supervisor and viewer see it read-only ([PER-01]).
  */
 export default async function AgentKnowledgePage({ params }: PageProps) {
   const page = await loadEditorPage(params, "conocimiento");
@@ -40,19 +40,6 @@ export default async function AgentKnowledgePage({ params }: PageProps) {
 
   return (
     <div className="grid max-w-2xl gap-10">
-      <section aria-labelledby="context-files-heading" className="grid gap-4">
-        <ContextFilesSection
-          agentId={agent.id}
-          files={tab.contextFiles.files}
-          budget={tab.contextFiles.budget}
-          cost={tab.cost}
-          canManage={canManage}
-          canMove={canManage && canManageKnowledge}
-          // «Pasar a una base»: one of the same kind as the agent, so what an internal agent knows stays internal ([INT-04]).
-          bases={tab.bases.filter((base) => tab.internalBaseIds.includes(base.id) === internal).map(({ id, name }) => ({ id, name }))}
-        />
-      </section>
-
       <section aria-labelledby="knowledge-bases-heading" className="grid gap-4">
         <SectionHeading
           id="knowledge-bases-heading"
@@ -115,6 +102,20 @@ export default async function AgentKnowledgePage({ params }: PageProps) {
         ) : (
           <ReadOnlyList items={[{ label: "Cuándo busca en el conocimiento", value: knowledgeModeLabel(agent.knowledgeMode) }]} />
         )}
+      </section>
+
+      <section aria-labelledby="context-files-heading" className="grid gap-4">
+        <ContextFilesSection
+          agentId={agent.id}
+          files={tab.contextFiles.files}
+          budget={tab.contextFiles.budget}
+          cost={tab.cost}
+          canManage={canManage}
+          canMove={canManage && canManageKnowledge}
+          internal={internal}
+          // «Pasar a una base»: one of the same kind as the agent, so what an internal agent knows stays internal ([INT-04]).
+          bases={tab.bases.filter((base) => tab.internalBaseIds.includes(base.id) === internal).map(({ id, name }) => ({ id, name }))}
+        />
       </section>
     </div>
   );

@@ -283,6 +283,21 @@ describe("[INT-03] an internal agent never answers customers", () => {
     expect(after.agentOverrideId).toBeNull();
   });
 
+  it("who cannot see internal agents is told the same as for an agent that does not exist [INT-15]", async () => {
+    const internal = await internalAgent();
+    const channel = await createChannel();
+    const { contact } = await createContactWithIdentity("webchat");
+    const conversation = await createConversation(channel.id, contact.id);
+    const refusal = async (agentId: string) => {
+      const error = await errorOf(setConversationAgent(actor("supervisor"), { conversationId: conversation.id, agentId }));
+      return [error instanceof NotFoundError, (error as NotFoundError).userMessage];
+    };
+    expect(await refusal(internal.id)).toEqual([true, "No se ha encontrado el agente."]);
+    expect(await refusal(internal.id)).toEqual(await refusal(crypto.randomUUID()));
+    const [after] = await db.select({ agentOverrideId: conversations.agentOverrideId }).from(conversations).where(eq(conversations.id, conversation.id));
+    expect(after.agentOverrideId).toBeNull();
+  });
+
   it("the reply engine never loads it, whatever a channel points to", async () => {
     const internal = await internalAgent();
     const forCustomers = await customersAgent();
@@ -361,6 +376,36 @@ describe("[INT-05] [INT-06] who may use each internal agent", () => {
     expect(await listMyAssistants(actor("supervisor"))).toEqual([]);
     expect(await errorOf(getMyAssistant(actor("supervisor"), internal.id))).toBeInstanceOf(NotFoundError);
     expect((await listMyAssistants(actor("owner"))).map((item) => item.id)).toEqual([internal.id]);
+  });
+
+  it("saving the access changes only the people on the screen: somebody deactivated keeps theirs for when they come back", async () => {
+    const internal = await internalAgent();
+    await setAgentAccess(actor("owner"), internal.id, { teamAccess: "selected", userIds: [users.supervisor.userId, users.agent.userId] });
+    await db.update(userRoles).set({ disabledAt: new Date() }).where(eq(userRoles.userId, users.agent.userId));
+    // The Acceso tab no longer lists them, so what it saves never names them.
+    expect((await getAgentAccess(actor("owner"), internal.id)).people.map((person) => person.id)).toEqual([users.supervisor.userId]);
+    await setAgentAccess(actor("owner"), internal.id, { teamAccess: "selected", userIds: [] });
+    expect((await db.select().from(agentMembers).where(eq(agentMembers.agentId, internal.id))).map((member) => member.userId)).toEqual([users.agent.userId]);
+
+    await db.update(userRoles).set({ disabledAt: null }).where(eq(userRoles.userId, users.agent.userId));
+    expect(await canUseInternalAgent(actor("agent"), internal)).toBe(true);
+    expect(await canUseInternalAgent(actor("supervisor"), internal)).toBe(false);
+    // Once they are on the screen again, unchecking them removes them like anybody else.
+    await setAgentAccess(actor("owner"), internal.id, { teamAccess: "selected", userIds: [] });
+    expect(await canUseInternalAgent(actor("agent"), internal)).toBe(false);
+  });
+
+  it("Agentes says who each internal agent was given to: the whole team, or how many of the people listed can still use it", async () => {
+    await internalAgent({ name: "Abierto", teamAccess: "everyone" });
+    await internalAgent({ name: "Cerrado" });
+    const some = await internalAgent({ name: "De algunos" });
+    await customersAgent();
+    await setAgentAccess(actor("owner"), some.id, { teamAccess: "selected", userIds: [users.supervisor.userId, users.agent.userId] });
+    const access = async () => Object.fromEntries((await listAgents(actor("owner"), { audience: "all" })).map((agent) => [agent.name, [agent.teamAccess, agent.accessPeople]]));
+    expect(await access()).toEqual({ Abierto: ["everyone", 0], Cerrado: ["selected", 0], "De algunos": ["selected", 2], Recepción: ["everyone", 0] });
+    // Someone deactivated can no longer use it, so they no longer count.
+    await db.update(userRoles).set({ disabledAt: new Date() }).where(eq(userRoles.userId, users.agent.userId));
+    expect((await access())["De algunos"]).toEqual(["selected", 1]);
   });
 
   it("an agent for customers is never an assistant", async () => {
@@ -442,6 +487,21 @@ describe("[INT-07] a question gets one answer with its sources, and the agent on
     expect(result.answer.sources[0]).toMatchObject({ title: "Manual del equipo", page: 3, knowledgeBase: "Manual interno" });
   });
 
+  it("when the model refuses to answer after searching, the fixed reply carries no sources: it comes from no document", async () => {
+    const { internal } = await assistantWithManual();
+    const refused = chatCompletion({ content: null });
+    (refused.choices[0].message as Record<string, unknown>).refusal = "No puedo ayudar con eso.";
+    const fake = knowledgeOpenRouter({
+      "POST /chat/completions": sequence(
+        () => jsonResponse(chatCompletion({ toolCalls: [{ name: "buscar_conocimiento", arguments: { consulta: "días de vacaciones" } }] })),
+        () => jsonResponse(refused),
+      ),
+    });
+    const result = await askAssistant(actor("agent"), { agentId: internal.id, text: QUESTION }, { fetchImpl: fake.fetch });
+    expect(result.answer.content).toBe("Lo siento, con eso no puedo ayudarte. Puedo responder a lo que esté en los documentos del negocio.");
+    expect(result.answer.sources).toEqual([]);
+  });
+
   it("the model is offered the knowledge search and nothing else, under the rules of an internal agent [INT-08]", async () => {
     // Whatever its row says: the tools of an agent for customers never reach an internal one.
     const { internal } = await assistantWithManual();
@@ -452,6 +512,9 @@ describe("[INT-07] a question gets one answer with its sources, and the agent on
     const requests = chatRequests(fake);
     expect(requests).toHaveLength(2);
     for (const request of requests) expect(toolNamesOf(request)).toEqual(["buscar_conocimiento"]);
+    // The search is described for who asks here: a person of the team, with nobody to hand the conversation to.
+    expect(JSON.stringify(requests[0].tools)).toContain("palabras clave de la pregunta");
+    expect(JSON.stringify(requests[0].tools)).not.toMatch(/cliente|pasar con una persona/);
     const system = systemPromptOf(requests[0]);
     expect(system).toContain("asistente interno de Peluquería Lola");
     expect(system).toContain("nunca a clientes");
@@ -474,6 +537,33 @@ describe("[INT-07] a question gets one answer with its sources, and the agent on
     ]);
     expect(await db.select().from(assistantChats)).toHaveLength(1);
     expect(await db.select().from(assistantMessages)).toHaveLength(4);
+  });
+
+  it("in a long conversation the model gets the last ten questions with their answers, never an answer without its question", async () => {
+    const internal = await internalAgent({ teamAccess: "everyone" });
+    const [chat] = await db.insert(assistantChats).values({ agentId: internal.id, userId: users.agent.userId, title: "Una conversación larga" }).returning();
+    const start = Date.parse("2026-10-01T09:00:00Z");
+    // Twelve questions already answered.
+    await db.insert(assistantMessages).values(
+      Array.from({ length: 24 }, (_, index) => ({
+        chatId: chat.id,
+        role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+        content: `${index % 2 === 0 ? "Pregunta" : "Respuesta"} ${Math.floor(index / 2) + 1}`,
+        sources: [],
+        createdAt: new Date(start + index),
+        updatedAt: new Date(start + index),
+      })),
+    );
+    const fake = knowledgeOpenRouter({ "POST /chat/completions": () => jsonResponse(chatCompletion({ content: "Vale." })) });
+    await askAssistant(actor("agent"), { agentId: internal.id, chatId: chat.id, text: "Pregunta 13" }, { fetchImpl: fake.fetch });
+
+    const [request] = chatRequests(fake);
+    const sent = (request.messages as { role: string; content: unknown }[]).filter((message) => message.role !== "system").map((message) => [message.role, message.content]);
+    expect(sent).toHaveLength(21);
+    expect(sent[0]).toEqual(["user", "Pregunta 3"]);
+    expect(sent[1]).toEqual(["assistant", "Respuesta 3"]);
+    expect(sent.at(-2)).toEqual(["assistant", "Respuesta 12"]);
+    expect(sent.at(-1)).toEqual(["user", "Pregunta 13"]);
   });
 
   it("someone without access cannot ask: nothing is stored and the AI is not called [INT-06]", async () => {
@@ -590,6 +680,22 @@ describe("[INT-09] [INT-10] a conversation belongs to who wrote it", () => {
     const { chatId: otherChatId } = await chatOf("agent");
     const [foreign] = await db.select().from(assistantMessages).where(eq(assistantMessages.chatId, otherChatId));
     expect(await errorOf(listEarlierAssistantMessages(actor("agent"), chat.id, foreign.id))).toBeInstanceOf(NotFoundError);
+  });
+
+  it("a conversation deleted while its answer was being written says so, and nothing of it is kept", async () => {
+    const { internal, chatId } = await chatOf("agent");
+    // The person deletes it (from another tab) while the model answers.
+    const fake = knowledgeOpenRouter({
+      "POST /chat/completions": async () => {
+        await deleteMyAssistantChat(actor("agent"), chatId);
+        return jsonResponse(chatCompletion({ content: "Vale." }));
+      },
+    });
+    const error = await errorOf(askAssistant(actor("agent"), { agentId: internal.id, chatId, text: "¿Y la caja?" }, { fetchImpl: fake.fetch }));
+    expect(error).toBeInstanceOf(NotFoundError);
+    expect((error as NotFoundError).userMessage).toBe("No se ha encontrado la conversación.");
+    expect(await db.select().from(assistantChats)).toHaveLength(0);
+    expect(await db.select().from(assistantMessages)).toHaveLength(0);
   });
 
   it("a conversation of one assistant cannot be continued with another", async () => {

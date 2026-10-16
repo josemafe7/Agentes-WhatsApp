@@ -307,12 +307,15 @@ function summaryLines(summary: string): string[] {
   ];
 }
 
-const TEAM_STYLE = "Estilo: respuestas claras y directas. Puedes usar listas cuando ayuden a leerlas.";
+const TEAM_STYLE = "Estilo: respuestas claras y directas.";
+/** What «Asistentes» can show (src/lib/markdown.ts): anything else would reach the person as loose symbols. */
+const TEAM_FORMAT =
+  "Formato: texto sencillo. Puedes usar listas (con «-» o con números) y negritas (con dos asteriscos a cada lado). No uses tablas, cursivas, citas con «>» ni títulos con «#»: la pantalla donde se lee no los muestra. Si tienes que dar varios datos, ponlos en una lista.";
 
 /** An internal agent has no channel, customer or AI notice: who asks is a person of the team, inside the app ([INT-07]). */
 function teamDynamicSection(input: BuildPromptInput, when: string): PromptSection {
   const where = input.channel.kind === "test" ? "Prueba desde el editor del agente interno." : "Apartado «Asistentes» de la app.";
-  const lines = ["# Datos del momento", `Fecha y hora: ${when} (${input.timezone})`, `Dónde: ${where} Quien pregunta es una persona del equipo.`, TEAM_STYLE];
+  const lines = ["# Datos del momento", `Fecha y hora: ${when} (${input.timezone})`, `Dónde: ${where} Quien pregunta es una persona del equipo.`, TEAM_STYLE, TEAM_FORMAT];
   return { key: "dynamic", title: "Datos del momento", content: lines.join("\n") };
 }
 

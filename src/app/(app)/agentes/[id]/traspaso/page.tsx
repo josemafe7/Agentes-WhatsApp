@@ -8,12 +8,16 @@ import { listToLines } from "../../_lib/lines";
 import { HandoffForm, type HandoffValues, type NotifyOption } from "../_components/handoff-form";
 import { ReadOnlyList } from "../_components/read-only";
 import { loadEditorPage } from "../_lib/load";
+import { HandoffSection } from "./_components/handoff-section";
 
 export const metadata: Metadata = { title: "Traspaso del agente" };
 
 type PageProps = { params: Promise<{ id: string }> };
 
-/** Traspaso ([AGE-09]): keywords, «no lo sé», sensitive topics, messages in and out of hours and who is told. */
+/**
+ * Traspaso ([AGE-09]) in three parts: when it hands over (keywords, «no lo sé», sensitive topics), what the customer
+ * reads (messages in and out of hours) and who is told.
+ */
 export default async function AgentHandoffPage({ params }: PageProps) {
   const page = await loadEditorPage(params, "traspaso", "handoff");
   if (!page.allowed) return <NoPermission description={noPermissionDescription(page.role)} />;
@@ -23,19 +27,35 @@ export default async function AgentHandoffPage({ params }: PageProps) {
 
   if (!canManage) {
     return (
-      <ReadOnlyList
-        items={[
-          { label: "Palabras clave", value: (handoff.keywords ?? []).join(", ") },
-          { label: "Número de «no lo sé»", value: handoff.unknownThreshold === undefined ? null : String(handoff.unknownThreshold) },
-          { label: "Temas sensibles", value: (handoff.sensitiveTopics ?? []).join(", ") },
-          { label: "Mensaje dentro de horario", value: handoff.messageInHours ?? COMMON_HANDOFF_MESSAGES.messageInHours },
-          { label: "Mensaje fuera de horario", value: handoff.messageOffHours ?? COMMON_HANDOFF_MESSAGES.messageOffHours },
-          {
-            label: "A quién avisar",
-            value: chosen.length === 0 ? "Quien diga Ajustes › Notificaciones" : `${chosen.length} ${chosen.length === 1 ? "persona elegida" : "personas elegidas"}`,
-          },
-        ]}
-      />
+      <div className="grid max-w-2xl gap-8">
+        <HandoffSection part="when">
+          <ReadOnlyList
+            items={[
+              { label: "Palabras clave", value: (handoff.keywords ?? []).join(", ") },
+              { label: "Número de «no lo sé»", value: handoff.unknownThreshold === undefined ? null : String(handoff.unknownThreshold) },
+              { label: "Temas sensibles", value: (handoff.sensitiveTopics ?? []).join(", ") },
+            ]}
+          />
+        </HandoffSection>
+        <HandoffSection part="messages">
+          <ReadOnlyList
+            items={[
+              { label: "Mensaje dentro de horario", value: handoff.messageInHours ?? COMMON_HANDOFF_MESSAGES.messageInHours },
+              { label: "Mensaje fuera de horario", value: handoff.messageOffHours ?? COMMON_HANDOFF_MESSAGES.messageOffHours },
+            ]}
+          />
+        </HandoffSection>
+        <HandoffSection part="notify">
+          <ReadOnlyList
+            items={[
+              {
+                label: "A quién avisar",
+                value: chosen.length === 0 ? "Quien diga Ajustes › Notificaciones" : `${chosen.length} ${chosen.length === 1 ? "persona elegida" : "personas elegidas"}`,
+              },
+            ]}
+          />
+        </HandoffSection>
+      </div>
     );
   }
 

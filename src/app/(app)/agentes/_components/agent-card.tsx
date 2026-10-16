@@ -15,6 +15,13 @@ type AgentCardProps = {
   modelWarning: string | null;
 };
 
+/** Who may use an internal agent, in a few words ([INT-05]): owner and admin always can. */
+function accessSummary(agent: Pick<AgentListItem, "teamAccess" | "accessPeople">): string {
+  if (agent.teamAccess === "everyone") return "todo el equipo";
+  if (agent.accessPeople === 0) return "solo propietario y administradores";
+  return `${agent.accessPeople === 1 ? "1 persona" : `${agent.accessPeople} personas`}, propietario y administradores`;
+}
+
 /** Agent card (DESIGN.md «Tarjeta de agente»): avatar, name, one-line description, model and «Activo en:» ([AGE-01]). */
 export function AgentCard({ agent, avatarUrl, timezone, canManage, modelWarning }: AgentCardProps) {
   return (
@@ -49,8 +56,13 @@ export function AgentCard({ agent, avatarUrl, timezone, canManage, modelWarning 
         </p>
       ) : null}
       {agent.audience === "team" ? (
-        // An internal agent has no channels ([INT-03]): it answers in «Asistentes».
-        <p className="text-xs text-muted-foreground">Responde al equipo en «Asistentes».</p>
+        // An internal agent has no channels ([INT-03]): it answers in «Asistentes», to who it was given ([INT-05]).
+        <div className="grid gap-1 text-xs">
+          <p className="text-muted-foreground">Responde al equipo en «Asistentes».</p>
+          <p>
+            <span className="text-muted-foreground">Con acceso:</span> {accessSummary(agent)}
+          </p>
+        </div>
       ) : (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <span className="text-muted-foreground">Activo en:</span>

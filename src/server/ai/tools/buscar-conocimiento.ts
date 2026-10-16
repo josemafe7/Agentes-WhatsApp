@@ -13,14 +13,14 @@ import type { ToolContext, ToolOutput } from "./types";
 /** Room for the ~3,500-token answer once JSON-escaped. */
 const MAX_RESULT_CHARS = Math.ceil(charsForTokens(ANSWER_MAX_TOKENS) * 1.3);
 
-const parameters = z.object({
-  consulta: z
-    .string({ error: "Falta la consulta." })
-    .trim()
-    .min(2, "Escribe qué quieres buscar.")
-    .max(500, "La consulta es demasiado larga.")
-    .describe("Lo que hay que buscar, con las palabras clave del cliente (p. ej. «precio del tinte» o «política de cancelación»)."),
-});
+/** The one argument, described to the model with whose words to search: a customer's or a person of the team's. */
+const queryParameters = (description: string) =>
+  z.object({
+    consulta: z.string({ error: "Falta la consulta." }).trim().min(2, "Escribe qué quieres buscar.").max(500, "La consulta es demasiado larga.").describe(description),
+  });
+
+const parameters = queryParameters("Lo que hay que buscar, con las palabras clave del cliente (p. ej. «precio del tinte» o «política de cancelación»).");
+const teamParameters = queryParameters("Lo que hay que buscar, con las palabras clave de la pregunta (p. ej. «días de vacaciones» o «cierre de caja»).");
 
 async function execute(args: z.output<typeof parameters>, context: ToolContext): Promise<ToolOutput> {
   const { answer } = await searchForAgent(args.consulta, {
@@ -51,7 +51,7 @@ export const buscarConocimientoInterno = defineTool({
   name: KNOWLEDGE_TOOL_NAME,
   description:
     "Busca en los documentos, webs y preguntas frecuentes del negocio, también en su documentación interna. Úsala antes de responder cualquier dato del negocio que no tengas aquí, con las palabras clave de la pregunta. Devuelve fragmentos numerados con su fuente; si devuelve SIN_RESULTADOS, di que no lo encuentras en la documentación que tienes.",
-  parameters,
+  parameters: teamParameters,
   maxResultChars: MAX_RESULT_CHARS,
   execute,
 });

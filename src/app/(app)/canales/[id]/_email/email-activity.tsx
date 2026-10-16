@@ -45,16 +45,6 @@ export function EmailActivity({ view, counters }: { view: EmailChannelView; coun
           </h2>
           <p className="text-sm text-muted-foreground">Se leen pero se ignoran: no crean conversación ni respuesta.</p>
         </div>
-        <ul className="grid list-disc gap-1 pl-5 text-sm">
-          {filterRules(view.type).map((rule) => (
-            <li key={rule.key}>{rule.text}</li>
-          ))}
-        </ul>
-        {note ? <p className="text-sm text-muted-foreground">{note}</p> : null}
-        <p className="text-sm text-muted-foreground">
-          Además, cuando alguien de tu equipo responde a un hilo desde su propio programa de correo, la IA se pausa en esa conversación durante las horas
-          de pausa de Ajustes › Notificaciones.
-        </p>
         <div className="grid gap-2">
           <h3 className="text-sm font-medium">Ignorados hasta ahora</h3>
           {view.ignored.length === 0 ? (
@@ -70,6 +60,24 @@ export function EmailActivity({ view, counters }: { view: EmailChannelView; coun
             </dl>
           )}
         </div>
+        {/* The rules are reference: folded, under what has actually happened in this mailbox. */}
+        <details className="rounded-lg border">
+          <summary className="cursor-pointer rounded-lg px-3 py-2 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            Qué correos se ignoran
+          </summary>
+          <div className="grid gap-3 border-t p-3">
+            <ul className="grid list-disc gap-1 pl-5 text-sm">
+              {filterRules(view.type).map((rule) => (
+                <li key={rule.key}>{rule.text}</li>
+              ))}
+            </ul>
+            {note ? <p className="text-sm text-muted-foreground">{note}</p> : null}
+            <p className="text-sm text-muted-foreground">
+              Además, cuando alguien de tu equipo responde a un hilo desde su propio programa de correo, la IA se pausa en esa conversación durante las
+              horas de pausa de Ajustes › Notificaciones.
+            </p>
+          </div>
+        </details>
       </section>
     </>
   );

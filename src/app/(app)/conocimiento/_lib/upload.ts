@@ -2,14 +2,15 @@
 // the FILE_NAME_HEADER header. Served by src/app/api/knowledge/bases/[id]/files/route.ts: a Server Action takes at
 // most 4 MB here, and the proxy, which does not run on /api/, would keep only the first 10 MB of a bigger body.
 // Checks here: same origin (the session cookie travels with it, [SEG-06]), session and permission ([SEG-04]), a
-// limit per person ([SEG-07]) and the size before reading the whole body. src/data checks the permission again,
+// limit per person ([SEG-07]) and the size before reading the whole body (25 MB; 4 MB on Vercel, where a request
+// carries at most 4.5 MB). src/data checks the permission again,
 // the real type by content and duplicates, and stores it with a generated key.
 import "server-only";
 import { addKnowledgeFile } from "@/data/knowledge-documents";
 import { PERMISSIONS } from "@/lib/permissions";
 import { readBodyWithLimit } from "@/server/channels/webchat/upload";
 import { AuthError, errorResponse, ValidationError } from "@/server/errors";
-import { MAX_KB_FILE_BYTES } from "@/server/knowledge/constants";
+import { knowledgeUploadMaxBytes } from "@/server/knowledge/constants";
 import { KNOWLEDGE_MESSAGES } from "@/server/knowledge/errors";
 import { requirePermission } from "@/server/session";
 import { FILE_NAME_HEADER } from "./paths";
@@ -43,16 +44,18 @@ function fileNameOf(request: Request): string {
   return name;
 }
 
-export async function handleKnowledgeUpload(request: Request, params: Promise<{ id: string }>): Promise<Response> {
+/** `env` says where the app runs: on Vercel the limit is the one of a request to a function. */
+export async function handleKnowledgeUpload(request: Request, params: Promise<{ id: string }>, env: Record<string, string | undefined> = process.env): Promise<Response> {
   try {
     if (!isSameOriginRequest(request)) throw new AuthError("forbidden");
     const actor = await requirePermission(PERMISSIONS.knowledge.manage);
     const { id } = await params;
     const fileName = fileNameOf(request);
     await enforceKnowledgeAddLimit(actor.userId);
-    const bytes = await readBodyWithLimit(request, MAX_KB_FILE_BYTES);
+    const maxBytes = knowledgeUploadMaxBytes(env);
+    const bytes = await readBodyWithLimit(request, maxBytes);
     if (!bytes) {
-      return Response.json({ error: KNOWLEDGE_MESSAGES.fileTooLarge(Math.round(MAX_KB_FILE_BYTES / 1024 / 1024)), code: "too_large" }, { status: 413 });
+      return Response.json({ error: KNOWLEDGE_MESSAGES.fileTooLarge(Math.round(maxBytes / 1024 / 1024)), code: "too_large" }, { status: 413 });
     }
     const document = await addKnowledgeFile(actor, id, { fileName, bytes });
     startKnowledgeWork();

@@ -15,7 +15,7 @@ import type { ActionResult } from "@/lib/action-result";
 import { removeAiSecretAction, saveAiSettingsAction, testOpenRouterKeyAction, type KeyTestResult } from "../actions";
 import type { AiModels, DefaultModelField } from "../_lib/form";
 import type { AiSettingsView } from "../_lib/view";
-import { DefaultModelsCard } from "./default-models-card";
+import { ModelSettingsCards } from "./model-settings-cards";
 
 const OPENROUTER_KEYS_URL = "https://openrouter.ai/settings/keys";
 
@@ -121,7 +121,7 @@ function AiForm({ view, onSaved }: { view: AiSettingsView; onSaved: () => void }
         </CardContent>
       </Card>
 
-      <DefaultModelsCard view={view} models={models} onModelChange={setModel} errors={errors} />
+      <ModelSettingsCards view={view} models={models} onModelChange={setModel} errors={errors} />
 
       <Card>
         <CardHeader>

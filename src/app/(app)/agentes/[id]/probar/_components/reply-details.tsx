@@ -106,7 +106,7 @@ function RetrievalItem({ retrieval }: { retrieval: TestRetrieval }) {
 }
 
 /** Everything about one reply ([PRU-02]): model, tokens, cost, time, tools with data and result, and fragments. */
-export function ReplyDetails({ reply }: { reply: TestReply }) {
+export function ReplyDetails({ reply, internal = false }: { reply: TestReply; /** An internal agent: no channel to simulate ([INT-13]). */ internal?: boolean }) {
   const { usage } = reply;
   return (
     <div className="space-y-5 text-sm">
@@ -124,7 +124,7 @@ export function ReplyDetails({ reply }: { reply: TestReply }) {
               </Badge>
             </Row>
           ) : null}
-          <Row label="Canal simulado">{simulatedChannelLabel(reply.channel)}</Row>
+          {internal ? null : <Row label="Canal simulado">{simulatedChannelLabel(reply.channel)}</Row>}
         </dl>
       </Block>
 

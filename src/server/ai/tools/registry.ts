@@ -23,6 +23,8 @@ const MESSAGES = {
   invalidJson: "Los datos de la herramienta no son JSON válido.",
   invalidArgs: "Datos no válidos",
   failed: "La herramienta ha fallado. Inténtalo de otra forma o pasa con una persona.",
+  /** For an internal agent: it answers the team and has nobody to hand the conversation to ([INT-07]). */
+  failedForTeam: "La herramienta ha fallado. Inténtalo de otra forma o di que ahora mismo no puedes consultarlo.",
 } as const;
 
 /** Declares a tool: its Zod parameters become the JSON Schema the model sees (z.toJSONSchema). */
@@ -102,7 +104,7 @@ export async function executeToolCall(
         reply = output.reply;
       } catch (error) {
         const expected = error instanceof AppError;
-        result = { ok: false, error: expected ? error.userMessage : MESSAGES.failed };
+        result = { ok: false, error: expected ? error.userMessage : context.audience === "team" ? MESSAGES.failedForTeam : MESSAGES.failed };
         errorCode = expected ? error.code : "failed";
         if (!expected) console.error(`[ai] La herramienta ${name} ha fallado: ${safeErrorMessage(error)}`);
       }

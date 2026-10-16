@@ -315,6 +315,16 @@ describe("an internal agent has its own platform rules [INT-08] [INT-02] [MOT-06
     expect(team({ channel: { kind: "test", simulated: "email" } }).system).not.toContain("firma");
   });
 
+  it("is told the format «Asistentes» can show: lists and bold, never tables, italics or headings [INT-07]", () => {
+    for (const channel of [{ kind: "webchat" }, { kind: "test" }] as const) {
+      const dynamic = team({ channel }).sections.at(-1)?.content ?? "";
+      expect(dynamic).toMatch(/Formato: texto sencillo\. Puedes usar listas .* y negritas/);
+      expect(dynamic).toMatch(/No uses tablas, cursivas, citas con «>» ni títulos con «#»/);
+    }
+    // An agent for customers answers on a channel, with the style of that channel.
+    expect(system()).not.toContain("Formato: texto sencillo");
+  });
+
   it("an agent for customers keeps its rules, word for word, when the audience is not given", () => {
     expect(system()).toBe(system({ audience: "customers" }));
     expect(system()).toContain("transferir_a_humano");

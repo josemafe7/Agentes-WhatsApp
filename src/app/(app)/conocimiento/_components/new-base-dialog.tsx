@@ -37,7 +37,7 @@ export function NewBaseDialog({ canCreateInternal = false }: { canCreateInternal
           Nueva base
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-md">
         <NewBaseForm key={formKey} onClose={() => setOpen(false)} canCreateInternal={canCreateInternal} />
       </DialogContent>
     </Dialog>

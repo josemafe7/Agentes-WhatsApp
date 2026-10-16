@@ -3,6 +3,7 @@
 import { TriangleAlert } from "lucide-react";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { SettingsShell } from "@/components/app-shell/settings-shell";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,7 +38,8 @@ export default async function ProfilePage() {
   const twoFactorRequired = await isTwoFactorRequiredFor(actor);
 
   return (
-    <div className="flex w-full max-w-[720px] flex-col">
+    // The frame of the settings pages: «Mi cuenta» is one of them, although its address is outside /ajustes.
+    <SettingsShell actor={actor}>
       <PageHeader title="Mi cuenta" description="Tus datos, tu contraseña y la seguridad de tu cuenta." />
       <div className="flex flex-col gap-6">
         {actor.twoFactorSetupRequired ? (
@@ -65,6 +67,6 @@ export default async function ProfilePage() {
           <SessionsSection />
         </Section>
       </div>
-    </div>
+    </SettingsShell>
   );
 }

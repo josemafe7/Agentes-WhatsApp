@@ -39,6 +39,16 @@ export function splitPages(markdown: string): PageText[] {
   return pieces;
 }
 
+/**
+ * Pages of the Markdown that have their marker and no text after it: blank, only pictures, or scanned inside a PDF
+ * whose other pages do have text (those are not read by OCR: the document as a whole does not count as a scan).
+ */
+export function countPagesWithoutText(markdown: string | null | undefined): number {
+  let marked = 0;
+  for (const line of (markdown ?? "").split(/\r?\n/)) if (MARKER_LINE.test(line.trim())) marked += 1;
+  return marked === 0 ? 0 : marked - splitPages(markdown ?? "").filter((piece) => piece.page !== null).length;
+}
+
 /** Highest page marker in the Markdown, 0 when there is none (how far a long OCR got). */
 export function lastPageOf(markdown: string | null | undefined): number {
   let last = 0;

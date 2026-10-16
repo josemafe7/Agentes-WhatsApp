@@ -219,13 +219,27 @@ type Draft = {
   /** Page of the last text added: a chunk that runs onto another page marks where. */
   endPage: number | null;
   overlap: string | null;
+  /** Page the overlap was taken from: the end of the previous chunk. */
+  overlapPage: number | null;
   parts: string[];
 };
 
-const contentOf = (draft: Pick<Draft, "overlap" | "parts">) => [draft.overlap, ...draft.parts].filter((part): part is string => Boolean(part)).join("\n\n");
-
 /** «[pág. N]» before text of another page inside one chunk, so the exact page can be cited ([CON-23]). */
 const pageMarkerPart = (page: number) => `[pág. ${page}]`;
+
+/**
+ * The text of a chunk. An overlap that is the end of another page goes under the mark of that page, and the chunk's
+ * own text under the mark of its own: without them the last sentences of a page would read as part of the next one,
+ * and a fact would be cited a page too far ([CON-23]).
+ */
+function contentOf(draft: Pick<Draft, "page" | "overlap" | "overlapPage" | "parts">): string {
+  const fromAnotherPage = Boolean(draft.overlap) && draft.overlapPage !== null && draft.page !== null && draft.overlapPage !== draft.page;
+  const parts =
+    fromAnotherPage && draft.overlapPage !== null && draft.page !== null
+      ? [pageMarkerPart(draft.overlapPage), draft.overlap, pageMarkerPart(draft.page), ...draft.parts]
+      : [draft.overlap, ...draft.parts];
+  return parts.filter((part): part is string => Boolean(part)).join("\n\n");
+}
 
 /** Chunks of a document's Markdown (page markers included). A document without text gives no chunks. */
 export function chunkMarkdown(markdown: string, limits: ChunkLimits = DEFAULT_CHUNK_LIMITS): ChunkDraft[] {
@@ -233,7 +247,7 @@ export function chunkMarkdown(markdown: string, limits: ChunkLimits = DEFAULT_CH
   const stack: { level: number; text: string }[] = [];
   const sectionPath = () => (stack.length > 0 ? stack.map((heading) => heading.text).join(" > ") : null);
 
-  let current: Draft = { section: null, page: null, endPage: null, overlap: null, parts: [] };
+  let current: Draft = { section: null, page: null, endPage: null, overlap: null, overlapPage: null, parts: [] };
   let tokens = 0;
   let hasBody = false;
   let lastText: string | null = null;
@@ -243,7 +257,7 @@ export function chunkMarkdown(markdown: string, limits: ChunkLimits = DEFAULT_CH
     const page = current.page;
     if (hasBody) drafts.push(current);
     const overlap = withOverlap && hasBody && lastText ? tailOf(lastText, limits.overlap) : null;
-    current = { section: sectionPath(), page, endPage: null, overlap: overlap || null, parts: [] };
+    current = { section: sectionPath(), page, endPage: null, overlap: overlap || null, overlapPage: overlap ? current.endPage : null, parts: [] };
     tokens = 0;
     hasBody = false;
     lastText = null;
@@ -290,7 +304,7 @@ export function chunkMarkdown(markdown: string, limits: ChunkLimits = DEFAULT_CH
     const previous = merged[merged.length - 1];
     const small = estimateTokens(contentOf(draft)) < limits.min;
     const parts = previous && draft.page !== null && draft.page !== previous.endPage ? [pageMarkerPart(draft.page), ...draft.parts] : draft.parts;
-    if (previous && small && previous.section === draft.section && estimateTokens(contentOf({ overlap: previous.overlap, parts: [...previous.parts, ...parts] })) <= limits.max) {
+    if (previous && small && previous.section === draft.section && estimateTokens(contentOf({ ...previous, parts: [...previous.parts, ...parts] })) <= limits.max) {
       previous.parts.push(...parts);
       previous.endPage = draft.endPage;
       continue;

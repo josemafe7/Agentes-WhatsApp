@@ -100,6 +100,7 @@ export function ActiveAgentControl({ channelId, channelName, agents, activeAgent
     });
   }
 
+  const selectedAgent = options.find((agent) => agent.id === selected) ?? null;
   const nextName = confirming?.agentId ? (options.find((agent) => agent.id === confirming.agentId)?.name ?? "el agente elegido") : null;
 
   return (
@@ -108,7 +109,17 @@ export function ActiveAgentControl({ channelId, channelName, agents, activeAgent
         <Label htmlFor={`${id}-agent`}>Agente activo</Label>
         <Select value={selected} onValueChange={choose} disabled={pending}>
           <SelectTrigger id={`${id}-agent`} className="w-full" aria-busy={pending || undefined}>
-            <SelectValue />
+            {/* Said here too, so the control is never seen empty while the page becomes interactive. */}
+            <SelectValue>
+              {selectedAgent ? (
+                <>
+                  <Bot aria-hidden className="text-ai" />
+                  {selectedAgent.name}
+                </>
+              ) : (
+                "Sin agente"
+              )}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={NO_AGENT}>Sin agente</SelectItem>

@@ -10,14 +10,14 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { isActivePath, sectionForPath, settingsPageForPath } from "./navigation";
+import { isActivePath, trailForPath } from "./navigation";
 
-/** Where you are, in the top bar: «Ajustes › IA», «Bandeja»… */
+/** Where you are, in the top bar: «Ajustes › IA», «Ajustes › Mi cuenta», «Bandeja»… */
 export function ShellTrail({ className }: { className?: string }) {
   const pathname = usePathname();
-  const section = sectionForPath(pathname);
-  if (!section) return null;
-  const page = settingsPageForPath(pathname);
+  const trail = trailForPath(pathname);
+  if (!trail) return null;
+  const { section, page } = trail;
   const sectionIsCurrent = !page && isActivePath(pathname, section.href, { exact: true });
 
   return (

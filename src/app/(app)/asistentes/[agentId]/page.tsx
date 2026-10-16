@@ -5,7 +5,7 @@ import { openRouterNotice } from "@/components/banners/banner-state";
 import { NoPermission } from "@/components/no-permission";
 import { PageHeader } from "@/components/page-header";
 import { getMyAssistant, getMyAssistantChat, listMyAssistantChats, type AssistantChatDetail, type AssistantItem } from "@/data/assistants";
-import { isAiConfigured } from "@/data/settings";
+import { getBusinessProfile, isAiConfigured } from "@/data/settings";
 import { can, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { NotFoundError } from "@/server/errors";
 import { requirePageActor } from "@/server/session";
@@ -14,8 +14,10 @@ import { ASSISTANTS_PATH, assistantPath, CHAT_PARAM } from "../_lib/paths";
 
 export const metadata: Metadata = { title: "Asistente" };
 
-// The answer is written inside the request that asks ([INT-07]): up to six steps of the model with its searches.
-export const maxDuration = 60;
+// The answer is written inside the request that asks ([INT-07]): up to six steps of the model with its searches, so
+// it gets all the time a function may run (docs/plataforma-despliegue.md), as «Probar agente» does. With less, a slow
+// model would be cut halfway with nothing recorded.
+export const maxDuration = 300;
 
 type PageProps = { params: Promise<{ agentId: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -52,7 +54,12 @@ export default async function AssistantPage({ params, searchParams }: PageProps)
   const actor = await requirePageActor({ next: assistantPath(agentId, chatId) });
   if (!can(actor, PERMISSIONS.internal.use)) return <NoPermission description={noPermissionDescription(actor.role)} />;
   const assistant = await loadAssistant(actor, agentId);
-  const [chatPage, openChat, aiConfigured] = await Promise.all([listMyAssistantChats(actor, assistant.id), loadOpenChat(actor, assistant.id, chatId), isAiConfigured()]);
+  const [chatPage, openChat, aiConfigured, profile] = await Promise.all([
+    listMyAssistantChats(actor, assistant.id),
+    loadOpenChat(actor, assistant.id, chatId),
+    isAiConfigured(),
+    getBusinessProfile(actor),
+  ]);
 
   return (
     <>
@@ -61,17 +68,25 @@ export default async function AssistantPage({ params, searchParams }: PageProps)
         title={assistant.name}
         description={assistant.description ?? "Pregúntale lo que necesites del negocio. Responde con sus documentos y te dice de dónde lo saca."}
       />
+      {/* No key: it stays mounted from one conversation to another, so the list keeps what «Cargar más» brought. */}
       <AssistantWorkspace
-        // A fresh chat for each conversation; the first question of a new one changes the address without remounting.
-        key={openChat?.id ?? "nueva"}
         assistant={{ id: assistant.id, name: assistant.name }}
-        chats={chatPage.chats.map((chat) => ({ id: chat.id, title: chat.title }))}
+        chats={chatPage.chats.map((chat) => ({ id: chat.id, title: chat.title, updatedAt: chat.updatedAt.toISOString() }))}
         moreChats={chatPage.hasMore}
         openChat={
           openChat
-            ? { id: openChat.id, messages: openChat.messages.map(({ id, role, content, sources }) => ({ id, role, content, sources })), hasEarlier: openChat.hasEarlier }
+            ? {
+                id: openChat.id,
+                title: openChat.title,
+                updatedAt: openChat.updatedAt.toISOString(),
+                messages: openChat.messages.map(({ id, role, content, sources }) => ({ id, role, content, sources })),
+                hasEarlier: openChat.hasEarlier,
+              }
             : null
         }
+        timezone={profile.timezone}
+        // The moment of this render: the dates of the list are told from it on the server and in the browser alike.
+        renderedAt={new Date().toISOString()}
         aiConfigured={aiConfigured}
         // Same rule as the global notice: only who can open Ajustes › IA gets the link ([PER-04]).
         keyHelp={openRouterNotice(actor, false) ?? "ask"}

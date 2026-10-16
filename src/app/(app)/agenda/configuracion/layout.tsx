@@ -1,5 +1,4 @@
 import { Eye } from "lucide-react";
-import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { noPermissionDescription } from "@/components/app-shell/navigation";
 import { NoPermission } from "@/components/no-permission";
@@ -10,12 +9,11 @@ import { requirePageActor } from "@/server/session";
 import { ConfigTabs, type ConfigTab } from "./_components/config-tabs";
 import { AGENDA_CONFIG_PATH, AGENDA_PATH, RESOURCES_PATH, SERVICES_PATH } from "./_lib/paths";
 
-export const metadata: Metadata = { title: "Configuración de la agenda" };
-
 /**
  * Agenda › Configuración ([AGD-20]): General, Servicios and Recursos for owner and admin; the supervisor only opens
  * Recursos to add and remove absences (docs/pantallas.md «Quién ve qué»). Each page checks its own permission again:
- * the layout is not the security boundary ([SEG-04]).
+ * the layout is not the security boundary ([SEG-04]). Each page sets its own title: one written here would leave the
+ * pages below without the « · {negocio}» of the app layout.
  */
 export default async function AgendaConfigLayout({ children }: { children: ReactNode }) {
   const actor = await requirePageActor({ next: AGENDA_CONFIG_PATH });

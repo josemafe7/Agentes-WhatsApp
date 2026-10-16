@@ -41,6 +41,7 @@ import {
   countChunks,
   deleteChunksWhere,
   insertChunks,
+  isDocumentTitleTaken,
   loadDocumentRow,
   loadKnowledgeBaseRow,
   replaceDocumentTitle,
@@ -107,10 +108,13 @@ async function continueOcr(doc: DocumentRow, bytes: Uint8Array, pageCount: numbe
 
 /**
  * The file's own title (PDF or Word metadata) replaces the one its name gave it ([CON-10]), never one somebody wrote:
- * only while the stored title is still that name, checked again in the same statement that changes it.
+ * only while the stored title is still that name, checked again in the same statement that changes it. And never a
+ * title another document of the base already has: the parts of a manual cut in several files usually carry the same
+ * one, and with their file names an answer can still say which part a page is from.
  */
 async function adoptOwnTitle(doc: DocumentRow, ownTitle: string | null | undefined): Promise<void> {
   if (!ownTitle || ownTitle === doc.title || !isDefaultDocumentTitle(doc.title, doc.fileName)) return;
+  if (await isDocumentTitleTaken(doc.kbId, ownTitle, doc.id)) return;
   await replaceDocumentTitle(doc.id, doc.title, ownTitle);
 }
 

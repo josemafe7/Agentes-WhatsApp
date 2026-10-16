@@ -69,19 +69,6 @@ export default async function WhatsAppSettingsPage() {
           </AlertDescription>
         </Alert>
 
-        <ul className="grid list-disc gap-1.5 pl-5 text-sm text-muted-foreground">
-          <li>
-            El coste solo se estima en los mensajes que Meta marca como cobrados en su estado. Los gratuitos, como los 1.000 mensajes de servicio al mes
-            de cada número, cuentan 0: Meta lo indica en cada mensaje, así que no se configuran aquí.
-          </li>
-          <li>Desde el 1-10-2026, los mensajes de servicio (las respuestas dentro de la ventana de 24 horas) se cobran a la tarifa de utilidad de cada mercado.</li>
-          <li>
-            El mercado sale del prefijo del teléfono del cliente o, si no lo hay, del país de su identificador de WhatsApp. Meta agrupa algunos países en
-            regiones («Resto de…»): pon la tarifa de la región en cada país que te interese.
-          </li>
-          <li>Sin tarifa para un mercado y una categoría, esos mensajes no tienen coste estimado y el informe lo señala.</li>
-        </ul>
-
         <PricingRates
           rates={rates.map((rate) => ({
             id: rate.id,
@@ -94,6 +81,28 @@ export default async function WhatsAppSettingsPage() {
             updated: formatDateTime(rate.updatedAt, profile.timezone, { preset: "date" }),
           }))}
         />
+
+        {/* The rules behind the estimate ([AJU-09], [WA-47]): after the rates, for whoever wants them. */}
+        <details className="rounded-xl border">
+          <summary className="cursor-pointer rounded-xl px-4 py-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            Cómo se calcula el coste estimado
+          </summary>
+          <ul className="grid list-disc gap-1.5 border-t py-3 pr-4 pl-9 text-sm text-muted-foreground">
+            <li>
+              El coste solo se estima en los mensajes que Meta marca como cobrados en su estado. Los gratuitos, como los 1.000 mensajes de servicio al
+              mes de cada número, cuentan 0: Meta lo indica en cada mensaje, así que no se configuran aquí.
+            </li>
+            <li>
+              Desde el 1-10-2026, los mensajes de servicio (las respuestas dentro de la ventana de 24 horas) se cobran a la tarifa de utilidad de cada
+              mercado.
+            </li>
+            <li>
+              El mercado sale del prefijo del teléfono del cliente o, si no lo hay, del país de su identificador de WhatsApp. Meta agrupa algunos países
+              en regiones («Resto de…»): pon la tarifa de la región en cada país que te interese.
+            </li>
+            <li>Sin tarifa para un mercado y una categoría, esos mensajes no tienen coste estimado y el informe lo señala.</li>
+          </ul>
+        </details>
       </section>
 
       {webhook ? (

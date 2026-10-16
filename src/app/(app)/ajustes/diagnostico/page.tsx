@@ -14,13 +14,15 @@ import {
   WebhooksSection,
 } from "./_components/sections";
 import { ConnectionTestsSection } from "./_components/connection-tests";
+import { SummarySection } from "./_components/summary";
 import { loadDiagnosticsView } from "./_lib/view";
 
 export const metadata: Metadata = { title: "Diagnóstico" };
 
 /**
- * Ajustes › Diagnóstico ([AJU-11]): database, background work, recent AI errors, channel webhooks, the mail each mailbox
- * ignored ([COR-16]), realtime, system emails, the connection tests and the channel simulator.
+ * Ajustes › Diagnóstico ([AJU-11]): a summary first (everything works, or what to look at) and then database, background
+ * work, recent AI errors, channel webhooks, the mail each mailbox ignored ([COR-16]), realtime, system emails, the
+ * connection tests and the channel simulator.
  */
 export default async function DiagnosticsPage() {
   const actor = await requirePageActor({ next: "/ajustes/diagnostico" });
@@ -31,6 +33,7 @@ export default async function DiagnosticsPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Diagnóstico" description="Cómo están la base de datos, el trabajo en segundo plano, la IA y los avisos de los canales." />
+      <SummarySection summary={view.summary} />
       <DatabaseSection database={view.database} />
       <QueueSection queue={view.queue} />
       <AiErrorsSection aiErrors={view.aiErrors} />

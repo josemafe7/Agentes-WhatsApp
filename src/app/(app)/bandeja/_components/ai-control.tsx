@@ -51,10 +51,10 @@ export function AiControl({ conversationId, aiMode, aiPausedUntil, pauseReason, 
 
   const reactivate = () => run(() => setAiAction({ conversationId, mode: "on" }), { success: "La IA vuelve a responder en esta conversación." });
 
-  // On a phone the header row scrolls sideways; from tablets up it wraps, so a long «IA en pausa hasta mañana a las…»
-  // wraps inside the column instead of running under the contact panel next to it.
+  // Always whole and in one row: a long «IA en pausa hasta mañana a las…» wraps between the switch and «Reactivar»
+  // instead of running under the contact card next to it or, on a phone, out of the screen.
   return (
-    <div className="flex shrink-0 items-center gap-2 md:max-w-full md:flex-wrap">
+    <div className="flex max-w-full min-w-0 items-center gap-2 md:shrink-0">
       {canChange ? (
         <Switch
           id={`${id}-ia`}
@@ -65,14 +65,14 @@ export function AiControl({ conversationId, aiMode, aiPausedUntil, pauseReason, 
         />
       ) : null}
       <div className="flex min-w-0 flex-col">
-        <label htmlFor={canChange ? `${id}-ia` : undefined} id={`${id}-estado`} className={cn("inline-flex items-center gap-1 text-sm font-medium whitespace-nowrap md:whitespace-normal", meta.className)}>
+        <label htmlFor={canChange ? `${id}-ia` : undefined} id={`${id}-estado`} className={cn("inline-flex items-center gap-1 text-sm font-medium", meta.className)}>
           <Icon aria-hidden className="size-4" />
           {label}
         </label>
         {state.kind !== "ai" && pauseReason ? <span className="max-w-64 truncate text-xs text-muted-foreground" title={pauseReason}>{pauseReason}</span> : null}
       </div>
       {canChange && state.kind !== "ai" ? (
-        <Button type="button" variant="link" size="sm" className="px-1" onClick={reactivate} disabled={pending}>
+        <Button type="button" variant="link" size="sm" className="shrink-0 px-1" onClick={reactivate} disabled={pending}>
           Reactivar
         </Button>
       ) : null}

@@ -3,7 +3,7 @@
 import "server-only";
 import { z } from "zod";
 import { fail, type ActionFailure } from "@/lib/action-result";
-import { safeErrorMessage } from "./redact";
+import { safeErrorFrames, safeErrorMessage } from "./redact";
 import { storableJson } from "./storable-text";
 
 export class AppError extends Error {
@@ -88,10 +88,26 @@ export function parseInput<T extends z.ZodType>(schema: T, input: unknown): z.in
   throw new ValidationError(undefined, Object.keys(cleaned).length ? cleaned : undefined);
 }
 
-/** For Server Actions: expected errors become a failure result; unexpected ones are re-thrown (error.tsx). */
+/** What is thrown, and so logged by Next.js, in place of an unexpected error: it says nothing of what failed. */
+export const UNEXPECTED_ACTION_ERROR = "Algo ha fallado. Inténtalo de nuevo.";
+
+/** redirect(), notFound() and the rest of Next.js' own signals carry a `digest`: they go on as they are. */
+function isFrameworkSignal(error: unknown): boolean {
+  return typeof error === "object" && error !== null && typeof (error as { digest?: unknown }).digest === "string";
+}
+
+/**
+ * For Server Actions: expected errors become a failure result; unexpected ones are thrown again (error.tsx), but
+ * never as they came. Next.js writes whatever a Server Action throws to the server log, and a failed query carries
+ * its SQL and every value (texts, phones, names): what failed is logged here the safe way, with where it came from,
+ * and what goes on is an error that says nothing ([SEG-14]).
+ */
 export function toActionFailure(error: unknown): ActionFailure {
   if (error instanceof AppError) return fail(error.userMessage, error.fieldErrors);
-  throw error;
+  if (isFrameworkSignal(error)) throw error;
+  const frames = safeErrorFrames(error);
+  console.error(`[accion] Error inesperado: ${safeErrorMessage(error)}${frames ? `\n${frames}` : ""}`);
+  throw new Error(UNEXPECTED_ACTION_ERROR);
 }
 
 /** For route handlers: JSON error with the right status and never internal details. */

@@ -27,6 +27,7 @@ import { addDays, daysBetween, instantToLocal, isLocalDate, localToInstant } fro
 import { parseInput, ValidationError } from "@/server/errors";
 import { ascNullsFirst } from "@/server/sql-helpers";
 import { DEFAULT_TERMINOLOGY } from "./agenda-config";
+import { seesInternalAgents } from "./agent-audience";
 import { assertCan } from "./guard";
 import { loadBusinessSettings } from "./settings";
 
@@ -241,7 +242,7 @@ export type Report = {
     aiUsd: number;
     /** USD of «Probar agente» ([INF-08]). */
     aiTestUsd: number;
-    /** Of aiUsd, what the internal agents spent ([INT-16]). */
+    /** Of aiUsd, what the internal agents spent ([INT-16]); 0 for who does not manage internal agents ([INT-15]). */
     aiTeamUsd: number;
     /** Questions the internal agents answered ([INT-16]). */
     aiTeamQuestions: number;
@@ -522,8 +523,9 @@ export async function getReport(actor: Actor, input: unknown): Promise<Report> {
     Promise.all(months.map(async (month) => ({ month, ...(await costsOf(monthRange(month, timezone), channelId, whatsappChannelIds)) }))),
     // A month period is the last month of the chart: its costs are already there.
     period.kind === "month" ? Promise.resolve(null) : costsOf(range, channelId, whatsappChannelIds),
-    // The internal agents belong to no channel ([INT-16]).
-    channelId ? Promise.resolve({ usd: 0, questions: 0 }) : sumTeamAi(range),
+    // The internal agents belong to no channel ([INT-16]), and how much they are used is told apart only to who
+    // manages them ([INT-15]): for the rest it stays inside the AI cost, like the search of any other agent.
+    channelId || !seesInternalAgents(actor) ? Promise.resolve({ usd: 0, questions: 0 }) : sumTeamAi(range),
   ]);
 
   const handoffsByChannel = new Map<string, number>();

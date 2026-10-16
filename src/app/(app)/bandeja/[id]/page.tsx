@@ -55,94 +55,92 @@ export default async function ConversationPage({ params }: PageProps) {
   const optedOut = permissions.reply && (await isConversationOptedOut(actor, conversation.id));
   return (
     <ContactPanelProvider>
-      <div className="flex min-h-0 flex-1">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <ConversationLive conversationId={conversation.id} markRead={permissions.reply} />
-          <ConversationHeader
-            key={`header-${conversation.id}`}
-            conversation={conversation}
-            assignable={screen.assignable}
-            agents={screen.agents}
-            channelAgent={screen.channelAgent}
-            permissions={permissions}
-            userId={screen.userId}
-            timezone={timezone}
-            now={now}
-          />
-          {conversation.openHandoff ? <HandoffNotice handoff={conversation.openHandoff} timezone={timezone} now={now} /> : null}
-          {email ? <EmailThreadHeader thread={email} /> : null}
-          <EmailThreadProvider key={`email-${conversation.id}`} thread={email}>
-            <MessageTimeline
-              key={`timeline-${conversation.id}`}
-              conversationId={conversation.id}
-              messages={screen.messages}
-              hasMore={screen.hasMore}
-              sources={screen.sources}
-              notes={screen.notes}
-              channel={{ type: conversation.channel.type, name: conversation.channel.name }}
-              contactName={conversation.contact?.name ?? null}
-              timezone={timezone}
-              now={now}
-              canRetry={permissions.reply}
-              canReviewDrafts={permissions.drafts}
-              canOpenDocuments={permissions.viewKnowledge}
-              canConvertFaq={canConvertToFaq(actor, conversation.channel.id)}
-            />
-          </EmailThreadProvider>
-          <Composer
-            key={`composer-${conversation.id}`}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <ConversationLive conversationId={conversation.id} markRead={permissions.reply} />
+        <ConversationHeader
+          key={`header-${conversation.id}`}
+          conversation={conversation}
+          assignable={screen.assignable}
+          agents={screen.agents}
+          channelAgent={screen.channelAgent}
+          permissions={permissions}
+          userId={screen.userId}
+          timezone={timezone}
+          now={now}
+        />
+        {conversation.openHandoff ? <HandoffNotice handoff={conversation.openHandoff} timezone={timezone} now={now} /> : null}
+        {email ? <EmailThreadHeader thread={email} /> : null}
+        <EmailThreadProvider key={`email-${conversation.id}`} thread={email}>
+          <MessageTimeline
+            key={`timeline-${conversation.id}`}
             conversationId={conversation.id}
-            channelDisabled={conversation.channel.status === "disabled"}
-            window={whatsapp?.window ?? conversation.window}
-            // The notices over the composer: the opt-out one in every channel, and WhatsApp's window.
-            whatsapp={
-              optedOut || whatsapp ? (
-                <>
-                  {optedOut ? <OptOutNotice /> : null}
-                  {whatsapp ? (
-                    <WindowNotice
-                      conversationId={conversation.id}
-                      state={whatsapp}
-                      canReply={permissions.reply}
-                      channelDisabled={conversation.channel.status === "disabled"}
-                      timezone={timezone}
-                      initialNow={now}
-                    />
-                  ) : null}
-                </>
-              ) : null
-            }
-            ai={{ aiMode: conversation.aiMode, aiPausedUntil: conversation.aiPausedUntil }}
-            aiPauseHours={screen.aiPauseHours}
-            timezone={timezone}
-            initialNow={now}
-            canReply={permissions.reply}
-            canNote={permissions.notes}
-            attachments={{ images: conversation.channel.capabilities.images, documents: conversation.channel.capabilities.documents }}
-            email={email ? <EmailReplyInfo thread={email} /> : null}
-            replyAction={email ? sendEmailReplyAction : undefined}
-            attachmentAction={email ? sendEmailAttachmentAction : undefined}
-          />
-        </div>
-        <ContactPanelFrame>
-          <ContactPanel
-            conversation={conversation}
-            contact={screen.contact}
+            messages={screen.messages}
+            hasMore={screen.hasMore}
+            sources={screen.sources}
+            notes={screen.notes}
+            channel={{ type: conversation.channel.type, name: conversation.channel.name }}
+            contactName={conversation.contact?.name ?? null}
             timezone={timezone}
             now={now}
-            canOpenContact={permissions.viewContact}
-            bookings={
-              <ConversationBookings
-                actor={actor}
-                conversationId={conversation.id}
-                channelId={conversation.channel.id}
-                contact={conversation.contact}
-                canOpenContact={permissions.viewContact}
-              />
-            }
+            canRetry={permissions.reply}
+            canReviewDrafts={permissions.drafts}
+            canOpenDocuments={permissions.viewKnowledge}
+            canConvertFaq={canConvertToFaq(actor, conversation.channel.id)}
           />
-        </ContactPanelFrame>
+        </EmailThreadProvider>
+        <Composer
+          key={`composer-${conversation.id}`}
+          conversationId={conversation.id}
+          channelDisabled={conversation.channel.status === "disabled"}
+          window={whatsapp?.window ?? conversation.window}
+          // The notices over the composer: the opt-out one in every channel, and WhatsApp's window.
+          whatsapp={
+            optedOut || whatsapp ? (
+              <>
+                {optedOut ? <OptOutNotice /> : null}
+                {whatsapp ? (
+                  <WindowNotice
+                    conversationId={conversation.id}
+                    state={whatsapp}
+                    canReply={permissions.reply}
+                    channelDisabled={conversation.channel.status === "disabled"}
+                    timezone={timezone}
+                    initialNow={now}
+                  />
+                ) : null}
+              </>
+            ) : null
+          }
+          ai={{ aiMode: conversation.aiMode, aiPausedUntil: conversation.aiPausedUntil }}
+          aiPauseHours={screen.aiPauseHours}
+          timezone={timezone}
+          initialNow={now}
+          canReply={permissions.reply}
+          canNote={permissions.notes}
+          attachments={{ images: conversation.channel.capabilities.images, documents: conversation.channel.capabilities.documents }}
+          email={email ? <EmailReplyInfo thread={email} /> : null}
+          replyAction={email ? sendEmailReplyAction : undefined}
+          attachmentAction={email ? sendEmailAttachmentAction : undefined}
+        />
       </div>
+      <ContactPanelFrame>
+        <ContactPanel
+          conversation={conversation}
+          contact={screen.contact}
+          timezone={timezone}
+          now={now}
+          canOpenContact={permissions.viewContact}
+          bookings={
+            <ConversationBookings
+              actor={actor}
+              conversationId={conversation.id}
+              channelId={conversation.channel.id}
+              contact={conversation.contact}
+              canOpenContact={permissions.viewContact}
+            />
+          }
+        />
+      </ContactPanelFrame>
     </ContactPanelProvider>
   );
 }

@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { findGuide, HELP_GUIDES, parseGuide, readGuide } from "./guides";
+import { findGuide, groupGuides, HELP_GUIDES, parseGuide, readGuide } from "./guides";
 
 const DOCS = path.join(process.cwd(), "docs");
 const GUIDE_FILE = /^(guia-.+|checklist-puesta-en-marcha)\.md$/;
@@ -45,6 +45,30 @@ describe("guides in Ayuda [AJU-17]", () => {
       { id: "segundo-paso", title: "Segundo paso" },
     ]);
     expect(parsed.blocks.filter((block) => block.type === "heading").map((block) => block.type === "heading" && block.level)).toEqual([1, 2, 1]);
+  });
+});
+
+describe("the list of guides by groups [AJU-17]", () => {
+  const slugs = (guides: readonly { slug: string }[]) => guides.map((guide) => guide.slug);
+
+  it("starts with the start-up checklist and puts every guide in its group, once", () => {
+    const groups = groupGuides(HELP_GUIDES);
+    expect(groups.map((group) => [group.title, slugs(group.guides)])).toEqual([
+      ["Para empezar", ["puesta-en-marcha", "despliegue"]],
+      ["Canales", ["whatsapp", "whatsapp-ycloud", "whatsapp-qr", "correo", "telegram"]],
+      ["Agentes y conocimiento", ["agentes-y-conocimiento", "asistentes-internos"]],
+      ["Agenda", ["agenda"]],
+    ]);
+    // No guide is lost or repeated on the way: the list shows exactly the guides of the app.
+    expect(slugs(groups.flatMap((group) => group.guides)).sort()).toEqual(slugs(HELP_GUIDES).sort());
+  });
+
+  it("keeps what the page adds to each guide and leaves out a group without guides", () => {
+    const titled = HELP_GUIDES.filter((guide) => guide.group !== "channels").map((guide) => ({ ...guide, title: guide.slug.toUpperCase() }));
+    const groups = groupGuides(titled);
+    expect(groups.map((group) => group.key)).toEqual(["start", "agents", "agenda"]);
+    expect(groups[0].guides.map((guide) => guide.title)).toEqual(["PUESTA-EN-MARCHA", "DESPLIEGUE"]);
+    expect(groupGuides([])).toEqual([]);
   });
 });
 

@@ -29,10 +29,17 @@ type HeaderActionsProps = {
   testBookings: { count: number; items: TestBookingItem[] };
 };
 
-/** Page actions (DESIGN.md «Agenda»): «Nueva cita» (main), «Bloquear hueco», test bookings and configuration. */
+/**
+ * Page actions (DESIGN.md «Agenda»): «Nueva cita» (main), «Bloquear hueco», test bookings and configuration. On a
+ * phone, the main one and a menu with the rest (DESIGN.md «Cabecera de página»), so the calendar starts higher.
+ */
 export function HeaderActions({ date, testBookings }: HeaderActionsProps) {
   const { setup, openCreate } = useAgenda();
   const { abilities, words } = setup;
+  const [blockOpen, setBlockOpen] = useState(false);
+  const [testsOpen, setTestsOpen] = useState(false);
+  const hasTests = testBookings.count > 0;
+  const hasSettings = abilities.configure || abilities.block;
   return (
     <>
       {abilities.manage ? (
@@ -41,23 +48,38 @@ export function HeaderActions({ date, testBookings }: HeaderActionsProps) {
           {words.newBooking}
         </Button>
       ) : null}
-      {abilities.block ? <BlockSlotDialog date={date} /> : null}
-      {testBookings.count > 0 ? <TestBookingsDialog {...testBookings} /> : null}
-      {abilities.configure || abilities.block ? (
+      {abilities.block ? <BlockSlotDialog date={date} open={blockOpen} onOpenChange={setBlockOpen} /> : null}
+      {hasTests ? <TestBookingsDialog {...testBookings} open={testsOpen} onOpenChange={setTestsOpen} /> : null}
+      {hasSettings || hasTests ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Más acciones">
+            {/* Without the configuration, the menu only has what a phone moves into it. */}
+            <Button variant="ghost" size="icon" aria-label="Más acciones" className={hasSettings ? undefined : "md:hidden"}>
               <Ellipsis aria-hidden />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem asChild>
-              {/* The supervisor only manages absences there: the configuration opens on the resources ([PER-01]). */}
-              <Link href={AGENDA_SETTINGS_PATH}>
-                <Settings2 aria-hidden />
-                {abilities.configure ? "Configurar la agenda" : `Ausencias de los ${words.resources}`}
-              </Link>
-            </DropdownMenuItem>
+            {abilities.block ? (
+              <DropdownMenuItem className="md:hidden" onSelect={() => setBlockOpen(true)}>
+                <Ban aria-hidden />
+                Bloquear hueco
+              </DropdownMenuItem>
+            ) : null}
+            {hasTests ? (
+              <DropdownMenuItem className="md:hidden" onSelect={() => setTestsOpen(true)}>
+                <FlaskConical aria-hidden />
+                {words.Bookings} de prueba ({testBookings.count})
+              </DropdownMenuItem>
+            ) : null}
+            {hasSettings ? (
+              <DropdownMenuItem asChild>
+                {/* The supervisor only manages absences there: the configuration opens on the resources ([PER-01]). */}
+                <Link href={AGENDA_SETTINGS_PATH}>
+                  <Settings2 aria-hidden />
+                  {abilities.configure ? "Configurar la agenda" : `Ausencias de los ${words.resources}`}
+                </Link>
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       ) : null}
@@ -65,27 +87,23 @@ export function HeaderActions({ date, testBookings }: HeaderActionsProps) {
   );
 }
 
+/** Open or closed from its own button (tablets up) or from «Más acciones» (phone). */
+type DialogState = { open: boolean; onOpenChange: (open: boolean) => void };
+
 // ─── «Bloquear hueco» ([AGD-18]) ─────────────────────────────────────────────────────────────────────────
 
-function BlockSlotDialog({ date }: { date: string }) {
-  const [open, setOpen] = useState(false);
-  const [formKey, setFormKey] = useState(0);
+function BlockSlotDialog({ date, open, onOpenChange }: { date: string } & DialogState) {
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) setFormKey((key) => key + 1);
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="outline">
+        <Button variant="outline" className="max-md:hidden">
           <Ban aria-hidden />
           Bloquear hueco
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
-        <BlockSlotForm key={formKey} date={date} onClose={() => setOpen(false)} />
+        {/* Mounted while open: each time it starts from the day on screen. */}
+        <BlockSlotForm date={date} onClose={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>
   );
@@ -196,10 +214,9 @@ function BlockSlotForm({ date, onClose }: { date: string; onClose: () => void })
 
 // ─── Test bookings of «Probar agente» ([PRU-04]) ─────────────────────────────────────────────────────────
 
-function TestBookingsDialog({ count, items }: { count: number; items: TestBookingItem[] }) {
+function TestBookingsDialog({ count, items, open, onOpenChange: setOpen }: { count: number; items: TestBookingItem[] } & DialogState) {
   const { setup } = useAgenda();
   const { words, abilities } = setup;
-  const [open, setOpen] = useState(false);
   const outside = count - items.length;
 
   async function deleteAll() {
@@ -215,7 +232,7 @@ function TestBookingsDialog({ count, items }: { count: number; items: TestBookin
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline">
+        <Button variant="outline" className="max-md:hidden">
           <FlaskConical aria-hidden />
           {words.Bookings} de prueba ({count})
         </Button>

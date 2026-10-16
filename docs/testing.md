@@ -220,5 +220,22 @@ Qué se prueba y cómo, para demostrar que el código funciona.
     (53 conversaciones y una de 204 mensajes: preguntarlas una a una tardaría minutos, por el tope de 20 por
     minuto). Los ayudantes de sus pantallas están en `e2e/support/assistants.ts`. La demo trae un agente interno
     para todo el equipo, así que «Asistentes» está en el menú del propietario, el administrador, el supervisor y
-    el agente de la demo.
+    el agente de la demo. Las dos pruebas de Playwright comprueban además lo que solo se ve en un navegador: que
+    lo recién preguntado sigue ahí al salir a otra sección y volver con «Atrás» (sin recargar), que abrir una
+    conversación no cambia la lista y que una antigua abierta por su dirección aparece en ella. Lo que lee quien
+    pregunta cuando la IA falla (y si sale «Reintentar») se prueba en `src/app/(app)/asistentes/_lib/failures.test.ts`
+    y en las acciones.
+  - Registros sin datos ([SEG-14]): `src/server/errors.test.ts` comprueba que un fallo inesperado de una Server
+    Action sale sin la consulta ni sus valores, y que `redirect()` y `notFound()` reales de Next.js pasan
+    intactos; `src/server/redact.test.ts`, que de la traza solo quedan las líneas de código.
+  - Subida al conocimiento donde manda el límite de Vercel: `src/app/(app)/conocimiento/_lib/upload.test.ts` pasa
+    a la ruta `{ VERCEL: "1" }` en lugar de cambiar la variable de entorno, que haría negarse a la base integrada.
+  - Cómo aprovechan el sitio las pantallas (`e2e/demo/screen-layout.spec.ts`): es la única prueba que cambia el
+    tamaño de la ventana (portátil, pantalla ancha y móvil) sobre una misma conversación de la demo. Comprueba lo que
+    no se puede probar sin navegador: que el cuadro de escribir está a la vista sin scroll de página, que la
+    conversación conserva sus 480 px y la ficha del contacto pasa a panel lateral cuando no caben las dos, y que en
+    el móvil la Agenda deja «Nueva cita» y lleva «Bloquear hueco» al menú «Más acciones». Lo que estas pantallas
+    calculan sin navegador tiene su prueba de Vitest junto al código (los grupos de Ajustes y de Ayuda, las columnas
+    de los servicios, los grupos de herramientas, las etiquetas del registro de actividad y el resumen de
+    Diagnóstico).
 - Cuando el proyecto esté en GitHub, se propone ejecutar las pruebas automáticamente en cada subida.

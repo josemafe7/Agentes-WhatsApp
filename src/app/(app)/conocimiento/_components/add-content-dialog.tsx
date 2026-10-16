@@ -13,7 +13,7 @@ import { UrlForm } from "./url-form";
  * «Añadir contenido» (docs/pantallas.md «Base de conocimiento»): files, a web page (with optional sitemap) or a
  * frequently asked question ([CON-04]). Everything is processed in the background, step by step ([CON-05]).
  */
-export function AddContentDialog({ kbId, internal = false }: { kbId: string; internal?: boolean }) {
+export function AddContentDialog({ kbId, internal = false, maxFileBytes }: { kbId: string; internal?: boolean; /** Largest file where the app runs. */ maxFileBytes?: number }) {
   const [open, setOpen] = useState(false);
   const [formKey, setFormKey] = useState(0);
 
@@ -53,7 +53,7 @@ export function AddContentDialog({ kbId, internal = false }: { kbId: string; int
             </TabsTrigger>
           </TabsList>
           <TabsContent value="files">
-            <FileUploadForm kbId={kbId} />
+            <FileUploadForm kbId={kbId} maxFileBytes={maxFileBytes} />
           </TabsContent>
           <TabsContent value="url">
             <UrlForm kbId={kbId} onDone={() => setOpen(false)} />

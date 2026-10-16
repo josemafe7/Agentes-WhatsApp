@@ -1,7 +1,8 @@
 // TextSearch: keyword search over kb_chunks.search_vector, the tsvector Postgres generates from title, section and
 // content with the `es_unaccent` configuration (no accents, no case, Spanish stems: «tintes» finds «tinte»),
 // docs/busqueda-hibrida.md §3 and §8. The query is an OR of keywords, always passed as a parameter to
-// websearch_to_tsquery, which never fails on syntax.
+// websearch_to_tsquery, which never fails on syntax. A fragment with more of the question's words goes first: for an
+// OR, ts_rank_cd alone only counts matches, so one word three times weighed the same as three different words.
 import "server-only";
 import { sql, type SQL } from "drizzle-orm";
 import { db as defaultDb, rowsOf, type Executor } from "@/db";
@@ -69,6 +70,16 @@ function numberForms(word: string): string[] {
  * lands between two `or` operators, where websearch reads it as a word.
  */
 export function buildFtsQuery(text: string): string | null {
+  const groups = ftsTermGroups(text);
+  if (groups.length === 0) return null;
+  return [...new Set(groups.flat())].join(" or ");
+}
+
+/**
+ * The keywords of what was written, each with its other number: «¿Cómo llego en autobús?» → [["llego", "llegos"],
+ * ["autobús", "autobú"]]. One group per word of the question, so the search can tell how many of them a fragment has.
+ */
+export function ftsTermGroups(text: string): string[][] {
   const words = text.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   const terms: string[] = [];
   for (const word of words) {
@@ -76,8 +87,7 @@ export function buildFtsQuery(text: string): string | null {
     terms.push(word);
     if (terms.length === MAX_TERMS) break;
   }
-  if (terms.length === 0) return null;
-  return [...new Set(terms.flatMap(numberForms).filter(isSearchable))].join(" or ");
+  return terms.map((term) => numberForms(term).filter(isSearchable)).filter((group) => group.length > 0);
 }
 
 /** `(c.kb_id = $1 AND c.index_version = $2) OR …`: only current chunks of the allowed bases. */
@@ -96,20 +106,29 @@ export class PgTextSearch implements TextSearch {
   }
 
   async search(query: string, options: SearchOptions): Promise<SearchHit[]> {
-    const terms = buildFtsQuery(query);
-    if (!terms || options.kbs.length === 0) return [];
+    const groups = ftsTermGroups(query);
+    if (groups.length === 0 || options.kbs.length === 0) return [];
+    const terms = [...new Set(groups.flat())].join(" or ");
     const limit = options.limit ?? DEFAULT_SEARCH_LIMIT;
-    // ts_rank_cd is higher for better matches; the filter applies before LIMIT, so it is exact.
+    // How many of the question's words the fragment has: one more for each word (or its other number) it matches.
+    // Each group is a parameter of its own websearch_to_tsquery; one that is only stop words matches nothing.
+    const wordsMatched = sql.join(
+      groups.map((group) => sql`(c.search_vector @@ websearch_to_tsquery('public.es_unaccent', ${group.join(" or ")}))::int`),
+      sql` + `,
+    );
+    // The score: the words matched and, as its decimals, ts_rank_cd brought under 1 (flag 32: rank / (rank + 1)), so
+    // among fragments with as many of the words the denser match goes first. The filter applies before LIMIT, so it
+    // is exact.
     const rows = rowsOf<{ chunk_id: string; rank: number }>(
       await this.db.execute(sql`
-        SELECT c.id AS chunk_id, ts_rank_cd(c.search_vector, q.query) AS rank
+        SELECT c.id AS chunk_id, (${wordsMatched}) + ts_rank_cd(c.search_vector, q.query, 32) AS rank
         FROM kb_chunks AS c, websearch_to_tsquery('public.es_unaccent', ${terms}) AS q(query)
         WHERE c.search_vector @@ q.query AND (${kbScopeCondition(options.kbs)})
         ORDER BY rank DESC, c.id
         LIMIT ${limit}
       `),
     );
-    return rows.map((row) => ({ chunkId: row.chunk_id, score: row.rank }));
+    return rows.map((row) => ({ chunkId: row.chunk_id, score: Number(row.rank) }));
   }
 
   async rebuild(): Promise<void> {

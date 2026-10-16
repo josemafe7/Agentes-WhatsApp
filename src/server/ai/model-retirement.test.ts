@@ -127,6 +127,31 @@ describe("a model in use that announces its retirement [MOD-06] [AJU-08]", () =>
     expect(notice.link).toBe("/agentes");
   });
 
+  it("[INT-15] an internal agent is counted, never named nor linked: the notice may reach roles that do not see internal agents", async () => {
+    await db.update(businessSettings).set({ notificationSettings: { model_deprecated: { enabled: true, roles: ["owner", "admin", "supervisor"] } } });
+    const internal = await createAgentRow({ name: "Nóminas", audience: "team", teamAccess: "selected", model: RETIRING, fallbackModel: "google/gemini-3.1-flash-lite" });
+    await download();
+    for (const person of [owner, supervisor]) {
+      const [notice, ...rest] = await noticesOf(person);
+      expect(rest).toEqual([]);
+      expect(notice.body).toContain("Se usa en un agente interno.");
+      expect(notice.body).not.toContain("Nóminas");
+      expect(notice.link).toBe("/agentes");
+      expect(notice.link).not.toContain(internal.id);
+    }
+
+    // With agents for customers too, those are named as before and the internal ones only counted.
+    await db.delete(notifications);
+    await db.delete(appKv);
+    await createAgentRow({ name: "Recepción", model: RETIRING, fallbackModel: "google/gemini-3.1-flash-lite" });
+    await createAgentRow({ name: "Turnos", audience: "team", teamAccess: "everyone", model: "openai/gpt-5.6-luna", fallbackModel: RETIRING });
+    await download();
+    const [mixed] = await noticesOf(supervisor);
+    expect(mixed.body).toContain("Se usa en el agente «Recepción» y 2 agentes internos.");
+    expect(mixed.body).not.toMatch(/Nóminas|Turnos/);
+    expect(mixed.link).toBe("/agentes");
+  });
+
   it("Ajustes › Notificaciones decides: turned off, nobody hears it", async () => {
     await db.update(businessSettings).set({ notificationSettings: { model_deprecated: { enabled: false, roles: ["owner", "admin"] } } });
     await createAgentRow({ model: RETIRING });

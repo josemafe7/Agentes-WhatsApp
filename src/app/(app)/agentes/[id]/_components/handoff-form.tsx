@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { HANDOFF_MESSAGE_MAX, UNKNOWN_THRESHOLD_RANGE } from "@/lib/agent-input";
 import { linesToList } from "../../_lib/lines";
+import { HandoffSection } from "../traspaso/_components/handoff-section";
 import { EditorForm } from "./editor-form";
 import { useAgentSection, type AgentSection } from "./use-agent-section";
 
@@ -49,39 +50,47 @@ export function HandoffForm({ agentId, initial, people, defaultMessages }: Hando
   const { values, set } = section;
 
   return (
-    <EditorForm section={section}>
-      <FieldGroup>
-        <TextListField
-          section={section}
-          field="keywords"
-          label="Palabras clave"
-          help="Una por línea. Si el cliente las escribe, la conversación pasa a una persona. Mejor frases («hablar con una persona») que palabras sueltas."
-        />
-        <Field data-invalid={section.errorsFor("handoff.unknownThreshold") ? true : undefined}>
-          <FieldLabel htmlFor="handoff-unknown">Número de «no lo sé» (opcional)</FieldLabel>
-          <Input
-            id="handoff-unknown"
-            inputMode="numeric"
-            className="w-24"
-            value={values.unknownThreshold}
-            onChange={(event) => set("unknownThreshold", event.target.value)}
-            aria-invalid={section.errorsFor("handoff.unknownThreshold") ? true : undefined}
-            aria-describedby="handoff-unknown-help"
+    <EditorForm section={section} className="gap-8">
+      <HandoffSection part="when">
+        <FieldGroup>
+          <TextListField
+            section={section}
+            field="keywords"
+            label="Palabras clave"
+            help="Una por línea. Si el cliente las escribe, la conversación pasa a una persona. Mejor frases («hablar con una persona») que palabras sueltas."
           />
-          <FieldDescription id="handoff-unknown-help">
-            Cuántas veces puede decir que no sabe algo antes de pasar la conversación a una persona (de {UNKNOWN_THRESHOLD_RANGE.min} a{" "}
-            {UNKNOWN_THRESHOLD_RANGE.max}).
-          </FieldDescription>
-          <FieldError errors={section.errorsFor("handoff.unknownThreshold")?.map((message) => ({ message }))} />
-        </Field>
-        <TextListField
-          section={section}
-          field="sensitiveTopics"
-          label="Temas sensibles (opcional)"
-          help="Uno por línea. Si salen en la conversación, la pasa a una persona en vez de responder."
-        />
-        <MessageField section={section} field="messageInHours" label="Mensaje al cliente dentro de horario" fallback={defaultMessages.messageInHours} />
-        <MessageField section={section} field="messageOffHours" label="Mensaje al cliente fuera de horario" fallback={defaultMessages.messageOffHours} />
+          <Field data-invalid={section.errorsFor("handoff.unknownThreshold") ? true : undefined}>
+            <FieldLabel htmlFor="handoff-unknown">Número de «no lo sé» (opcional)</FieldLabel>
+            <Input
+              id="handoff-unknown"
+              inputMode="numeric"
+              className="w-24"
+              value={values.unknownThreshold}
+              onChange={(event) => set("unknownThreshold", event.target.value)}
+              aria-invalid={section.errorsFor("handoff.unknownThreshold") ? true : undefined}
+              aria-describedby="handoff-unknown-help"
+            />
+            <FieldDescription id="handoff-unknown-help">
+              Cuántas veces puede decir que no sabe algo antes de pasar la conversación a una persona (de {UNKNOWN_THRESHOLD_RANGE.min} a{" "}
+              {UNKNOWN_THRESHOLD_RANGE.max}).
+            </FieldDescription>
+            <FieldError errors={section.errorsFor("handoff.unknownThreshold")?.map((message) => ({ message }))} />
+          </Field>
+          <TextListField
+            section={section}
+            field="sensitiveTopics"
+            label="Temas sensibles (opcional)"
+            help="Uno por línea. Si salen en la conversación, la pasa a una persona en vez de responder."
+          />
+        </FieldGroup>
+      </HandoffSection>
+      <HandoffSection part="messages">
+        <FieldGroup>
+          <MessageField section={section} field="messageInHours" label="Mensaje al cliente dentro de horario" fallback={defaultMessages.messageInHours} />
+          <MessageField section={section} field="messageOffHours" label="Mensaje al cliente fuera de horario" fallback={defaultMessages.messageOffHours} />
+        </FieldGroup>
+      </HandoffSection>
+      <HandoffSection part="notify">
         <FieldSet data-invalid={section.errorsFor("handoff.notifyUserIds") ? true : undefined}>
           <FieldLegend variant="label">A quién avisar (opcional)</FieldLegend>
           <FieldDescription>Si no eliges a nadie, se avisa a quien diga Ajustes › Notificaciones.</FieldDescription>
@@ -111,7 +120,7 @@ export function HandoffForm({ agentId, initial, people, defaultMessages }: Hando
           )}
           <FieldError errors={section.errorsFor("handoff.notifyUserIds")?.map((message) => ({ message }))} />
         </FieldSet>
-      </FieldGroup>
+      </HandoffSection>
     </EditorForm>
   );
 }

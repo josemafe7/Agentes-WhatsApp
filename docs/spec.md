@@ -212,7 +212,10 @@ límites y sus fuentes) están en `docs/integracion-whatsapp.md`, `docs/integrac
 - [AJU-11] Diagnóstico: estado de la base de datos y de la cola de trabajo (pendientes, fallidos, última ronda),
   último aviso recibido por canal, errores recientes, pruebas de conexión (la clave de OpenRouter, el correo de prueba
   del sistema y la prueba de cada canal conectado: revalidar con Meta, el acceso a Gmail u Outlook y «Probar
-  conexión» de un buzón IMAP/SMTP) y simulador de canales.
+  conexión» de un buzón IMAP/SMTP) y simulador de canales. Empieza con un resumen que dice si todo funciona o
+  cuántas cosas hay que revisar, con una línea por área (base de datos, trabajo en segundo plano, IA, correo del
+  sistema y canales) que lleva a su apartado; los errores recientes de la IA se enseñan ahí sin contar para ese
+  veredicto, porque la lista no caduca.
 - [AJU-12] Cuando se usa el simulador (canal, contacto y tipo de mensaje: texto, audio, imagen o documento), el
   mensaje entra por el mismo camino que uno real, aparece en la bandeja y la IA responde como lo haría.
 - [AJU-13] Los mensajes del simulador quedan marcados como simulados y sus respuestas nunca salen a Meta, Google,
@@ -821,10 +824,13 @@ Detalles en `docs/busqueda-hibrida.md` y, para los PDF escaneados, en `docs/inte
   en las del agente.
 - [CON-04] Las bases admiten archivos PDF, DOCX, XLSX, CSV, TXT y MD, páginas web (con mapa del sitio opcional) y
   preguntas frecuentes escritas en la pantalla. Otro tipo de archivo, o uno demasiado grande, se rechaza con aviso. El
-  texto que se escribe o se pega se guarda sin el carácter nulo (NUL), que la base de datos no admite.
+  máximo es 25 MB por archivo; con la app publicada en Vercel, 4 MB (una petición no admite más allí): la pantalla
+  dice el que toca antes de subir. El texto que se escribe o se pega se guarda sin el carácter nulo (NUL), que la
+  base de datos no admite.
 - [CON-05] Cada documento muestra su estado: en cola, extrayendo, troceando, embeddings, listo o error (con
   motivo). El trabajo se hace en segundo plano y por pasos.
-- [CON-06] El texto se extrae a Markdown conservando las páginas.
+- [CON-06] El texto se extrae a Markdown conservando las páginas. Una página sin texto (en blanco, solo imágenes
+  o escaneada dentro de un PDF que sí tiene texto) no se lee: la ficha del documento dice cuántas son.
 - [CON-07] Un PDF escaneado (sin texto) se lee con Mistral OCR si hay clave; si no, queda con el aviso «PDF
   escaneado: añade la clave de Mistral OCR».
 - [CON-08] Las hojas de cálculo se parten en bloques de unas 20 filas, con las cabeceras repetidas en cada uno.
@@ -832,9 +838,12 @@ Detalles en `docs/busqueda-hibrida.md` y, para los PDF escaneados, en `docs/inte
   y, si cambiaron, se reprocesan.
 - [CON-10] Los fragmentos se cortan por encabezados, de unos 400 tokens (entre 150 y 600) y 60 de solape, sin
   partir filas de tabla, con título, sección y página, el prefijo «Documento: título > sección» y un resumen del
-  documento en 2 frases. El título de un archivo es el que trae el PDF o el Word en sus propiedades, si lo tiene, y
-  si no su nombre; el equipo lo puede cambiar (el de una pregunta frecuente es su pregunta), y entonces los
-  fragmentos se vuelven a procesar con el título nuevo.
+  documento en 2 frases. Cuando un fragmento lleva texto de más de una página (también el solape con el final de
+  la anterior), cada parte va marcada con su página, para que el dato se cite con la suya. El título de un archivo
+  es el que trae el PDF o el Word en sus propiedades, si lo tiene y ningún otro documento de la base se llama ya
+  así (las partes de un manual dividido conservan su nombre de archivo), y si no su nombre; el equipo lo puede
+  cambiar (el de una pregunta frecuente es su pregunta), y entonces los fragmentos se vuelven a procesar con el
+  título nuevo.
 - [CON-11] Los embeddings se calculan por lotes con el modelo de la base (por defecto
   `openai/text-embedding-3-small`, de 1536 dimensiones); si un modelo devuelve otro tamaño, se rechaza con un
   error claro.
@@ -846,7 +855,8 @@ Detalles en `docs/busqueda-hibrida.md` y, para los PDF escaneados, en `docs/inte
 - [CON-15] Borrar un documento borra sus fragmentos y su archivo.
 - [CON-16] La búsqueda combina significado y palabras (40 resultados de cada una; basta con que aparezca alguna de
   las palabras), los mezcla y devuelve los 8 mejores (6 si está activada la reordenación de [AJU-04]). Si la
-  reordenación falla, devuelve los 8 sin reordenar.
+  reordenación falla, devuelve los 8 sin reordenar. Por palabras, va antes el fragmento que tiene más palabras
+  distintas de la pregunta.
 - [CON-17] La búsqueda por palabras no distingue mayúsculas ni tildes, y encuentra otras formas de la misma palabra
   (singular y plural, un verbo y su nombre): «depilacion» encuentra «depilación», «tintes» encuentra «tinte» y
   «reservar» encuentra «reserva».
@@ -882,13 +892,23 @@ se da acceso. Nunca habla con clientes. Por qué está hecho así: `docs/decisio
 - [INT-05] Acceso: en cada agente interno se elige «Todo el equipo» o personas concretas. Propietario y
   administradores pueden usar todos; Supervisor y Agente, solo aquellos a los que tienen acceso; Solo lectura,
   ninguno. Un agente interno nuevo empieza sin nadie más: hasta que se elige, solo lo usan propietario y
-  administradores.
+  administradores. La tarjeta de cada agente interno, en Agentes, dice quién tiene acceso. Guardar el acceso solo
+  cambia a las personas de la lista (supervisores y agentes activos): quien está desactivado conserva el suyo para
+  cuando vuelva.
 - [INT-06] «Asistentes» enseña a cada persona los agentes internos que puede usar, y solo está en el menú de quien
   tiene alguno. Uno al que no tiene acceso no aparece, y abrirlo por su dirección o preguntarle se rechaza.
-- [INT-07] La persona escribe una pregunta, de hasta 4.000 caracteres, y recibe una sola respuesta, con las fuentes
-  usadas (documento, sección y página). El agente interno solo dispone de la búsqueda en su conocimiento y de sus
-  archivos de contexto: no tiene las herramientas de citas, de contactos ni de traspaso, ni herramientas HTTP.
-  Cuando el modelo no puede responder, el aviso no ofrece pasar con una persona.
+- [INT-07] La persona escribe una pregunta, de hasta 4.000 caracteres, y recibe una sola respuesta, con sus
+  fuentes: lo que el agente consultó para responder, de lo más a lo menos relevante (documento, sección, página y
+  base). Si el modelo se niega a responder, no lleva fuentes. El agente interno solo dispone de la búsqueda en su
+  conocimiento y de sus archivos de contexto: no tiene las herramientas de citas, de contactos ni de traspaso, ni
+  herramientas HTTP. Cuando no puede responder, el aviso nunca ofrece pasar con una persona y dice lo que quien
+  pregunta puede hacer (reintentar, escribirlo de otra forma, empezar otra conversación); lo que solo arregla
+  quien configura la IA (la clave, su saldo, el modelo) se le dice tal cual a propietario y administradores, y al
+  resto, que avise a un administrador. «Reintentar» solo sale cuando repetir la pregunta puede servir. La respuesta
+  se muestra con formato sencillo (listas y negritas), y al agente se le pide que no use lo que la pantalla no
+  muestra (tablas, cursivas, títulos). De una conversación larga el modelo recibe las diez últimas preguntas con
+  sus respuestas. Mientras llega la respuesta se puede abrir otra conversación o salir: la respuesta se guarda
+  igual.
 - [INT-08] Reglas de la plataforma para un agente interno, por delante de sus instrucciones ([MOT-06]): solo temas
   del negocio; responde con lo que encuentra en su conocimiento y dice de qué documento y página sale; si no lo
   encuentra, dice que no lo sabe y no lo inventa; es una IA y no lo niega; lo que traen los documentos y lo que
@@ -899,18 +919,23 @@ se da acceso. Nunca habla con clientes. Por qué está hecho así: `docs/decisio
   Las que no caben en la lista se traen con «Cargar más», y los mensajes anteriores de una conversación larga, con
   «Cargar mensajes anteriores»: todas se pueden ver y borrar. Si pierde el acceso a un agente, deja de ver sus
   conversaciones con él. Al borrar a un usuario o un agente interno se borran sus conversaciones; la confirmación
-  de borrar el agente lo avisa.
+  de borrar el agente lo avisa. Si una conversación se borra mientras llega una respuesta, esa respuesta no se
+  guarda y la app lo dice. Lo que se acaba de preguntar sigue ahí al salir y volver con «Atrás». Abrir una
+  conversación no cambia la lista (conserva lo que trajo «Cargar más»), y la que está abierta aparece siempre en
+  ella, marcada.
 - [INT-11] Sin clave de OpenRouter se ve el aviso de [ARR-14] y no se puede enviar.
 - [INT-12] Cada persona puede hacer como mucho 20 preguntas por minuto y 200 al día; al pasarse, la app lo dice y no
   envía la pregunta.
-- [INT-13] «Probar» de un agente interno responde como lo hará en «Asistentes», sin guardar la conversación y sin
-  «Simular canal».
+- [INT-13] «Probar» de un agente interno responde como lo hará en «Asistentes», con el mismo formato, sin guardar
+  la conversación y sin «Simular canal».
 - [INT-14] La demo trae un agente interno («Asistente del equipo») con una base interna y un documento de ejemplo,
   con acceso para todo el equipo.
 - [INT-15] Los agentes internos y las bases internas solo aparecen en Agentes y en Conocimiento para propietario y
-  administradores.
-- [INT-16] En Informes, el coste de IA dice cuánto de él han gastado los agentes internos y cuántas preguntas han
-  respondido ([INF-07]).
+  administradores. Para el resto, un agente interno es como uno que no existe: tampoco se puede elegir para una
+  conversación, con el mismo aviso que un agente que no existe, y el aviso «Modelo de IA que se retira» ([MOD-06])
+  cuenta los agentes internos que usan el modelo sin nombrarlos ni enlazarlos.
+- [INT-16] En Informes, el coste de IA dice a propietario y administradores cuánto de él han gastado los agentes
+  internos y cuántas preguntas han respondido ([INF-07]). El resto ve el mismo coste total, sin esa parte.
 
 ### Agenda
 
@@ -1134,6 +1159,8 @@ Detalles en `docs/notificaciones-push.md`.
 - [SEG-12] El HTML de los correos se limpia antes de mostrarlo y nunca ejecuta código.
 - [SEG-13] Los archivos subidos se comprueban por tipo y tamaño.
 - [SEG-14] El usuario solo ve mensajes de error genéricos, y los registros no guardan claves ni datos personales.
+  Un fallo inesperado de una acción se anota sin la consulta ni sus valores: solo qué falló y en qué parte del
+  código.
 
 ## Quién puede hacer qué
 
@@ -1416,6 +1443,44 @@ Las tablas, sus campos y qué no se puede repetir están en `docs/modelo-de-dato
   comprobar que el usuario `dominia_app` tiene permiso sobre las tablas nuevas** (`docs/guia-despliegue.md`,
   apartado 2). `pnpm audit`: los mismos 5 avisos de la fase 9, sin dependencias nuevas. Queda para el propietario:
   probarlo con su clave de OpenRouter y un documento suyo.
+  Repaso del 2026-10-09, a petición del propietario («repásala, busca fallos o mejoras e impleméntalo todo»), con
+  tres revisiones independientes (seguridad, lógica y pantallas). Sin fallos graves de seguridad. Lo corregido, cada
+  cosa con su prueba: en «Asistentes», la pantalla ya no retiene la navegación mientras responde, lo preguntado
+  sigue ahí al volver con «Atrás», la lista no se reinicia al abrir una conversación, el campo se ve al abrir en el
+  móvil, Intro no envía en pantallas táctiles, los avisos de fallo dicen qué puede hacer cada persona y las fuentes
+  se presentan como lo consultado ([INT-07], [INT-10]); el modelo recibe preguntas con su respuesta y sabe qué
+  formato se ve; «Probar» pinta igual que «Asistentes» ([INT-13]); la tarjeta dice quién tiene acceso y guardar el
+  acceso no toca a quien no está en la lista ([INT-05]); lo interno no se nombra a quien no lo ve y el desglose de
+  Informes es para quien lo gestiona ([INT-15], [INT-16]); un fallo inesperado de una acción ya no deja la consulta
+  y sus valores en el registro ([SEG-14]). En el conocimiento: la página de un dato al final de una página se cita
+  bien ([CON-10]; los documentos ya subidos, tras «Reindexar»), la búsqueda por palabras pone delante el fragmento
+  con más palabras de la pregunta ([CON-16]), la pantalla dice el máximo real de un archivo con la app en Vercel
+  ([CON-04]) y la ficha de un documento avisa de las páginas sin texto ([CON-06]). Comprobado el mismo día: 4.709
+  pruebas de Vitest en verde y la misma que ya fallaba (`src/instrumentation.test.ts`: la prueba da por hecho que
+  cada prueba es un arranque nuevo, y desde «Vercel: nada de trabajo a medias» el mantenimiento se ejecuta una vez
+  por proceso; no se ha tocado, porque cambiar una prueba pide permiso); las 174 de Playwright en verde, también
+  `e2e/demo/knowledge-demo-key.spec.ts`, que fallaba la mitad de las veces por el empate de la búsqueda por
+  palabras y ahora pasa 5 de 5 con la demo recién cargada; lint sin errores, tipos y compilación. Sin migración ni
+  dependencias nuevas; `pnpm audit`, los mismos 5 avisos. Queda para otra sesión, con su plan: subir archivos de más
+  de 4 MB con la app en Vercel (directos a Supabase Storage), leer con OCR las páginas escaneadas de un PDF que
+  también tiene texto, y que un fallo al pintar una página tampoco deje valores en el registro.
+  Repaso de presentación del 2026-10-10, a petición del propietario («analiza cada pantalla y mejora… la
+  presentación de la información para que los usuarios la puedan utilizar fácilmente sin abrumarse ni perderse, pero
+  sin quitar funcionalidad»): recorridas todas las pantallas en ordenador, tableta y móvil. No se ha quitado ninguna
+  función ni cambiado ninguna prueba existente; sin migración ni dependencias nuevas. Lo cambiado está descrito en
+  `DESIGN.md` y `docs/pantallas.md`: la conversación de la bandeja cabe en la pantalla (cabecera en dos o tres
+  líneas, la ficha del contacto como columna solo si la conversación conserva 480 px, la lista aparte en tableta, el
+  cuadro de escribir siempre a la vista y el resumen largo de un traspaso con «Ver todo»); el aviso de la clave de
+  OpenRouter ocupa una franja; en un canal, «Estado» y «Agente e IA» van arriba y lo de consulta, plegado, y su
+  tarjeta enseña entero el número o el correo; Ajustes agrupa su menú, lo deja a la vista al bajar e incluye «Mi
+  cuenta»; Ayuda agrupa sus guías; el registro de actividad cabe en su columna y dice los detalles en español;
+  Ajustes › IA va en tarjetas; Diagnóstico empieza por un resumen ([AJU-11]); los servicios de la agenda van en
+  columnas; en el editor de un agente, las herramientas van por grupos, Traspaso por secciones y Conocimiento empieza
+  por las bases; y en el móvil la Agenda enseña antes el calendario. Comprobado el mismo día: lint sin errores,
+  tipos, las pruebas de Vitest en verde salvo la que ya fallaba (`src/instrumentation.test.ts`) y las de Playwright
+  en verde, con `e2e/demo/screen-layout.spec.ts` nueva. Detectada, sin tocarla, una prueba que depende del reloj
+  (`src/data/whatsapp-account-alerts.test.ts`: guarda dos avisos seguidos y espera su orden; si caen en el mismo
+  milisegundo, falla). `pnpm audit`, los mismos 5 avisos.
 
 Después: publicación en Vercel (con Supabase) con la prueba del número de prueba de Meta; Dokploy; GitHub (versión,
 migraciones solo aditivas, changelog y aviso de versión nueva); respuestas con voz; Google Calendar e iCal;

@@ -3,7 +3,7 @@ import postgres from "postgres";
 import { describe, expect, it } from "vitest";
 import { db } from "@/db";
 import { rateLimits } from "@/db/schema";
-import { REDACTED, redactSecrets, safeErrorMessage, stripSecrets } from "./redact";
+import { REDACTED, redactSecrets, safeErrorFrames, safeErrorMessage, stripSecrets } from "./redact";
 
 /** A postgres.js error as the driver builds it from the server's ErrorResponse, with the query it attaches. */
 function postgresJsError(fields: Record<string, string>, query: string, parameters: unknown[]): Error {
@@ -101,6 +101,22 @@ describe("redact [SEG-02] [SEG-14]", () => {
     const wrapped = safeErrorMessage(new Error(`No se pudo guardar: ${busy.message}`));
     expect(wrapped).toBe("No se pudo guardar: Error de la base de datos.");
     expect(safeErrorMessage(new DrizzleQueryError(query, params))).toBe("Error de la base de datos.");
+  });
+
+  it("safeErrorFrames says where an error came from and nothing of what it says, whatever its message holds [SEG-14]", () => {
+    // What somebody typed, with a line that looks like a stack line.
+    const typed = "¿Cuánto cobra Marta?\n    at casa de Marta\n    at /tmp/falso.ts:1:1";
+    const error = new DrizzleQueryError('insert into "assistant_messages" ("content") values ($1)', [typed], new Error("connection lost"));
+    const frames = safeErrorFrames(error);
+    expect(frames).toMatch(/redact\.test\.ts:\d+:\d+/);
+    for (const line of frames.split("\n")) expect(line).toMatch(/^\s+at .*:\d+:\d+\)?$/);
+    expect(frames).not.toMatch(/Marta|falso|assistant_messages|params/);
+    expect(frames.split("\n").length).toBeLessThanOrEqual(8);
+    // Without a stack, or when it is not an error, there is nothing to say.
+    expect(safeErrorFrames("texto")).toBe("");
+    expect(safeErrorFrames(Object.assign(new Error("x"), { stack: undefined }))).toBe("");
+    // A stack that does not start with the message is not trusted.
+    expect(safeErrorFrames(Object.assign(new Error("secreto"), { stack: "Error: otra cosa\n    at f (/a.ts:1:2)" }))).toBe("");
   });
 
   it("of a Postgres error only the SQLSTATE and the constraint are kept, never its message, detail or where [SEG-14]", async () => {

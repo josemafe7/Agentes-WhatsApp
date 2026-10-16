@@ -108,16 +108,36 @@ export default async function ChannelSummaryPage({ params, searchParams }: PageP
 
   return (
     <div className="grid max-w-3xl gap-6">
-      <section aria-labelledby="channel-health" className="grid gap-3 rounded-xl border p-4">
-        <h2 id="channel-health" className="text-base font-semibold">
-          Estado
-        </h2>
-        <div className="grid gap-3">
-          {summaryLights(channel, profile.timezone).map((light) => (
-            <StatusLight key={light.key} status={light.status} label={light.label} detail={light.detail} />
-          ))}
-        </div>
-      </section>
+      {/* What is used all the time goes first, next to the state: which agent answers and whether the AI is on. What is
+          particular to each type of channel comes after. */}
+      <div className="grid items-start gap-6 md:grid-cols-2">
+        <section aria-labelledby="channel-health" className="grid gap-3 rounded-xl border p-4">
+          <h2 id="channel-health" className="text-base font-semibold">
+            Estado
+          </h2>
+          <div className="grid gap-3">
+            {summaryLights(channel, profile.timezone).map((light) => (
+              <StatusLight key={light.key} status={light.status} label={light.label} detail={light.detail} />
+            ))}
+          </div>
+        </section>
+        <section aria-labelledby="channel-agent" className="grid gap-3 rounded-xl border p-4">
+          <div className="grid gap-1">
+            <h2 id="channel-agent" className="text-base font-semibold">
+              Agente e IA
+            </h2>
+            <p className="text-sm text-muted-foreground">Un solo agente activo por canal. El cambio vale para los mensajes que lleguen después.</p>
+          </div>
+          <ActiveAgentControl
+            channelId={channel.id}
+            channelName={channel.name}
+            agents={agents.map(({ id, name }) => ({ id, name }))}
+            activeAgent={channel.activeAgent}
+            aiEnabled={channel.aiEnabled}
+            canManage={canManage}
+          />
+        </section>
+      </div>
 
       {channel.whatsappVia === "meta" ? <WhatsAppPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} /> : null}
       {channel.whatsappVia === "ycloud" ? <YCloudPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} /> : null}
@@ -126,24 +146,6 @@ export default async function ChannelSummaryPage({ params, searchParams }: PageP
         <EmailPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} businessName={profile.name} searchParams={await searchParams} />
       ) : null}
       {channel.type === "telegram" ? <TelegramPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} /> : null}
-
-      <section aria-labelledby="channel-agent" className="grid gap-3 rounded-xl border p-4">
-        <div className="grid gap-1">
-          <h2 id="channel-agent" className="text-base font-semibold">
-            Agente e IA
-          </h2>
-          <p className="text-sm text-muted-foreground">Un solo agente activo por canal. El cambio vale para los mensajes que lleguen después.</p>
-        </div>
-        <ActiveAgentControl
-          channelId={channel.id}
-          channelName={channel.name}
-          agents={agents.map(({ id, name }) => ({ id, name }))}
-          activeAgent={channel.activeAgent}
-          aiEnabled={channel.aiEnabled}
-          canManage={canManage}
-          className="max-w-sm"
-        />
-      </section>
 
       {channel.type === "webchat" ? (
         <section aria-labelledby="channel-try" className="grid gap-3 rounded-xl border p-4">

@@ -6,7 +6,7 @@
 // The simulated OpenRouter (e2e/mocks/routes/openrouter.mjs) calls buscar_conocimiento with the question and answers
 // with the sentence of fragment [1] and «(Fuente: <título>, pág. N)». The document is the 120-page «Manual de
 // procedimientos» (e2e/support/knowledge-files.ts), with a name of its own for this test: its fact is on page 112.
-import { chatRequests, messageText } from "../support/ai";
+import { chatRequests, messageText, stubSlowChatAnswer } from "../support/ai";
 import { agentCard, agentPath, AGENTS_PATH, createNamedAgent, deleteAgentFromList, instructionField, uniqueAgentName } from "../support/agents";
 import { authStatePath, newPersonContext } from "../support/app";
 import {
@@ -79,6 +79,8 @@ test.describe("as the owner, with the OpenRouter key", () => {
       // In Agentes it is listed apart, and never as an agent that answers on a channel.
       await page.goto(AGENTS_PATH);
       await expect(agentCard(page, agentName)).toContainText("Responde al equipo en «Asistentes».");
+      // A new one is nobody else's yet, and its card says so ([INT-05]).
+      await expect(agentCard(page, agentName)).toContainText("Con acceso: solo propietario y administradores");
     });
 
     await test.step("[INT-04] it uses the internal base; an agent for customers is not even offered it", async () => {
@@ -96,6 +98,9 @@ test.describe("as the owner, with the OpenRouter key", () => {
       await expect(page.getByRole("radio", { name: "Personas concretas", exact: true })).toBeChecked();
       await expect(page.getByRole("checkbox", { name: new RegExp(`^${DEMO_USERS.agent.name}`) })).toBeChecked();
       await expect(page.getByRole("checkbox", { name: new RegExp(`^${DEMO_USERS.supervisor.name}`) })).not.toBeChecked();
+      // Its card in Agentes says how many people it was given to.
+      await page.goto(AGENTS_PATH);
+      await expect(agentCard(page, agentName)).toContainText("Con acceso: 1 persona, propietario y administradores");
     });
 
     const agentContext = await newPersonContext(browser, testInfo, { clientIp: clientIpFor(`${testInfo.testId}:agent`), storageState: authStatePath("agent") });
@@ -115,6 +120,8 @@ test.describe("as the owner, with the OpenRouter key", () => {
       await expect(log).toContainText(MANUAL.answer);
       await expect(log).toContainText(`(Fuente: ${title}, pág. ${MANUAL.factPage})`);
       await log.getByRole("button", { name: /^Ver la(s \d+)? fuentes?$/ }).click();
+      // They are what it looked up, most relevant first: said so, whether the answer used each one or not.
+      await expect(log).toContainText("Lo que ha consultado para responder");
       // The first source is the page of the fact, past page 100 of the PDF, with the base it comes from.
       const firstSource = log.getByRole("list").last().getByRole("listitem").first();
       await expect(firstSource).toContainText(title);
@@ -143,6 +150,69 @@ test.describe("as the owner, with the OpenRouter key", () => {
       await expect(assistantLog(asAgent)).toContainText(MANUAL.answer);
       await asAgent.reload();
       await expect(assistantLog(asAgent)).toContainText(MANUAL.answer);
+      await expect(myConversations(asAgent)).toHaveCount(1);
+    });
+
+    await test.step("[INT-10] what was just asked is still there when leaving and coming back with «Atrás», without loading the page again", async () => {
+      // A second question in the conversation that was open.
+      await ask(asAgent, MANUAL.question);
+      const asked = assistantLog(asAgent).getByText(MANUAL.question, { exact: true });
+      await expect(asked).toHaveCount(2);
+      await mainMenu(asAgent).getByRole("link", { name: "Bandeja", exact: true }).click();
+      await expect(asAgent).toHaveURL(/\/bandeja$/);
+      await asAgent.goBack();
+      await expect(asAgent).toHaveURL(conversationUrl);
+      await expect(asked).toHaveCount(2);
+
+      // And the first question of a new conversation: it gets its address, and «Atrás» opens it with its answer.
+      const other = "¿Dónde se guarda la llave del almacén?";
+      await asAgent.getByRole("link", { name: "Nueva conversación", exact: true }).click();
+      await expect(assistantLog(asAgent).getByText(MANUAL.question, { exact: true })).toHaveCount(0);
+      await ask(asAgent, other);
+      await expect(asAgent).toHaveURL(/\?c=[0-9a-f-]{36}$/);
+      expect(asAgent.url()).not.toBe(conversationUrl);
+      const otherUrl = asAgent.url();
+      await expect(myConversations(asAgent)).toHaveCount(2);
+      await mainMenu(asAgent).getByRole("link", { name: "Bandeja", exact: true }).click();
+      await expect(asAgent).toHaveURL(/\/bandeja$/);
+      await asAgent.goBack();
+      await expect(asAgent).toHaveURL(otherUrl);
+      await expect(assistantLog(asAgent).getByText(other, { exact: true })).toHaveCount(1);
+      await expect(assistantLog(asAgent).getByText(/^IA · /)).toHaveCount(1);
+      await expect(myConversations(asAgent)).toHaveCount(2);
+      // The one that is open is marked in the list; deleting it leaves an empty chat and the first conversation.
+      await expect(myConversations(asAgent).getByRole("link", { name: other, exact: true })).toHaveAttribute("aria-current", "page");
+      await asAgent.getByRole("button", { name: `Borrar la conversación «${other}»`, exact: true }).click();
+      const confirm = asAgent.getByRole("alertdialog");
+      await expect(confirm).toContainText(other);
+      await confirm.getByRole("button", { name: "Borrar", exact: true }).click();
+      await expect(myConversations(asAgent)).toHaveCount(1);
+      await expect(asAgent).toHaveURL(new RegExp(`${assistantPath(agentId)}$`));
+    });
+
+    await test.step("[INT-07] while the assistant answers nothing else is held: another conversation opens at once, and the answer is saved all the same", async () => {
+      const slow = "¿Cuál es el horario del turno de tarde?";
+      const slowAnswer = "El turno de tarde es de 15 a 21 horas.";
+      const waitMs = 5_000;
+      await stubSlowChatAnswer(mock, slow, slowAnswer, waitMs);
+      await questionBox(asAgent).fill(slow);
+      await sendQuestionButton(asAgent).click();
+      await expect(assistantLog(asAgent)).toContainText("Buscando en los documentos…");
+      // Long before the answer: the first conversation opens with what it had.
+      await myConversations(asAgent).getByRole("link", { name: MANUAL.question, exact: true }).click();
+      await expect(asAgent).toHaveURL(conversationUrl, { timeout: waitMs / 2 });
+      await expect(assistantLog(asAgent)).toContainText(MANUAL.answer, { timeout: waitMs / 2 });
+      await expect(assistantLog(asAgent)).not.toContainText("Buscando en los documentos…");
+      await expect(myConversations(asAgent)).toHaveCount(1);
+      // The answer arrives: its conversation appears, first in the list, without touching the one on screen.
+      await expect(myConversations(asAgent)).toHaveCount(2);
+      await expect(myConversations(asAgent).first().getByRole("link")).toHaveText(slow);
+      await expect(asAgent).toHaveURL(conversationUrl);
+      await myConversations(asAgent).first().getByRole("link").click();
+      await expect(assistantLog(asAgent)).toContainText(slowAnswer);
+      // It is deleted, so the person is left with their first conversation.
+      await asAgent.getByRole("button", { name: `Borrar la conversación «${slow}»`, exact: true }).click();
+      await asAgent.getByRole("alertdialog").getByRole("button", { name: "Borrar", exact: true }).click();
       await expect(myConversations(asAgent)).toHaveCount(1);
     });
 

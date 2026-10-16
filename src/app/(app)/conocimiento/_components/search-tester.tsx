@@ -85,12 +85,14 @@ export function SearchTester({ kbId, aiConfigured, internal = false }: SearchTes
         {failure && !errors ? <FormMessage result={failure} /> : null}
       </form>
 
-      {search ? <SearchResults query={search.query} view={search.view} kbId={kbId} aiConfigured={aiConfigured} /> : null}
+      {search ? <SearchResults query={search.query} view={search.view} kbId={kbId} aiConfigured={aiConfigured} internal={internal} /> : null}
     </div>
   );
 }
 
-function SearchResults({ query, view, kbId, aiConfigured }: { query: string; view: KnowledgeSearchView; kbId: string; aiConfigured: boolean }) {
+type SearchResultsProps = { query: string; view: KnowledgeSearchView; kbId: string; aiConfigured: boolean; internal: boolean };
+
+function SearchResults({ query, view, kbId, aiConfigured, internal }: SearchResultsProps) {
   return (
     <section aria-labelledby="kb-test-results" aria-live="polite" className="grid gap-4">
       <div className="grid gap-1">
@@ -114,7 +116,11 @@ function SearchResults({ query, view, kbId, aiConfigured }: { query: string; vie
           <EmptyState
             icon={SearchX}
             title="Nada relevante"
-            description="El agente contestaría que no lo sabe y ofrecería una persona. Prueba con otras palabras o añade ese dato a la base."
+            description={
+              internal
+                ? "El agente contestaría que no lo encuentra en su documentación. Prueba con otras palabras o añade ese dato a la base."
+                : "El agente contestaría que no lo sabe y ofrecería una persona. Prueba con otras palabras o añade ese dato a la base."
+            }
           />
         </div>
       ) : (

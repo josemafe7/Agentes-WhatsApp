@@ -44,6 +44,9 @@ test("[INT-10] «Cargar más» brings the older conversations and «Cargar mensa
   await test.step("the long conversation opens with its last messages, and «Cargar mensajes anteriores» brings the first ones", async () => {
     await myConversations(page).first().getByRole("link").click();
     await expect(page).toHaveURL(/\?c=[0-9a-f-]{36}$/);
+    // Opening one keeps the list as it was, with what «Cargar más» brought, and marks the one that is open.
+    await expect(myConversations(page)).toHaveCount(ASSISTANT_HISTORY.conversations - 1);
+    await expect(myConversations(page).first().getByRole("link")).toHaveAttribute("aria-current", "page");
     const log = assistantLog(page);
     const firstShown = ASSISTANT_HISTORY.messages - SHOWN_AT_A_TIME + 1;
     await expect(log.getByText(ASSISTANT_HISTORY.message(ASSISTANT_HISTORY.messages), { exact: true })).toBeVisible();
@@ -54,5 +57,23 @@ test("[INT-10] «Cargar más» brings the older conversations and «Cargar mensa
     await expect(earlier).toHaveCount(0);
     // What was being read stays in view: the conversation does not jump to its end.
     await expect(log.getByText(ASSISTANT_HISTORY.message(firstShown), { exact: true })).toBeInViewport();
+  });
+
+  await test.step("an old conversation opened by its address is in the list even before «Cargar más» reaches it", async () => {
+    const old = ASSISTANT_HISTORY.title(2);
+    const longConversationUrl = page.url();
+    await myConversations(page).getByRole("link", { name: exactly(old) }).click();
+    // Its own address (the long one was open until now), and it is the one marked in the list.
+    await expect(page).not.toHaveURL(longConversationUrl);
+    await expect(page).toHaveURL(/\?c=[0-9a-f-]{36}$/);
+    await expect(myConversations(page).getByRole("link", { name: exactly(old) })).toHaveAttribute("aria-current", "page");
+    await page.reload();
+    // The first ones and, last, the one that is open.
+    await expect(myConversations(page)).toHaveCount(LISTED_AT_A_TIME + 1);
+    await expect(myConversations(page).last().getByRole("link")).toHaveText(old);
+    await expect(myConversations(page).last().getByRole("link")).toHaveAttribute("aria-current", "page");
+    await more.click();
+    await expect(myConversations(page)).toHaveCount(ASSISTANT_HISTORY.conversations - 1);
+    await expect(myConversations(page).getByRole("link", { name: exactly(old) })).toHaveCount(1);
   });
 });

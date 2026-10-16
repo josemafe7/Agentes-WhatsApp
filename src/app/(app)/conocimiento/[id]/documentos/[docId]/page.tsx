@@ -1,13 +1,15 @@
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft, ExternalLink, TriangleAlert } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { noPermissionDescription } from "@/components/app-shell/navigation";
 import { NoPermission } from "@/components/no-permission";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getKnowledgeDocument, type KnowledgeDocumentDetail } from "@/data/knowledge-documents";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { NotFoundError } from "@/server/errors";
+import { countPagesWithoutText } from "@/server/knowledge/pages";
 import { DocumentActions, RefreshSettings } from "../../../_components/document-actions";
 import { DocumentKindIcon, DocumentStatus } from "../../../_components/documents-table";
 import { LiveRefresh } from "../../../_components/live-refresh";
@@ -75,6 +77,8 @@ export default async function KnowledgeDocumentPage({ params, searchParams }: Do
   const slice = pageSlice((await searchParams)[PAGE_PARAM], doc.chunks.length);
   const chunks = doc.chunks.slice(slice.start, slice.end);
   const listHref = doc.sourceType === "faq" ? knowledgeBasePath(base.id, "faq") : knowledgeBasePath(base.id);
+  // Pages the agent knows nothing of ([CON-06]): said here, because the document still ends up «Listo».
+  const pagesWithoutText = doc.status === "ready" ? countPagesWithoutText(doc.contentMd) : 0;
 
   return (
     <article aria-labelledby="document-title" className="grid max-w-4xl gap-8">
@@ -103,6 +107,19 @@ export default async function KnowledgeDocumentPage({ params, searchParams }: Do
           ) : null}
         </div>
         <DocumentStatus row={row} />
+        {pagesWithoutText > 0 ? (
+          <Alert role="status" className="border-warning/30 bg-warning-soft">
+            <TriangleAlert aria-hidden className="text-warning" />
+            <AlertTitle>
+              {pagesWithoutText === 1 ? "1 página no tiene texto" : `${formatNumber(pagesWithoutText)} páginas no tienen texto`}
+              {doc.pageCount ? `, de ${formatNumber(doc.pageCount)}` : ""}
+            </AlertTitle>
+            <AlertDescription>
+              Pueden estar en blanco, ser solo imágenes o estar escaneadas. El agente no conoce lo que dicen. Si tienen información, súbelas en un PDF
+              aparte: un PDF escaneado entero sí se lee, con la clave de Mistral OCR de Ajustes › IA.
+            </AlertDescription>
+          </Alert>
+        ) : null}
       </div>
 
       <Section id="document-origin" title="Origen">

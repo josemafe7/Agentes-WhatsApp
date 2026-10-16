@@ -55,14 +55,15 @@ ejemplo, el nombre vacío), no se guarda y el error aparece junto al campo.
   que admiten herramientas, con su precio por millón de tokens en dólares, su contexto y si aceptan imagen, PDF
   o audio. El de respaldo tiene que ser de otro proveedor. También puedes ajustar la temperatura (si el modelo lo
   permite), el razonamiento (bajo por defecto, para que responda rápido) y la longitud máxima de la respuesta.
-- **Conocimiento:** sus archivos de contexto, las bases de conocimiento que usa y cuándo busca en ellas:
-  «Automático» (busca cuando lo necesita) o «Buscar siempre» (busca antes de cada respuesta). Ver el apartado 7.
-- **Herramientas:** «Pasar a una persona», siempre activa; «Buscar en el conocimiento»; y las de la agenda y los datos
-  del cliente (consultar huecos, crear, cambiar y cancelar citas, guardar sus datos), que explica
-  la guía de la agenda (en Ayuda). Un agente nuevo las trae apagadas: se encienden aquí. También las herramientas
-  HTTP, que conectan el agente con otros programas (ver el apartado 8).
-- **Traspaso:** cuándo pasa la conversación a una persona (palabras clave, temas sensibles y número de «no lo
-  sé»), el mensaje que recibe el cliente dentro y fuera de horario, y a quién avisar.
+- **Conocimiento:** las bases de conocimiento que usa, cuándo busca en ellas («Automático», cuando lo necesita, o
+  «Buscar siempre», antes de cada respuesta) y, al final, sus archivos de contexto. Ver el apartado 7.
+- **Herramientas:** agrupadas por lo que tocan: «Conocimiento» («Buscar en el conocimiento»), «Agenda» (ver los
+  servicios, consultar huecos, crear, ver, cambiar y cancelar citas), «Clientes» (guardar sus datos) y «Traspaso»
+  («Pasar a una persona», siempre activa). Las de la agenda y los datos del cliente las explica la guía de la agenda
+  (en Ayuda). Un agente nuevo las trae apagadas: se encienden aquí. Debajo, las herramientas HTTP, que conectan el
+  agente con otros programas (ver el apartado 8).
+- **Traspaso:** en tres partes: «Cuándo pasa a una persona» (palabras clave, número de «no lo sé» y temas
+  sensibles), «Qué le dice al cliente» (el mensaje dentro y fuera de horario) y «A quién se avisa».
 - **Canales:** en qué canales responde este agente, con el interruptor «Activo aquí». Si el canal ya tenía otro
   agente, la app te pregunta antes de sustituirlo. Un agente puede estar activo en varios canales.
 - **Probar:** un chat con el agente (ver el apartado 4).
@@ -179,7 +180,8 @@ frecuentes y cómo trabajáis.
 
 ### Archivos de contexto
 
-En el agente, pestaña **Conocimiento** › «Archivos de contexto»:
+En el agente, pestaña **Conocimiento** › «Archivos de contexto» (al final de la pestaña, debajo de las bases y del
+modo de búsqueda):
 
 1. **«Subir archivo»** (PDF, Word `.docx`, TXT o Markdown, hasta 3,5 MB) o **«Pegar texto»** (un título y el
    texto). La app lo convierte en texto que puedes **editar** después pulsando su título.
@@ -189,7 +191,7 @@ En el agente, pestaña **Conocimiento** › «Archivos de contexto»:
 3. Si un archivo es largo, su menú tiene **«Pasar a una base de conocimiento»**: lo mueve a una base (una que ya
    exista o una nueva), hace que el agente use esa base y solo entonces lo quita de los archivos de contexto.
 
-[Captura: la pestaña Conocimiento del agente con la barra de tokens y los archivos de contexto]
+[Captura: el final de la pestaña Conocimiento del agente, con la barra de tokens y los archivos de contexto]
 
 ### Crear una base y añadirle contenido
 
@@ -198,10 +200,11 @@ En el agente, pestaña **Conocimiento** › «Archivos de contexto»:
    **«Uso»**: deja «Para clientes» para una base que usarán los agentes que atienden clientes («Interna» es para los
    agentes internos, y no se puede cambiar después).
 2. En la base, pulsa **«Añadir contenido»**:
-   - **Archivos:** PDF, Word (`.docx`), Excel (`.xlsx`), CSV, TXT o Markdown, de hasta 25 MB cada uno. Puedes
-     elegir o arrastrar varios a la vez y cada uno dice cómo ha ido. Los formatos antiguos `.xls` y `.doc` no se
-     admiten: guárdalos como `.xlsx`, `.csv` o `.docx`. Un archivo idéntico a otro que ya está en la base se
-     rechaza con «Este archivo ya está en la base».
+   - **Archivos:** PDF, Word (`.docx`), Excel (`.xlsx`), CSV, TXT o Markdown, de hasta 25 MB cada uno (hasta 4 MB
+     si la app está publicada en Vercel: la pantalla dice el máximo que toca). Puedes elegir o arrastrar varios a
+     la vez y cada uno dice cómo ha ido. Los formatos antiguos `.xls` y `.doc` no se admiten: guárdalos como
+     `.xlsx`, `.csv` o `.docx`. Un archivo idéntico a otro que ya está en la base se rechaza con «Este archivo ya
+     está en la base».
    - **Página web:** la dirección de una página pública de tu web (se guarda su texto, sin menús ni pies). Marca
      «Añadir también las páginas de su mapa del sitio» para traer hasta 50 páginas de tu web de una vez, y «Volver
      a leerla de vez en cuando» (cada día, semana o mes) si cambia a menudo: si ha cambiado, se procesa de nuevo;

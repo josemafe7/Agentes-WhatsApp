@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import type { PersonRef } from "@/data/conversations";
 import { CONVERSATION_STATUSES, type ConversationStatus } from "@/lib/enums";
+import { cn } from "@/lib/utils";
 import { labelSchema, MAX_LABELS } from "@/lib/validation";
 import { assignAction, handOffAction, setAgentAction, setLabelsAction, setStatusAction, takeAction } from "../actions";
 import { STATUS_META } from "../_lib/presentation";
@@ -19,6 +20,11 @@ import { useInboxAction } from "./use-inbox-action";
 
 const NOBODY = "nobody";
 const CHANNEL_AGENT = "channel";
+/**
+ * Who has the conversation and which agent answers read as a line of data that can be changed, not as two more
+ * fields: the status and the AI switch are what is used all the time.
+ */
+const QUIET_TRIGGER = "gap-1 border-transparent px-1.5 font-medium hover:bg-muted data-[size=default]:h-8 data-[state=open]:bg-muted dark:bg-transparent dark:hover:bg-muted";
 
 // ─── Status ([BAN-12], [TRA-08]) ────────────────────────────────────────────────────────────────────────
 
@@ -41,8 +47,13 @@ export function StatusControl({ conversationId, status, canChange }: { conversat
         Estado
       </Label>
       <Select value={status} onValueChange={(value) => run(() => setStatusAction({ conversationId, status: value }))} disabled={pending}>
-        <SelectTrigger id={`${id}-estado`} className="min-w-44">
-          <SelectValue />
+        {/* On a phone it takes only its own width, so the next control of the strip shows that there is more. */}
+        <SelectTrigger id={`${id}-estado`} className="md:min-w-44">
+          {/* Said here too, so the control is never seen empty while the page becomes interactive. */}
+          <SelectValue>
+            <Icon aria-hidden className={meta.className} />
+            {meta.label}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {CONVERSATION_STATUSES.map((value) => {
@@ -180,13 +191,13 @@ export function AssignControl({ conversationId, assignedUser, assignable, userId
   if (canAssign) {
     const options = assignedUser && !assignable.some((person) => person.id === assignedUser.id) ? [assignedUser, ...assignable] : assignable;
     return (
-      <div className="flex shrink-0 items-center gap-2 md:max-w-full">
-        <Label htmlFor={`${id}-asignar`} className="text-sm text-muted-foreground">
+      <div className="flex shrink-0 items-center gap-0.5 md:max-w-full">
+        <Label htmlFor={`${id}-asignar`} className="text-sm font-normal text-muted-foreground">
           Asignada a
         </Label>
         <Select value={assignedUser?.id ?? NOBODY} onValueChange={(value) => run(() => assignAction({ conversationId, userId: value === NOBODY ? null : value }))} disabled={pending}>
-          <SelectTrigger id={`${id}-asignar`} className="min-w-40">
-            <SelectValue />
+          <SelectTrigger id={`${id}-asignar`} className={QUIET_TRIGGER}>
+            <SelectValue>{assignedUser ? nameOf(assignedUser) : "Sin asignar"}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={NOBODY}>Sin asignar</SelectItem>
@@ -238,8 +249,8 @@ export function AgentControl({ conversationId, agent, agentOverride, channelAgen
     );
   }
   return (
-    <div className="flex shrink-0 items-center gap-2 md:max-w-full">
-      <Label htmlFor={`${id}-agente`} className="inline-flex items-center gap-1 text-sm text-muted-foreground">
+    <div className="flex shrink-0 items-center gap-0.5 md:max-w-full">
+      <Label htmlFor={`${id}-agente`} className="inline-flex items-center gap-1 text-sm font-normal text-muted-foreground">
         <Bot aria-hidden className="size-4 text-ai" />
         Agente
       </Label>
@@ -252,8 +263,9 @@ export function AgentControl({ conversationId, agent, agentOverride, channelAgen
         }
         disabled={pending}
       >
-        <SelectTrigger id={`${id}-agente`} className="min-w-44">
-          <SelectValue />
+        <SelectTrigger id={`${id}-agente`} className={cn(QUIET_TRIGGER, "max-w-56")}>
+          {/* Closed, just who answers; whether it is the channel's own agent is said in the list. */}
+          <SelectValue>{agentOverride?.name ?? channelAgent?.name ?? "Ninguno"}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={CHANNEL_AGENT}>{channelAgent ? `El del canal (${channelAgent.name})` : "El del canal (ninguno)"}</SelectItem>

@@ -6,17 +6,20 @@ import { useId, useState, type ChangeEvent, type DragEvent } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { checkFileBeforeUpload, countLabel, formatFileSize, KNOWLEDGE_FILE_ACCEPT, MAX_KB_FILE_MB } from "../_lib/labels";
+import { MAX_KB_FILE_BYTES } from "@/lib/knowledge-limits";
+import { checkFileBeforeUpload, countLabel, formatFileSize, KNOWLEDGE_FILE_ACCEPT } from "../_lib/labels";
 import { FILE_NAME_HEADER, knowledgeUploadUrl } from "../_lib/paths";
 
 type Upload = { key: string; file: File; state: "ready" | "invalid" | "uploading" | "done" | "error"; message: string | null };
 
 const NETWORK_ERROR = "No se ha podido subir el archivo. Revisa la conexión y vuelve a intentarlo.";
 const GENERIC_ERROR = "No se ha podido subir el archivo. Inténtalo de nuevo.";
+/** The server in front of the app refused the size before the app could answer (HTTP 413 without our message). */
+const TOO_LARGE_FOR_SERVER = "El archivo es demasiado grande para el servidor donde está publicada la app. Divídelo en archivos más pequeños.";
 
-function toUploads(files: FileList | File[]): Upload[] {
+function toUploads(files: FileList | File[], maxFileBytes: number): Upload[] {
   return Array.from(files).map((file) => {
-    const problem = checkFileBeforeUpload(file);
+    const problem = checkFileBeforeUpload(file, maxFileBytes);
     return { key: crypto.randomUUID(), file, state: problem ? "invalid" : "ready", message: problem };
   });
 }
@@ -33,9 +36,9 @@ async function answerOf(response: Response): Promise<string | null> {
 /**
  * «Añadir contenido › Archivos» ([CON-04]): PDF, DOCX, XLSX, CSV, TXT or MD up to 25 MB, several at once, chosen or
  * dropped. Each one goes to the upload route in turn; the server checks the real type, the size and duplicates
- * ([CON-14]) and each file shows its own result.
+ * ([CON-14]) and each file shows its own result. `maxFileBytes` is the limit where the app runs (less on Vercel).
  */
-export function FileUploadForm({ kbId }: { kbId: string }) {
+export function FileUploadForm({ kbId, maxFileBytes = MAX_KB_FILE_BYTES }: { kbId: string; maxFileBytes?: number }) {
   const router = useRouter();
   const inputId = useId();
   const [uploads, setUploads] = useState<Upload[]>([]);
@@ -46,7 +49,7 @@ export function FileUploadForm({ kbId }: { kbId: string }) {
   function choose(files: FileList | File[] | null) {
     if (!files || files.length === 0 || busy) return;
     // Files already sent stay listed with their result; new ones are added below.
-    setUploads((current) => [...current.filter((upload) => upload.state === "done" || upload.state === "error"), ...toUploads(files)]);
+    setUploads((current) => [...current.filter((upload) => upload.state === "done" || upload.state === "error"), ...toUploads(files, maxFileBytes)]);
   }
 
   function onChange(event: ChangeEvent<HTMLInputElement>) {
@@ -74,7 +77,8 @@ export function FileUploadForm({ kbId }: { kbId: string }) {
         headers: { [FILE_NAME_HEADER]: encodeURIComponent(upload.file.name), "content-type": "application/octet-stream" },
       });
       const message = await answerOf(response);
-      update(upload.key, { state: response.ok ? "done" : "error", message: message ?? (response.ok ? null : GENERIC_ERROR) });
+      const fallback = response.status === 413 ? TOO_LARGE_FOR_SERVER : GENERIC_ERROR;
+      update(upload.key, { state: response.ok ? "done" : "error", message: message ?? (response.ok ? null : fallback) });
       return response.ok;
     } catch {
       update(upload.key, { state: "error", message: NETWORK_ERROR });
@@ -112,7 +116,8 @@ export function FileUploadForm({ kbId }: { kbId: string }) {
         <FileUp aria-hidden className="size-6 text-muted-foreground" />
         <span className="font-medium">Elige archivos o suéltalos aquí</span>
         <span id={`${inputId}-help`} className="text-muted-foreground">
-          PDF, Word (DOCX), Excel (XLSX), CSV, TXT o Markdown, de hasta {MAX_KB_FILE_MB} MB cada uno.
+          PDF, Word (DOCX), Excel (XLSX), CSV, TXT o Markdown, de hasta {Math.round(maxFileBytes / 1024 / 1024)} MB cada uno.
+          {maxFileBytes < MAX_KB_FILE_BYTES ? " Donde está publicada la app no caben archivos más grandes: si el tuyo pesa más, divídelo en varios." : null}
         </span>
         <input
           id={inputId}

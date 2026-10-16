@@ -13,6 +13,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import type { ActionFailure } from "@/lib/action-result";
 import type { TeamAccess } from "@/lib/enums";
 import { saveAgentAccessAction } from "../actions";
+import { LeaveGuard } from "./leave-guard";
 
 export type AccessValues = { teamAccess: TeamAccess; userIds: string[] };
 export type AccessPerson = { id: string; name: string; roleLabel: string };
@@ -22,21 +23,30 @@ const OPTIONS: { value: TeamAccess; label: string; description: string }[] = [
   { value: "selected", label: "Personas concretas", description: "Solo las que marques aquí abajo, además de propietario y administradores." },
 ];
 
+function sameAccess(a: AccessValues, b: AccessValues): boolean {
+  return a.teamAccess === b.teamAccess && a.userIds.length === b.userIds.length && a.userIds.every((id) => b.userIds.includes(id));
+}
+
 /** Acceso ([INT-05]): the whole team, or the people chosen one by one. Saved on its own, not as a version of the agent. */
 export function AccessForm({ agentId, initial, people }: { agentId: string; initial: AccessValues; people: AccessPerson[] }) {
   const [values, setValues] = useState<AccessValues>(initial);
+  /** What the server has: leaving the tab with something else asks first, like the rest of the editor. */
+  const [saved, setSaved] = useState<AccessValues>(initial);
   const [failure, setFailure] = useState<ActionFailure | null>(null);
   const [pending, startTransition] = useTransition();
   const peopleErrors = failure?.fieldErrors?.userIds;
+  const dirty = !sameAccess(values, saved);
 
   function submit() {
+    const sent = values;
     startTransition(async () => {
-      const result = await saveAgentAccessAction(agentId, values);
+      const result = await saveAgentAccessAction(agentId, sent);
       if (!result.ok) {
         setFailure(result);
         return;
       }
       setFailure(null);
+      setSaved(sent);
       toast.success(result.message ?? "Acceso guardado.");
     });
   }
@@ -112,6 +122,9 @@ export function AccessForm({ agentId, initial, people }: { agentId: string; init
               })}
             </ul>
           )}
+          {people.length > 0 && values.userIds.length === 0 ? (
+            <FieldDescription>No has marcado a nadie: solo lo usarán propietario y administradores.</FieldDescription>
+          ) : null}
           <FieldError errors={peopleErrors?.map((message) => ({ message }))} />
         </FieldSet>
       ) : null}
@@ -123,6 +136,7 @@ export function AccessForm({ agentId, initial, people }: { agentId: string; init
         </Button>
         {failure && !peopleErrors ? <FormMessage result={failure} /> : null}
       </div>
+      <LeaveGuard dirty={dirty && !pending} />
     </form>
   );
 }

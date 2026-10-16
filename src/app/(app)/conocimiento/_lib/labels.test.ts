@@ -121,6 +121,11 @@ describe("files chosen for upload are checked before sending [CON-04]", () => {
     expect(checkFileBeforeUpload({ name: "justo.pdf", size: 25 * MB })).toBeNull();
   });
 
+  it("with the smaller limit of where the app is published, it says that one", () => {
+    expect(checkFileBeforeUpload({ name: "manual.pdf", size: 4 * MB + 1 }, 4 * MB)).toBe("El archivo es demasiado grande. El máximo es 4 MB.");
+    expect(checkFileBeforeUpload({ name: "manual.pdf", size: 4 * MB }, 4 * MB)).toBeNull();
+  });
+
   it("sizes are shown in Spanish", () => {
     expect(formatFileSize(512)).toBe("512 B");
     expect(formatFileSize(340 * 1024)).toBe("340 KB");

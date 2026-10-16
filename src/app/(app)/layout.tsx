@@ -74,7 +74,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
               <main
                 id="contenido"
                 tabIndex={-1}
-                className="flex-1 px-4 pt-6 pb-[calc(3.5rem+env(safe-area-inset-bottom)+1.5rem)] outline-none md:px-6 md:pb-8"
+                // A screen that fills the height left (the inbox) marks itself `data-fill-height`: only then the
+                // page is a column, so the notice above takes its room from that screen and not from the window.
+                className="flex-1 px-4 pt-6 pb-[calc(3.5rem+env(safe-area-inset-bottom)+1.5rem)] outline-none has-[>[data-fill-height]]:flex has-[>[data-fill-height]]:flex-col md:px-6 md:pb-8"
               >
                 {shell.openRouterNotice ? <OpenRouterBanner variant={shell.openRouterNotice} /> : null}
                 {children}

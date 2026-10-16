@@ -115,6 +115,9 @@ describe("every call is checked and logged [HER-02] [HER-03] [SEG-10]", () => {
     });
     const outcome = await executeToolCall(new Map([[failing.name, failing]]), call("falla", {}), context());
     expect(outcome.record.result).toEqual({ ok: false, error: "La herramienta ha fallado. Inténtalo de otra forma o pasa con una persona." });
+    // An internal agent has nobody to hand the conversation to ([INT-07]).
+    const forTeam = await executeToolCall(new Map([[failing.name, failing]]), call("falla", {}), context({ audience: "team" }));
+    expect(forTeam.record.result).toEqual({ ok: false, error: "La herramienta ha fallado. Inténtalo de otra forma o di que ahora mismo no puedes consultarlo." });
 
     const chatty = defineTool({ name: "larga", description: "Larga", parameters: z.object({}), execute: async () => ({ result: { ok: true, text: "x".repeat(10_000) } }) });
     const long = await executeToolCall(new Map([[chatty.name, chatty]]), call("larga", {}), context());

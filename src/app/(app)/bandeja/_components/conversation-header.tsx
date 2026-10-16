@@ -34,9 +34,10 @@ export function ConversationHeader({ conversation, assignable, agents, channelAg
   const name = contactDisplayName(conversation.contact?.name);
 
   return (
-    <header className="flex flex-col gap-3 border-b px-4 py-3">
+    <header className="flex flex-col gap-2 border-b px-4 py-3">
       <div className="flex items-center gap-3">
-        <Button asChild variant="ghost" size="icon" className="-ml-2 md:hidden">
+        {/* Shown while the list is not next to the conversation (the inbox shell decides, by its own width). */}
+        <Button asChild variant="ghost" size="icon" className="-ml-2 @min-[45rem]/inbox:hidden">
           <Link href={backHref} aria-label="Atrás, a la bandeja">
             <ArrowLeft aria-hidden />
           </Link>
@@ -52,7 +53,10 @@ export function ConversationHeader({ conversation, assignable, agents, channelAg
         </div>
         <ContactPanelToggle />
       </div>
-      <div className="-mx-4 flex items-center gap-x-3 gap-y-2 overflow-x-auto px-4 pb-1 md:flex-wrap md:overflow-visible md:pb-0">
+      {/* Who answers comes first and whole. On a phone the rest follows in a strip that scrolls sideways, starting with
+          the status: next to a short «La IA responde», under a longer state. From tablets up everything wraps as one
+          row. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 md:gap-y-1">
         <AiControl
           conversationId={conversation.id}
           aiMode={conversation.aiMode}
@@ -62,25 +66,27 @@ export function ConversationHeader({ conversation, assignable, agents, channelAg
           timezone={timezone}
           initialNow={now}
         />
-        <StatusControl conversationId={conversation.id} status={conversation.status} canChange={permissions.manage} />
-        {permissions.manage && conversation.status !== "pending_human" ? <HandoffButton conversationId={conversation.id} /> : null}
-        <AssignControl
-          conversationId={conversation.id}
-          assignedUser={conversation.assignedUser}
-          assignable={assignable}
-          userId={userId}
-          canAssign={permissions.assign}
-          canClaim={permissions.claim}
-        />
-        <AgentControl
-          conversationId={conversation.id}
-          agent={conversation.agent}
-          agentOverride={conversation.agentOverride}
-          channelAgent={channelAgent}
-          agents={agents}
-          canChange={permissions.changeAgent}
-        />
-        <LabelsControl conversationId={conversation.id} labels={conversation.labels} canChange={permissions.manage} />
+        <div className="-mr-4 flex min-w-40 flex-1 items-center gap-3 overflow-x-auto pr-4 pb-1 md:contents">
+          <StatusControl conversationId={conversation.id} status={conversation.status} canChange={permissions.manage} />
+          {permissions.manage && conversation.status !== "pending_human" ? <HandoffButton conversationId={conversation.id} /> : null}
+          <AssignControl
+            conversationId={conversation.id}
+            assignedUser={conversation.assignedUser}
+            assignable={assignable}
+            userId={userId}
+            canAssign={permissions.assign}
+            canClaim={permissions.claim}
+          />
+          <AgentControl
+            conversationId={conversation.id}
+            agent={conversation.agent}
+            agentOverride={conversation.agentOverride}
+            channelAgent={channelAgent}
+            agents={agents}
+            canChange={permissions.changeAgent}
+          />
+          <LabelsControl conversationId={conversation.id} labels={conversation.labels} canChange={permissions.manage} />
+        </div>
       </div>
     </header>
   );

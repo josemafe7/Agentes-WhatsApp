@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyDatabase } from "../../../../scripts/lib/testing";
 import { db } from "@/db";
-import { agentContextFiles, agentKnowledgeBases, agentMembers, agents, aiRuns, assistantChats, assistantMessages, kbDocuments, knowledgeBases } from "@/db/schema";
+import { agentContextFiles, agentKnowledgeBases, agentMembers, agents, aiRuns, assistantChats, assistantMessages, kbDocuments, knowledgeBases, rateLimits } from "@/db/schema";
 import type { Role } from "@/lib/enums";
 import type { Actor } from "@/lib/permissions";
 import { chatCompletion, FAKE_BASE_URL, FAKE_OPENROUTER_KEY, fakeFetch, jsonResponse, routes, sampleCatalog, type FakeHandler } from "@/test/fake-openrouter";
@@ -110,6 +110,49 @@ describe("asking from «Asistentes» [INT-06] [INT-07] [INT-11]", () => {
     expect(run).toMatchObject({ ok: false, audience: "team" });
   });
 
+  it("who cannot open Ajustes › IA is told to tell an administrator; who can, what is wrong; and «Reintentar» only when it can help [INT-07]", async () => {
+    const internal = await internalAgent();
+    // No credit: nothing the person asking can fix, and asking again changes nothing.
+    useOpenRouter(() => jsonResponse({ error: { code: 402, message: "Insufficient credits", metadata: { limit_source: "openrouter_credits" } } }, 402));
+    as("agent");
+    const forAgent = await askAssistantAction({ agentId: internal.id, text: "Hola" });
+    expect(forAgent).toMatchObject({ ok: false, reason: "ai_failed", error: "El asistente no puede responder ahora mismo. Avisa a un administrador para que lo revise." });
+    expect(forAgent).not.toHaveProperty("retry");
+    as("owner");
+    const forOwner = await askAssistantAction({ agentId: internal.id, text: "Hola" });
+    expect(forOwner).toMatchObject({ ok: false, error: expect.stringMatching(/saldo/) });
+    expect(forOwner).not.toHaveProperty("retry");
+
+    // The model refuses the message: writing it another way is up to the person; nobody takes the conversation.
+    useOpenRouter(() => jsonResponse({ error: { code: 403, message: "Flagged", metadata: { reasons: ["violence"] } } }, 403));
+    as("agent");
+    const refused = await askAssistantAction({ agentId: internal.id, text: "Hola" });
+    expect(refused).toMatchObject({ ok: false, reason: "ai_failed", error: expect.stringMatching(/Prueba a escribirlo de otra forma/) });
+    expect(refused).not.toHaveProperty("retry");
+    expect(JSON.stringify(refused)).not.toMatch(/persona/);
+
+    // A failure that passes on its own: «Reintentar» makes sense.
+    useOpenRouter(() => jsonResponse({ error: { code: 503, message: "No providers" } }, 503));
+    expect(await askAssistantAction({ agentId: internal.id, text: "Hola" })).toMatchObject({ ok: false, reason: "ai_failed", retry: true, error: expect.stringMatching(/Reintentar/) });
+  });
+
+  it("too many questions in a minute can be retried in a while; the limit of the day cannot [INT-12]", async () => {
+    const internal = await internalAgent();
+    useOpenRouter();
+    as("agent");
+    const now = new Date();
+    // The minute is used up.
+    await db.insert(rateLimits).values({ key: `ai:assistant:${users.agent.userId}`, count: 20, windowStart: now });
+    expect(await askAssistantAction({ agentId: internal.id, text: "Hola" })).toMatchObject({ ok: false, retry: true, error: expect.stringMatching(/Espera un minuto/) });
+    // And now the day.
+    await db.delete(rateLimits);
+    await db.insert(rateLimits).values({ key: `ai:assistant_day:${users.agent.userId}`, count: 200, windowStart: now });
+    const overTheDay = await askAssistantAction({ agentId: internal.id, text: "Hola" });
+    expect(overTheDay).toMatchObject({ ok: false, error: expect.stringMatching(/máximo de preguntas de hoy/) });
+    expect(overTheDay).not.toHaveProperty("retry");
+    expect(await db.select().from(assistantChats)).toHaveLength(0);
+  });
+
   it("an empty question is explained next to its field", async () => {
     const internal = await internalAgent();
     useOpenRouter();
@@ -162,6 +205,10 @@ describe("«Cargar más» and «Cargar mensajes anteriores» [INT-09] [INT-10]",
     const more = await loadMoreAssistantChatsAction({ agentId: internal.id, before: lastListed });
     expect(more).toMatchObject({ ok: true, data: { hasMore: false } });
     expect(more.ok && more.data?.chats.map((chat) => chat.title)).toEqual(["Pregunta 2", "Pregunta 1"]);
+    // Without a place to continue from (every listed one was deleted), the first ones again.
+    const again = await loadMoreAssistantChatsAction({ agentId: internal.id });
+    expect(again).toMatchObject({ ok: true, data: { hasMore: true } });
+    expect(again.ok && again.data?.chats.slice(0, 2).map((chat) => chat.title)).toEqual(["Pregunta 52", "Pregunta 51"]);
     const earlier = await loadEarlierAssistantMessagesAction({ chatId: long.id, before: firstShown });
     expect(earlier).toMatchObject({ ok: true, data: { hasEarlier: false } });
     expect(earlier.ok && earlier.data?.messages.map((message) => message.content)).toEqual(["Mensaje 1", "Mensaje 2"]);

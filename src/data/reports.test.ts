@@ -557,6 +557,14 @@ describe("[INF-07] costs: the AI's, as OpenRouter reported it, and WhatsApp's, e
     // The internal agents belong to no channel.
     const whatsapp = await getReport(owner, { channelId: wa.id });
     expect(whatsapp.costs).toMatchObject({ aiTeamUsd: 0, aiTeamQuestions: 0 });
+
+    // [INT-15] Only who manages internal agents is told that part: the rest see the same AI cost, not what is theirs.
+    expect((await getReport(actorFor("admin"), {})).costs).toMatchObject({ aiTeamQuestions: 2 });
+    for (const role of ["supervisor", "viewer"] as const) {
+      const report = await getReport(actorFor(role), {});
+      expect(report.costs).toMatchObject({ aiTeamUsd: 0, aiTeamQuestions: 0 });
+      expect(report.costs.aiUsd).toBeCloseTo(costs.aiUsd, 10);
+    }
   });
 
   it("with a channel chosen, only the AI of its conversations and its own WhatsApp messages", async () => {

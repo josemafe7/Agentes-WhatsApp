@@ -146,6 +146,21 @@ alter default privileges for role postgres in schema public
 Sin ese permiso, la versión nueva falla al abrir cualquier pantalla que use una tabla nueva. Desde la fase 10 eso
 incluye el menú de cada persona, que consulta las tablas de los agentes internos.
 
+Las tablas tienen además Row Level Security sin reglas (`docs/security.md`), y un usuario creado por ti queda sujeto
+a ella en las tablas que no son suyas salvo que tenga el atributo `bypassrls` (documentación de Supabase, «Row Level
+Security», consultada el 2026-10-09). Compruébalo una vez, y de nuevo si alguna pantalla sale vacía tras migrar:
+
+```sql
+select rolname, rolbypassrls from pg_roles where rolname = 'dominia_app';
+```
+
+Tiene que salir `true` en `rolbypassrls`. Si sale `false`, las tablas le saldrían vacías: no añadas reglas a las
+tablas para arreglarlo (abrirían la tabla a la API de datos); dale el atributo:
+
+```sql
+alter role dominia_app with bypassrls;
+```
+
 ### ¿Vacía o con la demo?
 
 - **Vacía, para un negocio real:** no hagas nada más. Al abrir la app, el asistente de arranque crea el propietario

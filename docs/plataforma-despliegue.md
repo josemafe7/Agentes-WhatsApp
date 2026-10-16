@@ -96,7 +96,8 @@ días.
   una petición del navegador.
 - Subidas desde la interfaz (documentos de conocimiento, archivos de contexto, logos): en Vercel no pueden
   pasar por un Route Handler ni por una Server Action si superan 4,5 MB. Hoy pasan por la app (hasta 4 MB por
-  Server Action y 25 MB por la ruta del conocimiento, que en Vercel se queda en 4,5 MB). Para más, tendrán que ir
+  Server Action y 25 MB por la ruta del conocimiento, que en Vercel baja a 4 MB: `knowledgeUploadMaxBytes()` lo
+  decide con la variable `VERCEL`, y la pantalla y la ruta dicen ese máximo). Para más, tendrán que ir
   directas del navegador a Supabase Storage con una dirección firmada de subida (`createSignedUploadUrl` y
   `uploadToSignedUrl` de supabase-js), que el servidor da tras comprobar la sesión y el rol: **pendiente**.
 - Descargas: la ruta `/api/files/…` devuelve el archivo en streaming, así que no le afecta el límite.

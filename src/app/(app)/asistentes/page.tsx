@@ -38,7 +38,7 @@ export default async function AssistantsPage() {
             action={
               canCreate ? (
                 <Button asChild>
-                  <Link href="/agentes/nuevo">
+                  <Link href="/agentes/nuevo?tipo=interno">
                     <Plus aria-hidden />
                     Nuevo agente
                   </Link>

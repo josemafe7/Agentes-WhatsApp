@@ -91,6 +91,24 @@ describe("PgTextSearch", () => {
     expect(hits[0].score).toBeGreaterThan(hits[1].score);
   });
 
+  it("a fragment with more of the question's words goes before one that repeats a single word [CON-16]", async () => {
+    const [{ id: kbId }] = await db.insert(knowledgeBases).values({ name: "Cómo llegar" }).returning({ id: knowledgeBases.id });
+    // Both have the same number of matches for «¿Cómo llego en autobús?» (three): one of a single word, the other of two.
+    await addChunk("puntualidad", kbId, 1, "Si llegas tarde, avisa. Quien llega antes espera; llegar a tiempo ayuda a todos.", null);
+    await addChunk("transporte", kbId, 1, "Para llegar: autobús 21 o autobús 147, con parada en la esquina.", null);
+    const scope = { kbs: [{ kbId, indexVersion: 1 }] };
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const hits = await search.search("¿Cómo llego en autobús?", scope);
+      expect(hits.map((hit) => hit.chunkId)).toEqual([ids.transporte, ids.puntualidad]);
+      // The score says it too: two of the words against one.
+      expect(Math.floor(hits[0].score)).toBe(2);
+      expect(Math.floor(hits[1].score)).toBe(1);
+    }
+    // With one word in the question, the denser match decides, as before.
+    const single = await search.search("llegar", scope);
+    expect(single.map((hit) => hit.chunkId)).toEqual([ids.puntualidad, ids.transporte]);
+  });
+
   it("searches only the given bases and index versions", async () => {
     const hits = await search.search("depilación", scopeA);
     expect(hits.map((h) => h.chunkId)).not.toContain(ids["nueva-version"]);

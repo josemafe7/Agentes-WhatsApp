@@ -241,6 +241,8 @@ describe("charts", () => {
     });
     expect(emptyCharts(empty)).toEqual({ channels: true, origins: true, response: "no-handoffs", costs: true });
     expect(hasActivity(empty)).toBe(false);
+    // Questions answered by an internal agent count, even with a model that costs nothing ([INT-16]).
+    expect(hasActivity({ ...empty, costs: { ...empty.costs, aiTeamQuestions: 3 } })).toBe(true);
     expect(emptyCharts(sampleReport())).toEqual({ channels: false, origins: false, response: null, costs: false });
     expect(hasActivity(sampleReport())).toBe(true);
     const unanswered = sampleReport({ firstResponse: { ...sampleReport().firstResponse, answered: 0, medianMs: null, p90Ms: null } });

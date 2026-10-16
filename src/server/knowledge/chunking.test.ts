@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { chunkMarkdown, chunkPrefix, embeddingInput, parseHeading } from "./chunking";
 import { CHUNK_MAX_TOKENS, CHUNK_MIN_TOKENS } from "./constants";
 import { sheetToMarkdown } from "./extract/tables";
-import { joinPages, lastPageOf, splitPages } from "./pages";
+import { countPagesWithoutText, joinPages, lastPageOf, splitPages } from "./pages";
 import { estimateTokens } from "./tokens";
 
 /** A Spanish sentence of about 25 tokens, numbered so every one is different. */
@@ -31,6 +31,22 @@ describe("page markers [CON-06]", () => {
     ]);
     expect(lastPageOf(markdown)).toBe(3);
     expect(splitPages("Sin páginas")).toEqual([{ page: null, markdown: "Sin páginas" }]);
+  });
+});
+
+describe("pages without text [CON-06]", () => {
+  it("counts the pages that have their marker and nothing to read: blank, pictures or scanned", () => {
+    const markdown = joinPages([
+      { page: 1, markdown: "Índice" },
+      { page: 2, markdown: "" },
+      { page: 3, markdown: "   \n " },
+      { page: 4, markdown: "Normas de la casa." },
+    ]);
+    expect(countPagesWithoutText(markdown)).toBe(2);
+    expect(countPagesWithoutText(joinPages([{ page: 1, markdown: "Todo con texto." }]))).toBe(0);
+    // A text, a FAQ or a Word file has no pages: nothing to count.
+    expect(countPagesWithoutText("## Precios\n\nCorte: 25 €")).toBe(0);
+    expect(countPagesWithoutText(null)).toBe(0);
   });
 });
 
@@ -108,6 +124,34 @@ describe("chunking [CON-10]", () => {
     // The short last page joins the previous chunk of the same section, marked with its page.
     expect(chunks[1].content).toContain("[pág. 3]\n\nUna línea corta.");
     expect(chunks.some((chunk) => chunk.content.includes("<!--"))).toBe(false);
+  });
+
+  it("the end of a page that starts the next chunk goes under its own page, so a fact is never cited a page too far [CON-23]", () => {
+    const fact = "El descuento de empleado es del 23 por ciento.";
+    const markdown = joinPages([
+      { page: 1, markdown: `${paragraph(1, 9)} ${fact}` },
+      { page: 2, markdown: paragraph(20, 10) },
+      { page: 3, markdown: paragraph(40, 10) },
+    ]);
+    const chunks = chunkMarkdown(markdown);
+    expect(chunks.map((chunk) => chunk.page)).toEqual([1, 2, 3]);
+    // The chunk of page 2 starts with the last sentences of page 1: they stay marked as page 1, and its own text as page 2.
+    const second = chunks[1].content;
+    expect(second.startsWith("[pág. 1]\n\n")).toBe(true);
+    expect(second).toContain(fact);
+    expect(second.indexOf(fact)).toBeLessThan(second.indexOf("[pág. 2]"));
+    expect(second.indexOf("[pág. 2]")).toBeLessThan(second.indexOf("La frase número 20 "));
+    // The same for every chunk that carries the end of another page.
+    expect(chunks[2].content).toMatch(/^\[pág\. 2\]\n\n[^[]+\n\n\[pág\. 3\]\n\nLa frase número 40 /);
+    // The first chunk has nothing before it, so nothing to mark.
+    expect(chunks[0].content).not.toContain("[pág.");
+  });
+
+  it("an overlap of the same page is not marked: a long page cut in two reads as before [CON-23]", () => {
+    const chunks = chunkMarkdown(joinPages([{ page: 7, markdown: paragraph(1, 40) }]));
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((chunk) => chunk.page === 7)).toBe(true);
+    expect(chunks.some((chunk) => chunk.content.includes("[pág."))).toBe(false);
   });
 
   it("short pages share a chunk, each marked «[pág. N]» where it starts [CON-23]", () => {

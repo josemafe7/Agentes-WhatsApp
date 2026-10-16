@@ -3,10 +3,13 @@
 // too live in src/lib/knowledge-limits.ts (no server code there) and are re-exported here.
 import "server-only";
 
+import { MAX_KB_FILE_BYTES, MAX_KB_FILE_BYTES_ON_VERCEL } from "@/lib/knowledge-limits";
+
 export {
   CHARS_PER_TOKEN,
   DEFAULT_REFRESH_HOURS,
   MAX_KB_FILE_BYTES,
+  MAX_KB_FILE_BYTES_ON_VERCEL,
   MAX_QUERY_CHARS,
   MAX_REFRESH_HOURS,
   MIN_REFRESH_HOURS,
@@ -27,6 +30,14 @@ export const SUMMARY_MAX_CHARS = 400;
 export const SUMMARY_INPUT_MAX_CHARS = 12_000;
 
 // ─── Extraction ([CON-04], [CON-06], [CON-07]) ──────────────────────────────────────────────────────────
+
+/**
+ * Largest file that can be uploaded to a knowledge base where the app runs ([CON-04]): the screen says it and the
+ * upload route checks it. Files that arrive another way (the demo's) keep MAX_KB_FILE_BYTES.
+ */
+export function knowledgeUploadMaxBytes(env: Record<string, string | undefined> = process.env): number {
+  return env.VERCEL ? MAX_KB_FILE_BYTES_ON_VERCEL : MAX_KB_FILE_BYTES;
+}
 
 /** Largest file turned into a context file of an agent ([CON-01]). */
 export const MAX_CONTEXT_FILE_BYTES = 10 * 1024 * 1024;

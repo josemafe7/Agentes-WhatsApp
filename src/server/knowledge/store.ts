@@ -33,6 +33,16 @@ export async function updateDocument(documentId: string, changes: Partial<typeof
     .where(eq(kbDocuments.id, documentId));
 }
 
+/** Whether another document of the same base already has that title. */
+export async function isDocumentTitleTaken(kbId: string, title: string, exceptDocumentId: string, executor: Executor = db): Promise<boolean> {
+  const [row] = await executor
+    .select({ id: kbDocuments.id })
+    .from(kbDocuments)
+    .where(and(eq(kbDocuments.kbId, kbId), eq(kbDocuments.title, storableText(title)), ne(kbDocuments.id, exceptDocumentId)))
+    .limit(1);
+  return Boolean(row);
+}
+
 /** Sets the title only if it is still `from` (somebody may have renamed the document meanwhile): true if it changed. */
 export async function replaceDocumentTitle(documentId: string, from: string, to: string, executor: Executor = db): Promise<boolean> {
   const rows = await executor

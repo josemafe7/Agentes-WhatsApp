@@ -304,6 +304,18 @@ describe("a file's own title [CON-10]", () => {
     expect(await doc(row.id)).toMatchObject({ status: "ready", title: "Protocolo de higiene" });
   });
 
+  it("the parts of a document cut in several files, all with the same title inside, keep their file names after the first", async () => {
+    const part = (text: string) => makeTextPdf([[text]], { title: "Manual del equipo" });
+    const first = await addNamedFile("manual-parte-1.pdf", part("La apertura del salon se hace a las nueve con la caja contada y el escaparate revisado por el turno."), "manual-parte-1");
+    const second = await addNamedFile("manual-parte-2.pdf", part("El cierre del salon se hace a las ocho con la alarma puesta y la caja guardada por el turno de tarde."), "manual-parte-2");
+    await processDocument(first.id, budget(), { storage });
+    await processDocument(second.id, budget(), { storage });
+    expect(await doc(first.id)).toMatchObject({ status: "ready", title: "Manual del equipo" });
+    // Its pages start at 1 again: with the same title an answer could not say which part «pág. 1» is from.
+    expect(await doc(second.id)).toMatchObject({ status: "ready", title: "manual-parte-2" });
+    expect(new Set(await chunkTitles(second.id))).toEqual(new Set(["manual-parte-2"]));
+  });
+
   it("a title somebody wrote is kept, whatever the file says; and a file without a title keeps its name", async () => {
     const written = await addNamedFile("guia.pdf", makeTextPdf([COLOUR], { title: "Guía de coloración" }), "Tintes naturales");
     await processDocument(written.id, budget(), { storage });

@@ -105,8 +105,10 @@ datos de cada servicio (límites, cabeceras, planes), en `docs/plataforma-despli
   `.enableRLS()`, así que la migración que genera Drizzle incluye su `ENABLE ROW LEVEL SECURITY` (hoy, las 54 de
   `drizzle/0001_initial.sql`). Ninguna tiene políticas, a propósito: por la API de datos de Supabase (con la clave
   publicable, la antigua `anon` o un usuario de Supabase Auth) no se lee ni se escribe nada. La app entra solo desde el
-  servidor como `postgres`, el propietario de las tablas, al que Row Level Security no se aplica: por eso los permisos
-  siguen en `src/data/`. Una tabla nueva activa Row Level Security en la misma migración que la crea; lo comprueban
+  servidor como `postgres`, el propietario de las tablas, al que Row Level Security no se aplica, o como un usuario
+  propio de la app (`dominia_app`, `docs/guia-despliegue.md`), que para ver las filas necesita el atributo
+  `bypassrls` y permiso sobre cada tabla: por eso los permisos siguen en `src/data/`. Una tabla nueva activa Row
+  Level Security en la misma migración que la crea; lo comprueban
   una prueba (`src/db/db.test.ts`, que falla si una tabla de `public` no lo tiene), el Security Advisor de Supabase
   (una tabla de `public` sin Row Level Security sale como error, `rls_disabled_in_public`) y la revisión de cada
   migración (skill `actualizar`). El aviso informativo «RLS Enabled No Policy» que sale en cada tabla es lo esperado:
@@ -351,7 +353,11 @@ datos de cada servicio (límites, cabeceras, planes), en `docs/plataforma-despli
   como «Error de la base de datos (SQLSTATE, restricción).», por ejemplo `(23505, <nombre de la restricción>)`: Drizzle pone
   en el mensaje la consulta y todos sus valores (teléfonos, identificadores, textos), y el mensaje y el detalle de
   Postgres pueden llevar datos («Key (email)=(…)»), así que `safeErrorMessage` (`src/server/redact.ts`) los quita
-  siempre ([SEG-14]). `redactSecrets` tapa además las claves de Supabase (`sb_secret_…`, `sb_publishable_…`) y el
+  siempre ([SEG-14]). Next.js escribe en el registro del servidor cualquier error que lance una Server Action: por
+  eso `toActionFailure` (`src/server/errors.ts`) nunca relanza un error inesperado tal cual; anota él
+  `[accion] Error inesperado:` con ese mensaje seguro y las líneas del código de donde viene (sin el mensaje
+  original) y lanza otro que no dice nada. `redirect()` y `notFound()` de Next.js pasan intactos. Un fallo al
+  pintar una página (Server Component) no pasa por ahí: lo escribe Next.js, y en él solo van consultas de lectura. `redactSecrets` tapa además las claves de Supabase (`sb_secret_…`, `sb_publishable_…`) y el
   usuario y la contraseña de cualquier dirección `postgres://…` que aparezca en un texto. En desarrollo, Next.js escribiría en la
   terminal los argumentos de cada Server Action (la contraseña al entrar, la clave que se prueba…): va apagado
   con `logging.serverFunctions: false` en `next.config.ts`, y una prueba lo comprueba.

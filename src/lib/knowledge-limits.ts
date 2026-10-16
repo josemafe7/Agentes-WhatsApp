@@ -10,6 +10,11 @@ export const CHARS_PER_TOKEN = 3.5;
 
 /** Largest file a knowledge base accepts (a 100+ page PDF fits; Mistral's own limit is 50 MB). */
 export const MAX_KB_FILE_BYTES = 25 * 1024 * 1024;
+/**
+ * The same where the app runs on Vercel: the file travels whole in one request to a function, and a request carries
+ * at most 4.5 MB there (docs/plataforma-despliegue.md «Límite de 4,5 MB»). Until files go straight to the storage.
+ */
+export const MAX_KB_FILE_BYTES_ON_VERCEL = 4 * 1024 * 1024;
 /** Web pages found in a sitemap that are added at once ([CON-04]). */
 export const SITEMAP_MAX_PAGES = 50;
 /** Refresh interval of a web page when none is given ([CON-09]). */

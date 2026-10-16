@@ -80,6 +80,26 @@ function databaseCode(error: unknown): string | null {
   return typeof code === "string" && DRIVER_CODE.test(code) ? code : null;
 }
 
+/** A line of a stack that points to code: «at function (file:line:column)». */
+const STACK_FRAME = /^\s+at .*:\d+:\d+\)?$/;
+
+/**
+ * Where an error came from, without what it says: the «at … file:line:column» lines of its stack (functions and
+ * files), which never carry values. The stack starts with the message, which may be anything (a failed query with
+ * every value, a text somebody typed): only what comes after it is read, and safeErrorMessage gives its safe part.
+ */
+export function safeErrorFrames(error: unknown, maxFrames = 8): string {
+  if (!(error instanceof Error) || typeof error.stack !== "string") return "";
+  const messageAt = error.message ? error.stack.indexOf(error.message) : 0;
+  if (messageAt < 0) return "";
+  return error.stack
+    .slice(messageAt + error.message.length)
+    .split("\n")
+    .filter((line) => STACK_FRAME.test(line))
+    .slice(0, maxFrames)
+    .join("\n");
+}
+
 /** Safe, short message of an unknown error for logs and stored errors. */
 export function safeErrorMessage(error: unknown, maxLength = 500): string {
   let message = error instanceof Error ? error.message : typeof error === "string" ? error : "Error desconocido";

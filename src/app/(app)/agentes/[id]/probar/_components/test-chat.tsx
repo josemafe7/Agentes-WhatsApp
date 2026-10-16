@@ -2,8 +2,9 @@
 
 import { Bot, CircleAlert, Info, KeyRound, LoaderCircle, RotateCcw, SendHorizontal, Wrench } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState, useTransition, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { AI_SETTINGS_HREF } from "@/components/banners/openrouter-banner";
+import { MarkdownText } from "@/components/markdown-text";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -54,10 +55,14 @@ export function TestChat({ agentId, agentName, aiConfigured, keyHelp, internal =
   const [draft, setDraft] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [noKey, setNoKey] = useState(!aiConfigured);
-  const [pending, startTransition] = useTransition();
+  // Plain state, not a transition: while an async transition waits, React holds every other one, and moving to
+  // another tab or section of the app is one. The agent can take many seconds to answer.
+  const [pending, setPending] = useState(false);
   const nextId = useRef(1);
   // Bumped by «Empezar de nuevo»: a reply that arrives for a forgotten conversation is dropped.
   const conversation = useRef(0);
+  /** False once the screen is gone: a reply that arrives then has nowhere to go. */
+  const alive = useRef(true);
   const logRef = useRef<HTMLDivElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
 
@@ -71,28 +76,35 @@ export function TestChat({ agentId, agentName, aiConfigured, keyHelp, internal =
     if (log) log.scrollTop = log.scrollHeight;
   }, [items.length, pending]);
 
-  function request(current: ChatItem[]) {
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  async function request(current: ChatItem[]) {
     const started = conversation.current;
     const messages = capTranscript(toTranscript(current));
-    startTransition(async () => {
-      let result: TestChatResult | null;
-      try {
-        result = await sendTestMessageAction({ agentId, channel, messages });
-      } catch {
-        result = null;
-      }
-      if (started !== conversation.current) return;
-      if (result?.ok) {
-        const id = nextId.current++;
-        const reply = result.data;
-        setItems((previous) => [...previous, { kind: "ai", id, reply }]);
-        setSelectedId(id);
-        return;
-      }
-      if (result?.reason === "ai_not_configured") setNoKey(true);
-      const message = result?.error ?? SEND_FAILED;
-      setItems((previous) => [...previous, { kind: "error", id: nextId.current++, message }]);
-    });
+    setPending(true);
+    let result: TestChatResult | null;
+    try {
+      result = await sendTestMessageAction({ agentId, channel, messages });
+    } catch {
+      result = null;
+    }
+    if (!alive.current || started !== conversation.current) return;
+    setPending(false);
+    if (result?.ok) {
+      const id = nextId.current++;
+      const reply = result.data;
+      setItems((previous) => [...previous, { kind: "ai", id, reply }]);
+      setSelectedId(id);
+      return;
+    }
+    if (result?.reason === "ai_not_configured") setNoKey(true);
+    const message = result?.error ?? SEND_FAILED;
+    setItems((previous) => [...previous, { kind: "error", id: nextId.current++, message }]);
   }
 
   function send() {
@@ -101,28 +113,31 @@ export function TestChat({ agentId, agentName, aiConfigured, keyHelp, internal =
     const next: ChatItem[] = [...items.filter((item) => item.kind !== "error"), { kind: "contact", id: nextId.current++, text }];
     setItems(next);
     setDraft("");
-    request(next);
+    void request(next);
   }
 
   function retry() {
     if (pending || noKey) return;
     const next = items.filter((item) => item.kind !== "error");
     setItems(next);
-    request(next);
+    void request(next);
   }
 
   function reset() {
     conversation.current += 1;
+    // Whatever was being answered belongs to the conversation that is forgotten.
+    setPending(false);
     setItems([]);
     setSelectedId(null);
     setDraft("");
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-      event.preventDefault();
-      send();
-    }
+    // Enter sends and Shift+Enter adds a line; on touch screens Enter always adds a line, as in the inbox.
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    if (window.matchMedia("(pointer: coarse)").matches) return;
+    event.preventDefault();
+    send();
   }
 
   function showDetails(id: number) {
@@ -221,7 +236,7 @@ export function TestChat({ agentId, agentName, aiConfigured, keyHelp, internal =
             {noKey ? (
               <NoKeyNote variant={keyHelp} />
             ) : (
-              <p className="text-xs text-muted-foreground">Intro envía; Mayús + Intro añade una línea.</p>
+              <p className="text-xs text-muted-foreground pointer-coarse:hidden">Intro envía; Mayús + Intro añade una línea.</p>
             )}
           </div>
         </CardContent>
@@ -235,7 +250,7 @@ export function TestChat({ agentId, agentName, aiConfigured, keyHelp, internal =
         </CardHeader>
         <CardContent>
           {selected ? (
-            <ReplyDetails reply={selected.reply} />
+            <ReplyDetails reply={selected.reply} internal={internal} />
           ) : (
             <p className="text-sm text-muted-foreground">
               Aquí verás, para cada respuesta, el modelo, los tokens, el coste, el tiempo, las herramientas usadas y los
@@ -270,7 +285,14 @@ function AiBubble({ agentName, reply, internal, selected, onShowDetails }: AiBub
             <Bot aria-hidden className="size-4" />
             IA · {agentName}
           </p>
-          <p className="rounded-2xl rounded-br-sm border border-ai/25 bg-ai-soft px-3 py-2 break-words whitespace-pre-wrap">{reply.text}</p>
+          {internal ? (
+            // As the team will read it in «Asistentes» ([INT-13]): lists and bold, always as escaped text ([SEG-05]).
+            <div className="rounded-2xl rounded-br-sm border border-ai/25 bg-ai-soft px-3 py-2 break-words [&>*:first-child]:mt-0">
+              <MarkdownText text={reply.text} />
+            </div>
+          ) : (
+            <p className="rounded-2xl rounded-br-sm border border-ai/25 bg-ai-soft px-3 py-2 break-words whitespace-pre-wrap">{reply.text}</p>
+          )}
           <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs text-muted-foreground tabular-nums">
             {reply.toolCalls.map((call) => (
               <span key={call.id} className="inline-flex items-center gap-1">

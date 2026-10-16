@@ -51,14 +51,14 @@ let kbId: string;
 
 type UploadOptions = { fileName?: string | null; origin?: string | null; headers?: Record<string, string> };
 
-function upload(bytes: Uint8Array, options: UploadOptions = {}, base = kbId): Promise<Response> {
+function upload(bytes: Uint8Array, options: UploadOptions = {}, base = kbId, env?: Record<string, string | undefined>): Promise<Response> {
   const headers = new Headers({ host: "localhost:3000", "content-type": "application/octet-stream", ...options.headers });
   const fileName = options.fileName === undefined ? "normas.txt" : options.fileName;
   if (fileName !== null) headers.set(FILE_NAME_HEADER, encodeURIComponent(fileName));
   const origin = options.origin === undefined ? ORIGIN : options.origin;
   if (origin !== null) headers.set("origin", origin);
   const request = new Request(`${ORIGIN}/api/knowledge/bases/${base}/files`, { method: "POST", headers, body: bytes, duplex: "half" } as RequestInit);
-  return handleKnowledgeUpload(request, Promise.resolve({ id: base }));
+  return handleKnowledgeUpload(request, Promise.resolve({ id: base }), env);
 }
 
 const documents = () => db.select().from(kbDocuments);
@@ -124,6 +124,19 @@ describe("uploading a file [CON-04] [CON-05]", () => {
     streamed.set(utf8("%PDF-1.4"));
     expect((await upload(streamed, { fileName: "enorme.pdf" })).status).toBe(413);
     expect(await documents()).toEqual([]);
+  });
+
+  it("published on Vercel, where a request carries at most 4.5 MB, the limit is 4 MB and the message says so", async () => {
+    const onVercel = { VERCEL: "1" };
+    const over = new Uint8Array(4 * 1024 * 1024 + 1);
+    over.set(utf8("%PDF-1.4"));
+    const response = await upload(over, { fileName: "manual.pdf" }, kbId, onVercel);
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({ error: "El archivo es demasiado grande. El máximo es 4 MB.", code: "too_large" });
+    expect(await documents()).toEqual([]);
+    // Under it, a file is added as anywhere else; and away from Vercel that same file is not too large.
+    expect((await upload(utf8("Abrimos de lunes a sábado."), { fileName: "horario.txt" }, kbId, onVercel)).status).toBe(201);
+    expect((await upload(over, { fileName: "manual.pdf" })).status).not.toBe(413);
   });
 
   it("without the file name, or with a malformed one, it is refused", async () => {

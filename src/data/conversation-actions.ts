@@ -20,7 +20,7 @@ import { notify } from "@/server/notifications/notify";
 import { sendOutbound } from "@/server/outbound/send";
 import { publishConversationEvent, type ConversationChange } from "@/server/realtime/events";
 import { listActiveTeam } from "@/server/team";
-import { assertAnswersCustomers } from "./agent-audience";
+import { assertAnswersCustomers, seesInternalAgents } from "./agent-audience";
 import { writeAudit } from "./audit";
 import { loadConversationFor, type ScopedConversation } from "./conversation-scope";
 
@@ -228,8 +228,9 @@ export async function setConversationAgent(actor: Actor, input: unknown): Promis
   const data = parseInput(setConversationAgentSchema, input);
   const conversation = await loadConversationFor(actor, PERMISSIONS.inbox.changeAgent, data.conversationId);
   if (data.agentId) {
-    const [agent] = await db.select({ id: agents.id }).from(agents).where(eq(agents.id, data.agentId));
-    if (!agent) throw new NotFoundError("No se ha encontrado el agente.");
+    const [agent] = await db.select({ id: agents.id, audience: agents.audience }).from(agents).where(eq(agents.id, data.agentId));
+    // For who cannot see internal agents, one of them is the same as one that does not exist ([INT-15]).
+    if (!agent || (agent.audience === "team" && !seesInternalAgents(actor))) throw new NotFoundError("No se ha encontrado el agente.");
     // An internal agent never answers customers ([INT-03]).
     await assertAnswersCustomers(db, agent.id, "agentId");
   }

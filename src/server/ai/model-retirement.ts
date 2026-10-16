@@ -55,7 +55,8 @@ export function modelWarnings(models: readonly ModelInfo[], inUse: readonly stri
 
 // ─── Notices to the team ────────────────────────────────────────────────────────────────────────────────
 
-type ModelUse = { agents: { id: string; name: string }[]; inDefaults: boolean };
+/** `internal`: an internal agent, which the notice never names: who receives it may not be allowed to see it ([INT-15]). */
+type ModelUse = { agents: { id: string; name: string; internal: boolean }[]; inDefaults: boolean };
 type NoticeState = Record<string, string>;
 
 /** Where each model is used: principal or fallback of an agent, or a default of Ajustes › IA. */
@@ -68,10 +69,13 @@ async function modelsInUse(): Promise<Map<string, ModelUse>> {
   };
   const defaults = await resolveDefaultModels();
   for (const field of CHECKED_DEFAULTS) entryFor(defaults[field]).inDefaults = true;
-  const rows = await db.select({ id: agents.id, name: agents.name, model: agents.model, fallbackModel: agents.fallbackModel }).from(agents).orderBy(asc(agents.name));
+  const rows = await db
+    .select({ id: agents.id, name: agents.name, audience: agents.audience, model: agents.model, fallbackModel: agents.fallbackModel })
+    .from(agents)
+    .orderBy(asc(agents.name));
   for (const agent of rows) {
     for (const modelId of new Set([agent.model, agent.fallbackModel])) {
-      if (modelId) entryFor(modelId).agents.push({ id: agent.id, name: agent.name });
+      if (modelId) entryFor(modelId).agents.push({ id: agent.id, name: agent.name, internal: agent.audience === "team" });
     }
   }
   return uses;
@@ -85,18 +89,24 @@ function sameState(stored: NoticeState | null, current: NoticeState): boolean {
   return keys.length === Object.keys(before).length && keys.every((modelId) => before[modelId] === current[modelId]);
 }
 
-/** «Se usa en el agente «Recepción» y los modelos por defecto de Ajustes › IA.» */
+/** «Se usa en el agente «Recepción», un agente interno y los modelos por defecto de Ajustes › IA.» */
 function usedIn(use: ModelUse): string {
-  const places = use.agents.map((agent) => `el agente «${agent.name}»`);
+  const places = use.agents.filter((agent) => !agent.internal).map((agent) => `el agente «${agent.name}»`);
+  // Counted, never named: Ajustes › Notificaciones may send this notice to roles that do not see internal agents.
+  const internal = use.agents.filter((agent) => agent.internal).length;
+  if (internal > 0) places.push(internal === 1 ? "un agente interno" : `${internal} agentes internos`);
   if (use.inDefaults) places.push("los modelos por defecto de Ajustes › IA");
   return `Se usa en ${listFormat.format(places)}.`;
 }
 
-/** Where to change it: Ajustes › IA for a default (it also lists the agents), else the agent's Modelo tab or the list. */
+/**
+ * Where to change it: Ajustes › IA for a default (it also lists the agents), else the agent's Modelo tab or the list.
+ * Never the address of an internal agent: Agentes shows it, flagged, to who may see it.
+ */
 function linkFor(use: ModelUse): string {
   if (use.inDefaults) return AI_SETTINGS_PATH;
   const [only, ...others] = use.agents;
-  return only && others.length === 0 ? `${AGENTS_PATH}/${only.id}/modelo` : AGENTS_PATH;
+  return only && others.length === 0 && !only.internal ? `${AGENTS_PATH}/${only.id}/modelo` : AGENTS_PATH;
 }
 
 function titleFor(warning: ModelWarning, models: readonly ModelInfo[]): string {

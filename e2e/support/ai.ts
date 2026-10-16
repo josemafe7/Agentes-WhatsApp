@@ -125,6 +125,30 @@ export function providerOfModel(modelId: string): string {
   return modelId.split("/")[0].replace(/^~/, "").toLowerCase();
 }
 
+/**
+ * The chat request that carries `question` is answered with `answer` after `delayMs`: a model that takes its time
+ * (docs/integracion-openrouter.md §3.8 for the shape of the answer).
+ */
+export async function stubSlowChatAnswer(mock: MockClient, question: string, answer: string, delayMs: number): Promise<void> {
+  await mock.stub({
+    service: "openrouter",
+    method: "POST",
+    path: CHAT_COMPLETIONS_PATH,
+    status: 200,
+    delayMs,
+    times: 1,
+    when: { bodyIncludes: question },
+    body: {
+      id: "gen-e2e-lenta",
+      object: "chat.completion",
+      created: 1790380800,
+      model: "openai/gpt-5.6-luna",
+      choices: [{ index: 0, finish_reason: "stop", native_finish_reason: "completed", message: { role: "assistant", content: answer } }],
+      usage: { prompt_tokens: 1400, completion_tokens: 24, total_tokens: 1424, cost: 0.0003 },
+    },
+  });
+}
+
 /** OpenRouter's error bodies (docs/integracion-openrouter.md «Forma de los errores»). */
 const ERROR_BODIES = {
   401: { error: { code: 401, message: "User not found." } },

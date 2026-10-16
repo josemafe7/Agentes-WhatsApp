@@ -14,7 +14,7 @@ import { ValidationError } from "@/server/errors";
 import { requirePageActor } from "@/server/session";
 import { ActivityFilters } from "./_components/activity-filters";
 import { ActivityTable, type ActivityRow } from "./_components/activity-table";
-import { ACTOR_TYPE_LABELS, actionLabel, detailLines, targetLabel } from "./_lib/labels";
+import { ACTOR_TYPE_LABELS, actionLabel, detailItems, targetLabel } from "./_lib/labels";
 import { ACTIVITY_PATH, activityHref, activityQueryFromSearchParams } from "./_lib/search-params";
 
 export const metadata: Metadata = { title: "Registro de actividad" };
@@ -67,13 +67,14 @@ export default async function ActivityPage({ searchParams }: PageProps) {
   const hasFilters = Object.keys(query).length > 0;
   const rows: ActivityRow[] = page.entries.map((entry) => ({
     id: entry.id,
-    when: formatDateTime(entry.createdAt, profile.timezone),
+    day: formatDateTime(entry.createdAt, profile.timezone, { preset: "date" }),
+    time: formatDateTime(entry.createdAt, profile.timezone, { preset: "time" }),
     actorType: entry.actorType,
     who: entry.actorType === "user" ? (entry.actorName ?? "Persona borrada") : ACTOR_TYPE_LABELS[entry.actorType],
     action: actionLabel(entry.action),
     actionCode: entry.action,
     target: targetLabel(entry.targetType),
-    details: detailLines(entry.details),
+    details: detailItems(entry.details, entry.action),
   }));
 
   return (

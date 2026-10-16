@@ -1,4 +1,5 @@
 import { BellRing, ChevronRight, Clock, type LucideIcon } from "lucide-react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { noPermissionDescription } from "@/components/app-shell/navigation";
@@ -11,6 +12,8 @@ import { reminderSummary } from "../../ajustes/recordatorios/_lib/reminder-form"
 import { AgendaSettingsForm } from "./_components/agenda-settings-form";
 import { formatMinutes } from "./servicios/_lib/service-form";
 import { AGENDA_CONFIG_PATH, BUSINESS_HOURS_PATH, REMINDERS_PATH, RESOURCES_PATH, SERVICES_PATH } from "./_lib/paths";
+
+export const metadata: Metadata = { title: "Configuración de la agenda" };
 
 /** A singular that is one of the options, or the first option (words saved before the options existed). */
 function chosen(options: readonly { singular: string }[], value: string): string {

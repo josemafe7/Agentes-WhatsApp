@@ -4,6 +4,7 @@ import { Lock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import type { ToolRow } from "../../_lib/tools";
+import { groupTools } from "../herramientas/_lib/tool-groups";
 import { EditorForm } from "./editor-form";
 import { useAgentSection } from "./use-agent-section";
 
@@ -42,49 +43,61 @@ type ToolListProps = {
   onToggle?: (name: string, on: boolean) => void;
 };
 
-/** The list, also read-only (without onToggle) for supervisor and viewer. */
+/** The list, one block per theme; also read-only (without onToggle) for supervisor and viewer. */
 export function ToolList({ rows, enabledNames, onToggle }: ToolListProps) {
   const isOn = (row: ToolRow) => row.availability === "always" || (enabledNames ? enabledNames.includes(row.name) : row.enabled);
   return (
-    <ul className="grid divide-y rounded-xl border">
-      {rows.map((row) => {
-        const id = `tool-${row.name}`;
-        const switchable = onToggle !== undefined && row.availability === "available";
+    <div className="grid gap-6">
+      {groupTools(rows).map((group) => {
+        const headingId = `tool-group-${group.key}`;
         return (
-          <li key={row.name} className="flex items-start gap-4 p-4">
-            <div className="grid min-w-0 flex-1 gap-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <label htmlFor={id} className="text-sm font-medium">
-                  {row.label}
-                </label>
-                {row.availability === "always" ? (
-                  <Badge variant="outline" className="h-[22px] gap-1">
-                    <Lock aria-hidden />
-                    Siempre activa
-                  </Badge>
-                ) : null}
-                {row.availability === "soon" ? (
-                  <Badge variant="secondary" className="h-[22px]">
-                    Próximamente
-                  </Badge>
-                ) : null}
-              </div>
-              <p id={`${id}-help`} className="text-sm text-muted-foreground">
-                {row.description}
-                {row.availability === "always" ? " Siempre hay una vía a una persona del equipo." : null}
-              </p>
-            </div>
-            <Switch
-              id={id}
-              checked={isOn(row)}
-              disabled={!switchable}
-              onCheckedChange={(checked) => onToggle?.(row.name, checked)}
-              aria-describedby={`${id}-help`}
-              className="mt-0.5"
-            />
-          </li>
+          <div key={group.key} className="grid gap-2">
+            <h2 id={headingId} className="text-sm font-semibold">
+              {group.title}
+            </h2>
+            <ul aria-labelledby={headingId} className="grid divide-y rounded-xl border">
+              {group.tools.map((row) => {
+                const id = `tool-${row.name}`;
+                const switchable = onToggle !== undefined && row.availability === "available";
+                return (
+                  <li key={row.name} className="flex items-start gap-4 p-4">
+                    <div className="grid min-w-0 flex-1 gap-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label htmlFor={id} className="text-sm font-medium">
+                          {row.label}
+                        </label>
+                        {row.availability === "always" ? (
+                          <Badge variant="outline" className="h-[22px] gap-1">
+                            <Lock aria-hidden />
+                            Siempre activa
+                          </Badge>
+                        ) : null}
+                        {row.availability === "soon" ? (
+                          <Badge variant="secondary" className="h-[22px]">
+                            Próximamente
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <p id={`${id}-help`} className="text-sm text-muted-foreground">
+                        {row.description}
+                        {row.availability === "always" ? " Siempre hay una vía a una persona del equipo." : null}
+                      </p>
+                    </div>
+                    <Switch
+                      id={id}
+                      checked={isOn(row)}
+                      disabled={!switchable}
+                      onCheckedChange={(checked) => onToggle?.(row.name, checked)}
+                      aria-describedby={`${id}-help`}
+                      className="mt-0.5"
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         );
       })}
-    </ul>
+    </div>
   );
 }

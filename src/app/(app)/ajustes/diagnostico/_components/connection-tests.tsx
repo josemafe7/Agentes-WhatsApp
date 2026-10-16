@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ConnectionCheck, ConnectionTestResult } from "@/data/diagnostics-connections";
 import { cn } from "@/lib/utils";
+import { DIAGNOSTICS_SECTIONS } from "../_lib/sections";
 import type { ConnectionTestItem } from "../_lib/view";
 import { runConnectionTestAction } from "../actions";
 
@@ -92,9 +93,9 @@ function TestRow({ item }: { item: ConnectionTestItem }) {
 /** «Pruebas de conexión» ([AJU-11]): each check of the app, run now, with its result in Spanish. */
 export function ConnectionTestsSection({ items }: { items: ConnectionTestItem[] }) {
   return (
-    <Card id="pruebas-de-conexion" className="scroll-mt-20">
+    <Card id={DIAGNOSTICS_SECTIONS.connectionTests.id} className="scroll-mt-20">
       <CardHeader>
-        <CardTitle>Pruebas de conexión</CardTitle>
+        <CardTitle>{DIAGNOSTICS_SECTIONS.connectionTests.title}</CardTitle>
         <CardDescription>
           Comprueba ahora la clave de OpenRouter, el correo del sistema y cada canal conectado, con las mismas pruebas de sus
           pantallas. Los semáforos de los canales quedan al día.

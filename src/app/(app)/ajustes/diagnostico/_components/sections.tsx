@@ -7,10 +7,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DIAGNOSTICS_SECTIONS as SECTIONS } from "../_lib/sections";
 import type { DiagnosticsView } from "../_lib/view";
 import { JobActions } from "./job-actions";
 
-function Section({ id, title, description, children }: { id?: string; title: string; description?: string; children: ReactNode }) {
+/** A section of the page: its id is what the summary, and links from other pages, lead to. */
+function Section({ id, title, description, children }: { id: string; title: string; description?: string; children: ReactNode }) {
   return (
     <Card id={id} className="scroll-mt-20">
       <CardHeader>
@@ -37,7 +39,7 @@ export function DatabaseSection({ database }: { database: DiagnosticsView["datab
     .filter(Boolean)
     .join(" · ");
   return (
-    <Section title="Base de datos">
+    <Section {...SECTIONS.database}>
       <StatusLight status={database.status} label="Conexión" detail={database.status === "ok" ? detail : database.hint} />
       <StatusLight
         status={database.migrationsStatus}
@@ -54,7 +56,7 @@ export function DatabaseSection({ database }: { database: DiagnosticsView["datab
 
 export function QueueSection({ queue }: { queue: DiagnosticsView["queue"] }) {
   return (
-    <Section title="Trabajo en segundo plano" description="Respuestas de la IA, correos, sincronizaciones y limpiezas que se hacen por turnos.">
+    <Section {...SECTIONS.queue} description="Respuestas de la IA, correos, sincronizaciones y limpiezas que se hacen por turnos.">
       <StatusLight
         status={queue.tickStatus}
         label="Última ronda"
@@ -117,8 +119,7 @@ export function QueueSection({ queue }: { queue: DiagnosticsView["queue"] }) {
 export function AiErrorsSection({ aiErrors }: { aiErrors: DiagnosticsView["aiErrors"] }) {
   return (
     <Section
-      id="errores-recientes"
-      title="Errores recientes de la IA"
+      {...SECTIONS.aiErrors}
       description="Las últimas llamadas a OpenRouter que han fallado en conversaciones reales. Si la respuesta falla también al reintentarla, la conversación pasa a una persona."
     >
       {aiErrors.length === 0 ? (
@@ -151,7 +152,7 @@ export function AiErrorsSection({ aiErrors }: { aiErrors: DiagnosticsView["aiErr
 
 export function RealtimeSection({ realtime }: { realtime: DiagnosticsView["realtime"] }) {
   return (
-    <Section title="Tiempo real" description="Cambios que las pantallas abiertas recogen cada pocos segundos.">
+    <Section {...SECTIONS.realtime} description="Cambios que las pantallas abiertas recogen cada pocos segundos.">
       <div className="grid grid-cols-2 gap-4">
         <Stat label="Eventos guardados" value={realtime.count} />
         <Stat label="Último" value={realtime.last ?? "Ninguno"} />
@@ -163,7 +164,7 @@ export function RealtimeSection({ realtime }: { realtime: DiagnosticsView["realt
 export function WebhooksSection({ webhooks }: { webhooks: DiagnosticsView["webhooks"] }) {
   if (webhooks.channels.length === 0 && !webhooks.unknown) {
     return (
-      <Section title="Último aviso por canal">
+      <Section {...SECTIONS.webhooks}>
         <EmptyState
           icon={RadioTower}
           title="Todavía no hay canales de WhatsApp ni de Telegram"
@@ -173,7 +174,7 @@ export function WebhooksSection({ webhooks }: { webhooks: DiagnosticsView["webho
     );
   }
   return (
-    <Section title="Último aviso por canal" description="Cuándo llegó el último aviso (webhook) de cada canal.">
+    <Section {...SECTIONS.webhooks} description="Cuándo llegó el último aviso (webhook) de cada canal.">
       <ul className="divide-y">
         {webhooks.channels.map((channel) => (
           <li key={channel.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
@@ -205,14 +206,14 @@ export function WebhooksSection({ webhooks }: { webhooks: DiagnosticsView["webho
 export function IgnoredMailSection({ mailboxes }: { mailboxes: DiagnosticsView["ignoredMail"] }) {
   if (mailboxes.length === 0) {
     return (
-      <Section title="Correos ignorados">
+      <Section {...SECTIONS.ignoredMail}>
         <EmptyState icon={Inbox} title="Todavía no hay buzones de correo" description="Cuando conectes uno, aquí verás qué correos no pasan a la bandeja y por qué." />
       </Section>
     );
   }
   return (
     <Section
-      title="Correos ignorados"
+      {...SECTIONS.ignoredMail}
       description="Correos que no crean conversación ni respuesta: respuestas automáticas, envíos masivos, boletines, rebotes, remitentes «noreply», spam y promociones."
     >
       <ul className="divide-y">
@@ -245,8 +246,7 @@ export function IgnoredMailSection({ mailboxes }: { mailboxes: DiagnosticsView["
 export function EmailsSection({ emails }: { emails: DiagnosticsView["emails"] }) {
   return (
     <Section
-      id="bandeja-local"
-      title="Correos del sistema"
+      {...SECTIONS.emails}
       description={
         emails.outboxEnabled
           ? "Los últimos enviados. En local, sin servidor de correo, se guardan en la bandeja local: ábrelos para copiar sus enlaces."
@@ -287,7 +287,7 @@ export function EmailsSection({ emails }: { emails: DiagnosticsView["emails"] })
 export function SimulatorCard() {
   return (
     <Section
-      title="Simulador de canales"
+      {...SECTIONS.simulator}
       description="Envía mensajes de prueba como si fueras un cliente (texto, nota de voz, imagen o documento) y mira cómo responde la IA, sin que nada salga a WhatsApp ni al correo."
     >
       <div>

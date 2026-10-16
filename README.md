@@ -208,13 +208,14 @@ sector. Los tres agentes de la demo la usan en modo «Automático», con la herr
    numerados con su título, sección, página y puntuación, sin gastar en el modelo de chat; no distingue mayúsculas ni
    tildes y encuentra otras formas de la misma palabra («cortes» o «cortar» encuentran «corte»). Con algo que no está
    en la base sale «Nada relevante».
-3. **Añadir contenido:** sube un PDF, Word, Excel, CSV, TXT o Markdown (hasta 25 MB), una página web (con su mapa del
-   sitio, hasta 50 páginas, y lectura periódica si quieres) o una pregunta frecuente. Cada documento pasa por «En cola
-   → Extrayendo → Troceando → Embeddings → Listo» en segundo plano, y el mismo archivo dos veces se rechaza. Pulsa un
-   documento para ver su resumen y sus fragmentos. Un PDF escaneado necesita la clave de Mistral OCR (Ajustes › IA).
-4. **El agente** (Agentes › Asistente de citas › Conocimiento): sus archivos de contexto (texto que va entero en cada
-   mensaje, con tope de 30.000 tokens y «Pasar a una base de conocimiento»), las bases que usa y «Automático» o
-   «Buscar siempre». En **Probar**, pregunta «¿Cómo llego en autobús?»: con la clave, responde con el dato del PDF y
+3. **Añadir contenido:** sube un PDF, Word, Excel, CSV, TXT o Markdown (hasta 25 MB; 4 MB con la app en Vercel), una
+   página web (con su mapa del sitio, hasta 50 páginas, y lectura periódica si quieres) o una pregunta frecuente. Cada
+   documento pasa por «En cola → Extrayendo → Troceando → Embeddings → Listo» en segundo plano, y el mismo archivo dos
+   veces se rechaza. Pulsa un documento para ver su resumen y sus fragmentos, y si alguna de sus páginas se ha quedado
+   sin leer por no tener texto. Un PDF escaneado necesita la clave de Mistral OCR (Ajustes › IA).
+4. **El agente** (Agentes › Asistente de citas › Conocimiento): las bases que usa, «Automático» o «Buscar siempre» y,
+   al final, sus archivos de contexto (texto que va entero en cada mensaje, con tope de 30.000 tokens y «Pasar a una
+   base de conocimiento»). En **Probar**, pregunta «¿Cómo llego en autobús?»: con la clave, responde con el dato del PDF y
    dice de dónde lo saca; «Ver detalles» enseña los fragmentos que leyó. Si preguntas algo que no está, dice que no lo
    sabe y ofrece pasar con una persona.
 5. **Bandeja:** en la conversación del chat web «¿Y dónde estáis?», «Ver fuentes» bajo una respuesta de la IA abre
@@ -389,7 +390,7 @@ Si tu demo se cargó antes de esta fase, no trae el agente interno de ejemplo: `
   defecto; con «Sin retención de datos» solo se ofrece el que no guarda nada y, si el elegido sí guarda, lo avisa y
   no reordena), y la clave de Mistral OCR para los PDF escaneados; el servidor SMTP de los correos de la app; textos legales, aviso de IA y plazos de conservación; y quién recibe cada aviso.
 - **Ajustes › Registro de actividad y Diagnóstico:** quién hizo qué (personas, IA y sistema), en español y con
-  filtros; y el estado de la base de datos, de la cola de trabajos (con «Reintentar»), los errores recientes de la IA
+  filtros; y, empezando por un resumen que dice si todo funciona o qué hay que revisar, el estado de la base de datos, de la cola de trabajos (con «Reintentar»), los errores recientes de la IA
   (si una respuesta falla también al reintentarla, la conversación pasa a una persona y el error aparece aquí), el
   último aviso de cada canal, los correos que cada buzón ignoró y por qué, y los correos que ha enviado la app, que en
   local puedes abrir desde ahí. **Pruebas de conexión** ejecuta en el momento «Probar clave» de OpenRouter, «Enviar

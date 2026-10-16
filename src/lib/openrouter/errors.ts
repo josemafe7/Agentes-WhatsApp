@@ -48,10 +48,11 @@ const MESSAGES: Record<OpenRouterErrorCode, string> = {
 };
 
 /**
- * The same transient failures where a person retries by hand («Probar agente»): «Se reintentará» is only true for
- * the background engine, which retries on its own.
+ * The same failures where a person asks by hand («Probar agente», «Asistentes»): «Se reintentará» and «pasa a una
+ * persona» are only true for the background engine, which retries on its own and hands the conversation over.
  */
 const MANUAL_RETRY_MESSAGES: Partial<Record<OpenRouterErrorCode, string>> = {
+  moderation: "El modelo ha rechazado este mensaje por su política de contenido. Prueba a escribirlo de otra forma.",
   in_flight_budget: "OpenRouter está frenando peticiones simultáneas. Espera unos segundos y pulsa «Reintentar».",
   timeout: "El modelo ha tardado demasiado en responder. Pulsa «Reintentar».",
   rate_limited: "Demasiadas peticiones seguidas. Espera unos segundos y pulsa «Reintentar».",

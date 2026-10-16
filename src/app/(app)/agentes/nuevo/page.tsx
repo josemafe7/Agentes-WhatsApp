@@ -20,9 +20,15 @@ function templateOption(sector: Sector): TemplateOption {
   return { sector, label: preset.label, name: preset.agentTemplate.name, description: preset.agentTemplate.description };
 }
 
+type PageProps = { searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+/** `?tipo=interno`: the form opens with «Interno» chosen (the link of «Asistentes» to create the first one). */
+const INTERNAL_KIND = "interno";
+
 /** Nuevo agente ([AGE-02]): owner and admin only. */
-export default async function NewAgentPage() {
-  const actor = await requirePageActor({ next: "/agentes/nuevo" });
+export default async function NewAgentPage({ searchParams }: PageProps) {
+  const startInternal = (await searchParams).tipo === INTERNAL_KIND;
+  const actor = await requirePageActor({ next: startInternal ? `/agentes/nuevo?tipo=${INTERNAL_KIND}` : "/agentes/nuevo" });
   if (!can(actor, PERMISSIONS.agents.manage)) return <NoPermission description={noPermissionDescription(actor.role)} />;
   const [profile, business, aiConfigured] = await Promise.all([getBusinessProfile(actor), getPublicBusinessInfo(), isAiConfigured()]);
   const businessSector = profile.sector ?? FALLBACK_SECTOR;
@@ -32,7 +38,7 @@ export default async function NewAgentPage() {
       <PageHeader
         breadcrumbs={[{ label: "Agentes", href: "/agentes" }, { label: "Nuevo agente" }]}
         title="Nuevo agente"
-        description="Elige cómo empezar. Después podrás cambiar todo en el editor."
+        description="Elige cómo empezar. Después podrás cambiar lo demás en el editor."
       />
       <NewAgentForm
         businessTemplate={templateOption(businessSector)}
@@ -40,6 +46,7 @@ export default async function NewAgentPage() {
         businessWebsite={business.website}
         aiConfigured={aiConfigured}
         canCreateInternal={can(actor, PERMISSIONS.internal.agents)}
+        startInternal={startInternal && can(actor, PERMISSIONS.internal.agents)}
       />
     </>
   );

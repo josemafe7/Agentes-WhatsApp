@@ -20,7 +20,7 @@ import {
 import { BusinessBrand } from "./business-brand";
 import { INBOX_PATH } from "./home-destination";
 import { InboxUnreadBadge, InboxUnreadDescription } from "./inbox-unread";
-import { groupSections, isActivePath, SECTIONS, type SectionKey } from "./navigation";
+import { groupSections, SECTIONS, trailForPath, type SectionKey } from "./navigation";
 import type { ShellBusiness, ShellUser } from "./types";
 import { UserMenu } from "./user-menu";
 
@@ -37,6 +37,7 @@ const UNREAD_DESCRIPTION_ID = "sidebar-inbox-unread";
 /** Desktop side menu (256 px, folds to icons with Ctrl/Cmd+B): business, sections and the user menu. */
 export function AppSidebar({ business, user, sectionKeys }: AppSidebarProps) {
   const pathname = usePathname();
+  const current = trailForPath(pathname)?.section.key ?? null;
   const groups = groupSections(SECTIONS.filter((section) => sectionKeys.includes(section.key)));
 
   return (
@@ -65,7 +66,8 @@ export function AppSidebar({ business, user, sectionKeys }: AppSidebarProps) {
                 <SidebarGroupContent>
                   <SidebarMenu>
                     {group.map((section) => {
-                      const active = isActivePath(pathname, section.href);
+                      // «Mi cuenta» lives at /perfil but is one of the settings pages: there, «Ajustes» is the one lit.
+                      const active = current === section.key;
                       const Icon = section.icon;
                       const inbox = section.key === "bandeja";
                       return (

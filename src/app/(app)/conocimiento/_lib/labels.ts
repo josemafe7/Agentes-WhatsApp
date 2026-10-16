@@ -125,10 +125,10 @@ const OLD_FORMAT_HINTS: Record<string, string> = {
   doc: "Los archivos .doc antiguos no se admiten. Guárdalo como .docx y súbelo de nuevo.",
 };
 
-/** Why a chosen file will be refused, or null. Same order and words as the server. */
-export function checkFileBeforeUpload(file: { name: string; size: number }): string | null {
+/** Why a chosen file will be refused, or null. Same order and words as the server. `maxBytes`: the limit where the app runs. */
+export function checkFileBeforeUpload(file: { name: string; size: number }, maxBytes: number = MAX_KB_FILE_BYTES): string | null {
   if (file.size === 0) return "El archivo está vacío.";
-  if (file.size > MAX_KB_FILE_BYTES) return `El archivo es demasiado grande. El máximo es ${MAX_KB_FILE_MB} MB.`;
+  if (file.size > maxBytes) return `El archivo es demasiado grande. El máximo es ${Math.round(maxBytes / 1024 / 1024)} MB.`;
   const extension = extensionOf(file.name);
   if (OLD_FORMAT_HINTS[extension]) return OLD_FORMAT_HINTS[extension];
   if (!(KNOWLEDGE_FILE_EXTENSIONS as readonly string[]).includes(extension)) return "Ese tipo de archivo no se admite. Sube un PDF, DOCX, XLSX, CSV, TXT o MD.";

@@ -4,6 +4,7 @@ import { noPermissionDescription } from "@/components/app-shell/navigation";
 import { EmptyState } from "@/components/empty-state";
 import { NoPermission } from "@/components/no-permission";
 import { listKnowledgeDocuments } from "@/data/knowledge-documents";
+import { knowledgeUploadMaxBytes } from "@/server/knowledge/constants";
 import { AddContentDialog } from "../_components/add-content-dialog";
 import { DocumentsTable } from "../_components/documents-table";
 import { LiveRefresh } from "../_components/live-refresh";
@@ -33,6 +34,8 @@ export default async function KnowledgeDocumentsPage({ params, searchParams }: D
   const slice = pageSlice((await searchParams)[PAGE_PARAM], documents.length, LIST_PAGE_SIZE);
   const rows = toDocumentRows(documents.slice(slice.start, slice.end), { kbId: base.id, timezone, hint: mistralKeyHintFor(actor) });
   const live = needsLiveRefresh(documents, base.reindexing);
+  // What fits in one upload where the app runs ([CON-04]); the upload route checks the same.
+  const maxFileBytes = knowledgeUploadMaxBytes();
 
   return (
     <section aria-labelledby="documents-heading" className="grid gap-4">
@@ -40,7 +43,7 @@ export default async function KnowledgeDocumentsPage({ params, searchParams }: D
         <h2 id="documents-heading" className="text-lg font-semibold">
           Documentos
         </h2>
-        {canManage && documents.length > 0 ? <AddContentDialog kbId={base.id} internal={base.audience === "team"} /> : null}
+        {canManage && documents.length > 0 ? <AddContentDialog kbId={base.id} internal={base.audience === "team"} maxFileBytes={maxFileBytes} /> : null}
       </div>
       {base.reindexing ? (
         <p role="status" className="flex items-center gap-2 rounded-lg bg-info-soft px-3 py-2 text-sm text-info">
@@ -54,7 +57,7 @@ export default async function KnowledgeDocumentsPage({ params, searchParams }: D
             icon={FileText}
             title="Aún no hay documentos"
             description="Sube archivos PDF, Word, Excel, CSV, texto o Markdown, añade páginas de tu web o escribe preguntas frecuentes."
-            action={canManage ? <AddContentDialog kbId={base.id} internal={base.audience === "team"} /> : undefined}
+            action={canManage ? <AddContentDialog kbId={base.id} internal={base.audience === "team"} maxFileBytes={maxFileBytes} /> : undefined}
           />
         </div>
       ) : (

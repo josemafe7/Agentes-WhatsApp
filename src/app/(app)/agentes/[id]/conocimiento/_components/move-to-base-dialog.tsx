@@ -19,6 +19,8 @@ type MoveToBaseDialogProps = {
   agentId: string;
   file: { id: string; title: string } | null;
   bases: { id: string; name: string }[];
+  /** An internal agent: what it knows stays internal ([INT-04]). */
+  internal?: boolean;
   onClose: () => void;
 };
 
@@ -26,15 +28,17 @@ type MoveToBaseDialogProps = {
  * «Pasar a una base de conocimiento» ([CON-02]): the text becomes a document of an existing or new base, the agent
  * starts using that base and the context file goes, so it no longer travels whole in every message.
  */
-export function MoveToBaseDialog({ agentId, file, bases, onClose }: MoveToBaseDialogProps) {
+export function MoveToBaseDialog({ agentId, file, bases, internal = false, onClose }: MoveToBaseDialogProps) {
   return (
     <Dialog open={file !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent className="sm:max-w-md">{file ? <MoveForm key={file.id} agentId={agentId} file={file} bases={bases} onClose={onClose} /> : null}</DialogContent>
+      <DialogContent className="sm:max-w-md">
+        {file ? <MoveForm key={file.id} agentId={agentId} file={file} bases={bases} internal={internal} onClose={onClose} /> : null}
+      </DialogContent>
     </Dialog>
   );
 }
 
-function MoveForm({ agentId, file, bases, onClose }: MoveToBaseDialogProps & { file: { id: string; title: string } }) {
+function MoveForm({ agentId, file, bases, internal = false, onClose }: MoveToBaseDialogProps & { file: { id: string; title: string } }) {
   const [target, setTarget] = useState(bases[0]?.id ?? NEW_BASE);
   const [newName, setNewName] = useState(file.title);
   const [failure, setFailure] = useState<ActionFailure | null>(null);
@@ -94,6 +98,9 @@ function MoveForm({ agentId, file, bases, onClose }: MoveToBaseDialogProps & { f
               <SelectItem value={NEW_BASE}>Nueva base…</SelectItem>
             </SelectContent>
           </Select>
+          {internal ? (
+            <FieldDescription>Este agente es interno: solo salen las bases internas, y una base nueva será interna. Así lo que sabe no llega a un agente de clientes.</FieldDescription>
+          ) : null}
           <FieldError errors={baseErrors?.map((message) => ({ message }))} />
         </Field>
         {creating ? (

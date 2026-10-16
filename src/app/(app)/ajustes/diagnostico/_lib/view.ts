@@ -8,6 +8,7 @@ import { listSystemEmails } from "@/data/system-mail";
 import type { AiRunKind, ChannelStatus, ChannelType, JobStatus, SystemEmailKind, SystemEmailStatus } from "@/lib/enums";
 import { formatDateTime, formatNumber, formatRelative } from "@/lib/format";
 import type { Actor } from "@/lib/permissions";
+import { diagnosticsSummary } from "./summary";
 
 type Light = "ok" | "warn" | "error" | "off";
 
@@ -132,8 +133,22 @@ export async function loadDiagnosticsView(actor: Actor) {
   const migrationsStatus: Light = !migrations ? "off" : migrations.pending.length > 0 ? "warn" : "ok";
   const tickAge = queue.lastTick ? now.getTime() - queue.lastTick.at.getTime() : null;
   const tickStatus: Light = tickAge === null ? "warn" : tickAge > STALE_TICK_MS ? "warn" : "ok";
+  const webhookTimes = webhooks.channels.flatMap((channel) => (channel.lastReceivedAt ? [channel.lastReceivedAt.getTime()] : []));
 
   return {
+    // «Resumen»: the same facts the sections below show, as one verdict. Nothing is read again for it.
+    summary: diagnosticsSummary({
+      database: { ok: database.ok, pendingMigrations: migrations ? migrations.pending.length : null },
+      queue: { lastRound: relative(queue.lastTick?.at ?? null), stale: tickStatus !== "ok", failedJobs: queue.stats.failed },
+      // Newest first (src/data/diagnostics.ts).
+      ai: { keyConfigured: connections.openRouter.configured, errors: aiErrors.length, lastError: relative(aiErrors[0]?.at ?? null) },
+      mail: connections.systemMail,
+      channels: {
+        count: connections.channels.length,
+        withError: connections.channels.filter((channel) => channel.status === "error").map((channel) => channel.name),
+        lastWebhook: webhookTimes.length > 0 ? relative(new Date(Math.max(...webhookTimes))) : null,
+      },
+    }),
     database: {
       status: (database.ok ? "ok" : "error") as Light,
       driverLabel: databaseLabel(database),

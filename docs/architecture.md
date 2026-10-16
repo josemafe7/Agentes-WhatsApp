@@ -75,7 +75,7 @@ pruebas usen un simulador y nunca los servicios reales.
 | Cliente de Mistral OCR (fase 4) | `src/lib/mistral/ocr.ts` | `createMistralClient()`: `POST /v1/ocr` con el PDF como data URL (cabeceras y pies aparte, sin tablas en HTML) y la comprobación de la clave. Errores con su mensaje en español (`MistralError`), nunca con la clave. Solo se usa si el negocio pone su clave en Ajustes › IA. |
 | Conocimiento: servicio (fase 4) | `src/server/knowledge/` | Entrada única `index.ts`. `extract/`: tipo real por extensión y contenido, PDF página a página (unpdf) o por OCR en tandas de 20 páginas, DOCX (mammoth → turndown), XLSX y CSV en bloques de 20 filas con cabecera, texto (UTF-8 o Windows-1252), páginas web y mapas del sitio (con `web-fetch.ts`). `extract/title.ts`: el título propio de un PDF o un Word (sus metadatos) sustituye al que el archivo tomó de su nombre, nunca a uno escrito por alguien. `pages.ts`: el Markdown de un PDF lleva `<!-- página N -->` delante de cada página. `chunking.ts`: fragmentos por encabezados de unos 400 tokens (150–600) con 60 de solape, sin partir filas de tabla, con sección y página, y el texto exacto que se embebe (prefijo «Documento: título > sección» y resumen). `ingest.ts`: `processDocument()`, la máquina de pasos (en cola → extrayendo → troceando → embeddings → listo o error) que avanza lo que cabe en cada ronda. `embeddings.ts` (lotes de 96, siempre 1536, en `ai_runs`), `summary.ts` (resumen de 2 frases con el modelo de chat, o las 2 primeras frases sin clave), `reindex.ts` (versión nueva del índice que se construye aparte y se estrena de golpe), `search.ts` y `rrf.ts` (búsqueda híbrida, ver «Conocimiento» más abajo), `maintenance.ts` (embeddings pendientes, refresco de webs, páginas del mapa del sitio), `agent-knowledge.ts` (las bases de cada agente, «Buscar siempre»), `fixtures.ts` (embeddings guardados de la demo) y `queue.ts` y `jobs.ts` (los cinco trabajos). Todos los números con nombre, en `constants.ts`. |
 | Conocimiento: datos (fase 4) | `src/data/knowledge.ts`, `knowledge-documents.ts`, `knowledge-search.ts`, `knowledge-faq.ts`, `knowledge-context-files.ts`, `knowledge-retrievals.ts`, `message-reason.ts` | Bases (crear, cambiar, borrar escribiendo el nombre, reindexar, cambiar el modelo, reindexar todas desde Ajustes › IA) y las bases de cada agente; documentos (archivo, web con mapa del sitio y refresco, pregunta frecuente, texto; cambiar el título, que vuelve a procesar sus fragmentos con el nuevo prefijo; reprocesar y borrar con sus fragmentos y su archivo; un archivo idéntico se rechaza); «Probar búsqueda» (20 por minuto y persona); «Convertir en FAQ» desde la respuesta de una persona (con el límite de altas de contenido y su proceso al momento); archivos de contexto del agente (tope de 30.000 tokens); los fragmentos de cada respuesta (`message_retrievals`) y «¿Por qué respondió esto?» (`getMessageReason`: fragmentos y herramientas de la respuesta). Todas con actor, permiso y Zod. `canViewKnowledgeFile()` deja a `/api/files` servir los originales (Conocimiento: `knowledge.view`; archivos de contexto: `agents.view`). |
-| Conocimiento: pantallas (fase 4) | `src/app/(app)/conocimiento/`, `src/app/api/knowledge/bases/[id]/files/`, `src/app/(app)/agentes/[id]/conocimiento/`, `src/app/(app)/bandeja/[id]/_sources/`, `src/app/(app)/agentes/[id]/probar/` | Lista de bases, cada base con Documentos, Preguntas frecuentes, Probar búsqueda y Ajustes, y la página de cada documento con sus fragmentos; la página se recarga sola cada 4 s mientras algo se procesa. La pestaña Conocimiento del agente (archivos de contexto con su barra de tokens, bases con «Usar» y el modo). En la bandeja, «Ver fuentes» abre «¿Por qué respondió esto?» y «Convertir en FAQ» bajo la respuesta de una persona. «Probar agente» enseña la base de cada fragmento. Las acciones que dejan trabajo en la cola lo lanzan al momento con `kickTick()`. |
+| Conocimiento: pantallas (fase 4) | `src/app/(app)/conocimiento/`, `src/app/api/knowledge/bases/[id]/files/`, `src/app/(app)/agentes/[id]/conocimiento/`, `src/app/(app)/bandeja/[id]/_sources/`, `src/app/(app)/agentes/[id]/probar/` | Lista de bases, cada base con Documentos, Preguntas frecuentes, Probar búsqueda y Ajustes, y la página de cada documento con sus fragmentos; la página se recarga sola cada 4 s mientras algo se procesa. La pestaña Conocimiento del agente (bases con «Usar», el modo y, al final, archivos de contexto con su barra de tokens). En la bandeja, «Ver fuentes» abre «¿Por qué respondió esto?» y «Convertir en FAQ» bajo la respuesta de una persona. «Probar agente» enseña la base de cada fragmento. Las acciones que dejan trabajo en la cola lo lanzan al momento con `kickTick()`. |
 | Páginas legales (fase 3) | `src/app/legal/` | `/legal/privacidad`, `/legal/terminos` y `/legal/eliminacion-datos`, públicas, con los datos del negocio y los textos por defecto: Meta pide sus direcciones para publicar la app ([CUM-08]). |
 | Agenda: motor y servicio (fase 5) | `src/server/booking/` | Entrada única `index.ts`. `availability.ts`: el motor de disponibilidad, una función pura (`computeAvailability`) que recibe servicio, recursos con su horario y ausencias, citas, horario del negocio, cierres, zona horaria, modo, rango, personas, intervalo y la hora actual, y devuelve los huecos libres o el motivo de que no haya ninguno; también `bookingTimes` (inicio, fin y franja ocupada con los márgenes), `pickSuggestions` (2 o 3 huecos repartidos) y `closestSlots` (alternativas). `time.ts`: la hora local del negocio y el instante UTC en los dos sentidos, con los cambios de hora resueltos a propósito (una hora que no existe avanza; una que se repite se ofrece dos veces, cada una con su desfase). `load.ts` lee de la base lo que el motor necesita. `service.ts`: crear, mover, cambiar el estado, cancelar y editar citas, ausencias y bloqueos, cada escritura en una transacción que toma el candado de escritura de la base y vuelve a comprobar el hueco con el motor ([AGD-13]). `events.ts` (historial en `booking_events`), `views.ts` (la cita con nombres y horas locales), `notices.ts` (aviso al cliente por su conversación cuando una persona confirma, mueve o cancela, y aviso al equipo `booking_pending` de una cita pendiente), `reminders.ts`, `reminder-fields.ts` y `jobs.ts` (recordatorios), `agent-tools.ts` (lo común de las herramientas de citas del agente), `format.ts` y `test-helpers.ts` (negocios de prueba para Vitest). |
 | Agenda: datos (fase 5) | `src/data/bookings.ts`, `bookings-time-off.ts`, `agenda-config.ts` | Calendario con filtros, ficha con historial, huecos libres, crear (desde la agenda, un contacto o una conversación), mover, editar, estados con aviso opcional al cliente, citas de un contacto y la próxima de cada contacto, citas de prueba (contar y borrar todas); ausencias y bloqueos; palabras, modo e intervalo, servicios, recursos con horario semanal y servicios, y los recordatorios. Todas con actor, permiso (`agenda.view`, `agenda.bookings` —un Agente, solo para contactos y conversaciones de sus canales—, `agenda.block`, `agenda.configure` y `agenda.delete_test_bookings`), Zod y registro de actividad. |
@@ -131,6 +131,9 @@ Detalles que salieron al construir y que conviene saber:
   restricción).», nunca su mensaje ni su detalle, que pueden llevar datos (`src/server/redact.ts`, que además tapa las
   claves de Supabase, `sb_secret_…` y `sb_publishable_…`, y el usuario y la contraseña de una dirección
   `postgres://…`). Un duplicado se reconoce por el código `23505` (`isUniqueViolation`), no por el texto del error.
+  Un error inesperado dentro de una Server Action tampoco sale tal cual (Next.js lo escribiría entero en el
+  registro): `toActionFailure` anota ese mensaje seguro con las líneas de código de donde viene y lanza otro error
+  que no dice nada.
 - **Diagnóstico de la base:** Ajustes › Diagnóstico la llama «Supabase (Postgres)», «Postgres» (otro servidor) o
   «Postgres integrado (PGlite) · data/pglite», con su tamaño (`pg_database_size`) y las migraciones aplicadas (de
   `drizzle.__drizzle_migrations`).
@@ -203,8 +206,9 @@ Detalles que salieron al construir y que conviene saber:
   el archivo y su nombre va en la cabecera `x-file-name`), que comprueba el origen, la sesión, el permiso, 60 altas
   por persona cada 10 minutos y los 25 MB antes de leerlo entero. No va por una Server Action porque estas admiten
   4 MB (`next.config.ts`) y porque `src/proxy.ts`, que sí pasa por las páginas, solo conserva los primeros 10 MB de
-  un cuerpo. En Vercel el límite de 4,5 MB por petición manda: subir directo del navegador a Supabase Storage con una
-  dirección firmada de subida (`docs/plataforma-despliegue.md`) queda para cuando se publique. Los archivos de
+  un cuerpo. En Vercel el límite de 4,5 MB por petición manda: allí la pantalla y la ruta aceptan hasta 4 MB por
+  archivo (`knowledgeUploadMaxBytes()`), y subir directo del navegador a Supabase Storage con una dirección firmada
+  de subida (`docs/plataforma-despliegue.md`) sigue pendiente. Los archivos de
   contexto de un agente, más pequeños, van por Server Action (hasta 3,5 MB).
 - **Estados del conocimiento:** «Listo (solo texto)» no se guarda: es un documento listo con fragmentos del índice en
   uso sin embedding (`documentsWithPendingEmbeddings()`). Sin clave de OpenRouter, o si OpenRouter rechaza la clave,
@@ -288,9 +292,15 @@ Detalles que salieron al construir y que conviene saber:
   habilita en cuanto la página es interactiva (`src/components/hydration-gate.tsx`, con `display: contents`, sin rol
   y sin cambiar el aspecto de los controles): en la primera carga los controles esperan una fracción de segundo y
   nada se pierde; al navegar dentro de la app ya están habilitados.
-- **Cabecera de la conversación en ordenador:** con la lista y la ficha del contacto a la vista, la columna central es
-  estrecha; sus controles se ajustan a su ancho y el texto «IA en pausa hasta…» salta de línea, para no quedar debajo
-  de la ficha (que se llevaría el clic).
+- **Cabecera de la conversación en ordenador:** la ficha del contacto solo va como columna cuando la conversación
+  conserva 480 px (`contact-panel-frame.tsx` mide el hueco de la conversación con una consulta de contenedor, no la
+  ventana: el menú ocupa distinto plegado y desplegado); si no, es un panel lateral. Los controles de la cabecera se
+  ajustan al ancho de su columna y el texto «IA en pausa hasta…» salta de línea, para no quedar debajo de la ficha
+  (que se llevaría el clic).
+- **Pantallas que ocupan el alto que queda (la bandeja):** en vez de calcular su alto con la altura de la ventana, la
+  bandeja se marca `data-fill-height` y el armazón (`src/app/(app)/layout.tsx`) convierte la página en una columna
+  solo entonces. Así el aviso «Añade tu clave de OpenRouter», que va encima, le quita sitio a la bandeja y no empuja
+  el cuadro de escribir fuera de la pantalla.
 - **`kickTick()` fuera de una petición:** `after()` solo existe dentro de una petición; fuera (un script, una prueba)
   `kickTick` no hace nada y el trabajo lo recoge el cron o el lanzador local.
 
@@ -457,10 +467,19 @@ Una persona del equipo escribe en «Asistentes». La acción comprueba su sesió
 por este orden, que puede usar ese agente (si no, «no encontrado»), que la conversación que continúa es suya, que hay
 clave de OpenRouter y que no ha pasado sus límites. Entonces llama a `runAgent` dentro de la misma petición (no hay
 canal ni aviso, así que no pasa por la cola): el prompt lleva las reglas de plataforma de un agente interno ([INT-08]),
-el perfil del negocio, sus instrucciones, sus archivos de contexto y los últimos 20 mensajes de esa conversación, y
-al modelo solo se le ofrece `buscar_conocimiento`, que busca en las bases del agente (internas y de clientes). La
-pregunta y la respuesta se guardan juntas, con las fuentes de la respuesta, solo si hay respuesta: si la IA falla,
-no queda nada a medias y la persona puede reintentar. Nada de esto toca `conversations`, la bandeja ni los avisos.
+el perfil del negocio, sus instrucciones, sus archivos de contexto y las diez últimas preguntas de esa conversación
+con sus respuestas, y al modelo solo se le ofrece `buscar_conocimiento`, que busca en las bases del agente (internas
+y de clientes). La pregunta y la respuesta se guardan juntas, con las fuentes de la respuesta (lo que consultó), solo
+si hay respuesta: si la IA falla, no queda nada a medias, y `_lib/failures.ts` elige lo que lee quien preguntó (qué
+puede hacer, o que avise a un administrador) y la acción dice si «Reintentar» sirve. Nada de esto toca
+`conversations`, la bandeja ni los avisos.
+
+En la pantalla (`_components/assistant-workspace.tsx`) la lista de conversaciones y el chat son dos piezas: la lista
+sigue montada de una conversación a otra, y el chat (`ConversationPane`) es uno nuevo para cada conversación que se
+abre. La pregunta no va en una transición de React: mientras una transición asíncrona espera, React retiene todas
+las demás, y navegar es una; con un estado normal se puede abrir otra conversación o salir mientras responde (lo
+mismo en «Probar agente»). La acción invalida lo que Next.js guarda de «Asistentes», y la primera pregunta de una
+conversación nueva la lleva a su dirección con `router.replace`: por eso «Atrás» la devuelve completa.
 
 ### Citas
 

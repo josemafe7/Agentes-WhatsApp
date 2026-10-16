@@ -122,5 +122,5 @@ export function emptyCharts(report: Report): EmptyCharts {
 /** Anything at all happened in the period (a new business has nothing yet). */
 export function hasActivity(report: Report): boolean {
   const { conversations, handoffs, bookings, costs } = report;
-  return conversations.total > 0 || handoffs.total > 0 || bookings.createdByAi > 0 || costs.aiUsd > 0 || costs.aiTestUsd > 0 || costs.whatsappUsd > 0;
+  return conversations.total > 0 || handoffs.total > 0 || bookings.createdByAi > 0 || costs.aiUsd > 0 || costs.aiTestUsd > 0 || costs.aiTeamQuestions > 0 || costs.whatsappUsd > 0;
 }

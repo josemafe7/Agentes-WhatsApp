@@ -503,11 +503,22 @@ WhatsApp con trama o menor opacidad y la palabra «estimado».
   panel de canal, base de conocimiento). En móvil las acciones pasan a un botón principal y un menú.
 - **Barra de guardado:** en los editores largos (agente, canal, ajustes), al haber cambios aparece abajo una
   barra fija «Cambios sin guardar · Descartar · Guardar». Salir con cambios pide confirmación.
-- **Bandeja:** desde 1280 px, tres columnas: lista 360 px | conversación (mínimo 480 px) | ficha del contacto
-  320 px (se puede ocultar). De 768 a 1279: lista 320 px | conversación, y la ficha como panel lateral. En
-  móvil: la lista es una pantalla y la conversación otra (`/bandeja/[id]`).
-- **Ajustes:** subnavegación a la izquierda (220 px) y contenido de hasta 720 px. En móvil, la subnavegación
-  es una lista que lleva a cada página.
+- **Bandeja:** tres columnas: lista 360 px (320 de 768 a 1279) | conversación (mínimo 480 px) | ficha del contacto
+  320 px (se puede ocultar). La ficha solo va como columna cuando la conversación conserva sus 480 px, es decir,
+  cuando entre las dos tienen al menos 800 px (se mide el hueco que dejan el menú y la lista, no la ventana: con el
+  menú desplegado, desde unos 1420 px; con el menú plegado, desde 1280). Con menos sitio, la ficha es un panel
+  lateral que abre su botón. En móvil: la lista es una pantalla y la conversación otra (`/bandeja/[id]`); también en
+  una tableta con el menú desplegado, mientras la lista y la conversación no quepan juntas con al menos 400 px para
+  la conversación (720 px entre las dos). La bandeja
+  ocupa justo el alto que queda bajo la barra superior y los avisos: cada columna tiene su propio scroll y el cuadro
+  de escribir está siempre a la vista, sin scroll de página.
+- **Ajustes:** subnavegación a la izquierda (220 px) y contenido de hasta 720 px. Las páginas van en cinco grupos
+  (Negocio, Usuarios, Horario | IA, Correo del sistema, WhatsApp | Privacidad y legal, Notificaciones, Recordatorios |
+  Registro de actividad, Diagnóstico | Mi cuenta, Acerca de), con un separador entre grupos y sin títulos, como el
+  menú lateral, y la subnavegación se queda a la vista al bajar por una página larga. «Mi cuenta» (`/perfil`) usa el
+  mismo armazón: su subnavegación, las migas «Ajustes › Mi cuenta» y «Ajustes» marcado en el menú lateral; mientras
+  falte activar la verificación en dos pasos obligatoria, se ve sin subnavegación. En móvil, la subnavegación es el
+  índice de Ajustes: una lista con borde por grupo, y cada página enseña «‹ Ajustes» para volver.
 - **Formularios:** una columna, hasta 640 px. Solo campos muy cortos y relacionados van en dos columnas
   (puerto y seguridad; desde y hasta).
 - **Listados de tarjetas** (canales, agentes, bases): rejilla de columnas de al menos 280 px, separación de
@@ -594,19 +605,29 @@ shadcn no tiene (burbujas, calendario de la agenda, semáforos, barra inferior) 
 - Paginación en el servidor (25 por página) o «Cargar más» en listas de mensajes y actividad.
 - En móvil, las tablas pasan a lista de tarjetas (título, dos datos clave, estado). Sin scroll horizontal
   salvo en tablas técnicas de Diagnóstico.
+- Una tabla también pasa a tarjetas cuando no cabe en su columna aunque la pantalla sea ancha (el registro de
+  actividad, dentro de la columna de Ajustes): lo que manda es el ancho que tiene, no el de la ventana.
+- Una lista de filas que se pulsan (los servicios de la agenda) también va en columnas con cabecera cuando hay
+  sitio: la cabecera es solo visual y cada fila conserva su frase entera para los lectores de pantalla. El sitio se
+  mide sobre la lista, no sobre la ventana (el menú ocupa distinto plegado y desplegado). En una celda con varios
+  datos, cada uno va en su línea: el primero como cifra y el resto como letra pequeña, sin puntos de separación
+  colgando.
 
 ### Tarjetas
 
 - Borde, radio `xl`, 16–24 px de relleno, sin sombra. Cabecera con título, descripción y acción.
 - Si toda la tarjeta es un enlace: fondo `--accent` al pasar el ratón y anillo de foco en toda la tarjeta.
-- **Tarjeta de canal:** cuadro de icono del canal, nombre, tipo (en WhatsApp, con su vía: «WhatsApp · API de
-  Meta», «· YCloud» o «· Código QR»), chip de estado; número, correo o dominio;
+- **Tarjeta de canal:** cuadro de icono del canal, nombre y chip de estado; debajo, a todo el ancho y sin cortarse
+  (salta de línea si hace falta), el tipo (en WhatsApp, con su vía: «WhatsApp · API de Meta», «· YCloud» o «· Código
+  QR») y el número, correo o dominio, que es lo que distingue dos canales del mismo tipo;
   «Agente activo» (selector) con el interruptor de IA; chips «Modo pruebas» (`flask-conical`, warning) y
   «Demo»; último mensaje («hace 3 min»); pie «Abrir panel».
 - **Tarjeta de agente:** avatar (imagen o iniciales sobre `--ai-soft`), nombre, descripción en una línea,
   modelo en mono pequeño y «Activo en:» con chips de canal. Un agente interno no tiene canales: en su lugar,
-  «Responde al equipo en «Asistentes»». Lo interno (un agente o una base de conocimiento) se marca con una
-  insignia `outline` «Interno» o «Interna», sin color propio.
+  «Responde al equipo en «Asistentes»» y «Con acceso:» («todo el equipo», «N personas, propietario y
+  administradores» o «solo propietario y administradores»). Lo interno se marca con una insignia `outline`
+  «Interno» o «Interna», sin color propio: en el editor de un agente y en una base de conocimiento; en la lista de
+  agentes, los internos van en su grupo «Internos».
 - **Indicadores (KPI):** etiqueta `caption`, cifra `kpi` y, debajo, el dato que la explica en `caption`
   («78 % en menos de 3 min», «estimado»).
 
@@ -633,10 +654,13 @@ shadcn no tiene (burbujas, calendario de la agenda, semáforos, barra inferior) 
 - **«Modo demo»:** franja de 32 px a todo el ancho, `--info-soft` con texto `--info` e icono `info`: «Modo
   demo · Datos de ejemplo. Los canales de demo no envían mensajes reales.» No se puede cerrar. En móvil,
   solo «Modo demo».
-- **«Añade tu clave de OpenRouter»:** aviso (Alert) `--warning-soft` con `key-round`: título «Añade tu clave
+- **«Añade tu clave de OpenRouter»:** aviso `--warning-soft` con `key-round`: título «Añade tu clave
   de OpenRouter», texto «La IA está desactivada: los agentes no responden y la búsqueda de conocimiento va solo
   por texto.» y botón «Añadir clave» (a Ajustes › IA) para propietario y administrador; los demás leen «Pide
-  al propietario que la añada». En todas las páginas mientras falte la clave; no se cierra.
+  al propietario que la añada». En todas las páginas mientras falte la clave; no se cierra. Como sale en todas,
+  ocupa lo mínimo: desde 1024 px, una sola franja con el título, el texto y el botón pequeño a la derecha; con
+  menos ancho, el botón va junto al título y el texto debajo, y en el móvil, dentro de una conversación de la
+  bandeja, se queda en el título y el botón, para dejar la pantalla a los mensajes.
 - Como máximo dos avisos a la vez. Otros avisos de sistema (canal con error, requiere reconexión) van en su
   tarjeta, en su panel y como notificación, no como franja global.
 
@@ -667,7 +691,10 @@ Cada pantalla y cada bloque que carga datos tiene los cuatro:
   - ámbar `warning` `triangle-alert` «Aviso» (por ejemplo, token que caduca, calidad media);
   - rojo `destructive-text` `circle-x` «Error» (con el error de Meta traducido y qué hacer);
   - gris `--muted-foreground` `circle-dashed` «Sin comprobar».
-  En la tarjeta del canal se resume con el peor estado.
+  En la tarjeta del canal se resume con el peor estado. Una página con muchos semáforos empieza por su veredicto
+  en una frase («Todo funciona», «Hay 2 cosas que revisar») y una línea por área que lleva a su apartado (el
+  «Resumen» de Diagnóstico); y cuando son muchas comprobaciones de un mismo objeto (las once de un número de
+  WhatsApp), van en dos columnas.
 - **Estado del canal:** Borrador (`circle-dashed`, neutro), Conectando (`loader-circle`, info), Conectado
   (`circle-check`, success), Error (`circle-x`, destructive), Desactivado (`circle-pause`, neutro),
   Requiere reconexión (`triangle-alert`, warning).
@@ -678,8 +705,14 @@ Cada pantalla y cada bloque que carga datos tiene los cuatro:
   leídos); última línea del mensaje en `--muted-foreground`; hora relativa; contador de no leídos
   (`--primary`); insignia «Pendiente de humano» si toca; modo (IA / Persona / IA en pausa); avatar pequeño de
   la persona asignada. Seleccionada: `--primary-soft` y franja izquierda de 2 px `--primary`.
-- **Cabecera de la conversación:** nombre, canal («WhatsApp · Recepción»), selector de estado, asignar,
-  interruptor de IA con motivo y, si está en pausa, «IA en pausa hasta 18:40 · Reactivar».
+- **Cabecera de la conversación:** nombre y canal («WhatsApp · Recepción») y, debajo, primero quién responde: el
+  interruptor de IA con su motivo y, si está en pausa, «IA en pausa hasta 18:40 · Reactivar», siempre entero. Después,
+  el selector de estado y «Pasar a una persona»; y, como una línea de datos que se pueden cambiar (selectores sin
+  borde), «Asignada a», «Agente» (cerrado enseña solo el nombre del agente que responde; «El del canal (…)» está en
+  su lista) y las etiquetas. Todo cabe en dos o tres líneas para que los mensajes ocupen la pantalla. En móvil, el
+  estado y lo demás van en una tira que se desliza de lado, junto a «La IA responde» o bajo un estado de IA más largo.
+- **Aviso de traspaso:** bajo la cabecera, con el motivo y el resumen; un resumen de más de tres líneas se corta y
+  lleva «Ver todo» / «Ver menos».
 - **Mensajes:** agrupados por autor seguido; separadores de día («Hoy», «Ayer», «lunes, 21 de septiembre»);
   línea de datos con autor, hora y estado de entrega. Audio: reproductor y, debajo, «Transcripción» con el
   texto (plegable si es largo). Imágenes: miniatura de hasta 240 px que se amplía en un diálogo. Documentos:
@@ -699,21 +732,32 @@ Cada pantalla y cada bloque que carga datos tiene los cuatro:
 
 - Mismas burbujas que la bandeja, con los papeles de «Probar agente»: la persona que pregunta a la izquierda
   (`--muted`, marca «Tú») y el agente a la derecha (`--ai-soft`, `bot` + «IA · {nombre}»). La respuesta se pinta
-  con el formato sencillo de las guías (listas, negritas), siempre como texto.
-- Bajo cada respuesta con fuentes, «Ver la fuente» / «Ver las N fuentes» (`file-text`) despliega la lista
-  numerada: documento, sección, página y base.
-- A la izquierda (debajo del chat en móvil), «Nueva conversación» y «Tus conversaciones»; la abierta, en
-  `--primary-soft` con franja izquierda `--primary`, como la fila seleccionada de la bandeja. Borrar una (botón de
-  icono `trash-2` con tooltip) pide confirmación. La lista y el chat siguen «Cargar más» de las listas: «Cargar más»
-  bajo las conversaciones y «Cargar mensajes anteriores» arriba del chat. Al pie, con `lock`, «Solo tú ves tus
-  conversaciones».
-- Mientras responde: «Buscando en los documentos…» con los tres puntos (estáticos si se reduce el movimiento).
+  con el formato sencillo de las guías (listas, negritas), siempre como texto; «Probar» de un agente interno la
+  pinta igual. Intro envía y Mayús + Intro añade una línea; en pantallas táctiles Intro añade una línea, como en
+  la bandeja.
+- Bajo cada respuesta con fuentes, «Ver la fuente» / «Ver las N fuentes» (`file-text`, en `--primary-text`)
+  despliega, bajo «Lo que ha consultado para responder, de lo más a lo menos relevante», la lista numerada como en
+  «¿Por qué respondió esto?» de la bandeja: documento, sección y página, y «Base «…»» con `library`. Al abrirla se
+  trae a la vista.
+- A la izquierda (debajo del chat en móvil, y después de él en el orden de tabulación), «Nueva conversación» y
+  «Tus conversaciones»: cada fila es un enlace con el título en una línea y, debajo, cuándo fue su última pregunta
+  en `caption`; la abierta, en `--primary-soft` con franja izquierda `--primary`, como la fila seleccionada de la
+  bandeja. Borrar una (botón de icono `trash-2` con tooltip) pide confirmación diciendo cuál. La lista y el chat
+  siguen «Cargar más» de las listas: «Cargar más» bajo las conversaciones y «Cargar mensajes anteriores» arriba
+  del chat. Al pie, con `lock`, «Solo tú ves tus conversaciones».
+- Alto del chat: en ordenador, `min(62svh, 600px)`; en móvil, lo que queda de pantalla tras la cabecera, el campo
+  y la barra inferior (entre 12 rem y 600 px), para que el campo se vea al abrir. Una respuesta nueva deja el chat
+  en su pregunta, para leerla desde el principio.
+- Mientras responde: «Buscando en los documentos…» con los tres puntos (estáticos si se reduce el movimiento); no
+  bloquea el resto de la pantalla. Si falla, el aviso y, solo cuando repetir puede servir, «Reintentar».
 
 ### Agenda (calendario)
 
 - Vistas Día, Semana, Mes y Recursos (una columna por recurso para un día). Barra: «Hoy», anterior y
   siguiente, fecha en texto («Semana del 21 al 27 de septiembre»), selector de vista, filtros de recurso y
-  servicio, «Nueva cita» (principal) y «Bloquear hueco».
+  servicio, «Nueva cita» (principal) y «Bloquear hueco». En móvil, para que el calendario empiece antes: «Nueva
+  cita» y un menú «Más acciones» con «Bloquear hueco», las citas de prueba y la configuración; y la barra en tres
+  filas cortas («Hoy», las flechas y «Filtros»; la fecha; las vistas a todo el ancho).
 - Rejilla: horas a la izquierda en `caption` tabular; línea por hora en `--border` y por media hora más
   tenue. Fuera de horario y festivos: fondo `--muted` con «Cerrado». Ausencias del recurso: rayado diagonal
   `--muted` con «Ausencia». Huecos bloqueados: rayado con el motivo. Línea de «ahora» de 2 px en `--primary`.
@@ -775,7 +819,8 @@ Cada pantalla y cada bloque que carga datos tiene los cuatro:
   que se vea también sobre botones del color del negocio.
 - Todo se usa con teclado, en orden lógico. Enlace «Saltar al contenido» al principio. Atajos solo como
   extra (Ctrl/Cmd+B pliega el menú).
-- `lang="es"` en el documento; cada página con su H1 y su `<title>` («Bandeja · {negocio}»).
+- `lang="es"` en el documento; cada página con su H1 y su `<title>` («Bandeja · {negocio}»). El título se pone en
+  cada página, nunca en un layout intermedio: ahí anula la plantilla «… · {negocio}» de las páginas que cuelgan de él.
 - **Movimiento:** transiciones de 150 ms (hover, pulsado) a 200 ms (menús, paneles), sin rebotes. Con
   `prefers-reduced-motion` (`motion-reduce:`) se quitan desplazamientos, giros y el latido de los esqueletos.
   Cambiar de tema no anima (`disableTransitionOnChange`).

@@ -1,7 +1,8 @@
 // Spanish names for what the activity log records ([AJU-10], [SEG-10]). A test checks that every action the app writes
-// has one; an unknown action (from a newer version) shows its code.
+// has one; an unknown action (from a newer version) shows its code. The details of each entry are named in ./details.
 import type { AuditActorType } from "@/lib/enums";
-import { isRole, ROLE_LABELS } from "@/lib/permissions";
+
+export { detailItems, detailLines, type DetailItem } from "./details";
 
 export const ACTOR_TYPE_LABELS: Record<AuditActorType, string> = { user: "Persona", ai: "IA", system: "Sistema" };
 
@@ -179,54 +180,6 @@ const TARGET_LABELS: Record<string, string> = {
   report: "Informe",
 };
 
-const DETAIL_LABELS: Record<string, string> = {
-  role: "rol",
-  from: "antes",
-  to: "después",
-  fields: "campos",
-  channels: "canales",
-  enabled: "activado",
-  ok: "correcto",
-  via: "vía",
-  type: "tipo",
-  step: "paso",
-  version: "versión",
-  restoredVersion: "versión recuperada",
-  members: "personas",
-  attached: "añadida",
-  count: "cuántas",
-  reason: "motivo",
-  mode: "modo",
-  // An agent's tool ([HER-03]): which one and, for an HTTP tool, the service it called (never its data or secrets).
-  tool: "herramienta",
-  requested: "pedida",
-  error: "error",
-  method: "método",
-  host: "servidor",
-  status: "respuesta",
-  durationMs: "milisegundos",
-  // A report table downloaded ([SEG-10], src/app/(app)/informes/actions.ts).
-  table: "tabla",
-  firstDay: "desde",
-  lastDay: "hasta",
-  channelFiltered: "solo un canal",
-  // Contact data rights ([CTO-06], [CTO-07]): numbers only, never who the customer was.
-  conversations: "conversaciones",
-  messages: "mensajes",
-  files: "archivos",
-  bookingsAnonymized: "citas anonimizadas",
-  // The daily clean-up ([CUM-06], src/server/compliance/retention.ts).
-  webhookEvents: "avisos en bruto borrados",
-  audioFiles: "notas de voz borradas",
-  attachmentFiles: "adjuntos borrados",
-  conversationsDeleted: "conversaciones borradas",
-  conversationsAnonymized: "conversaciones anonimizadas",
-  messagesDeleted: "mensajes borrados",
-  messagesAnonymized: "mensajes anonimizados",
-  notesDeleted: "notas internas borradas",
-  notificationsDeleted: "avisos del equipo borrados",
-};
-
 export function actionLabel(action: string): string {
   return ACTION_LABELS[action] ?? action;
 }
@@ -234,23 +187,4 @@ export function actionLabel(action: string): string {
 export function targetLabel(targetType: string | null): string | null {
   if (!targetType) return null;
   return TARGET_LABELS[targetType] ?? targetType;
-}
-
-function valueText(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "boolean") return value ? "sí" : "no";
-  if (isRole(value)) return ROLE_LABELS[value];
-  if (typeof value === "string" || typeof value === "number") return String(value);
-  if (Array.isArray(value) && value.every((item) => typeof item === "string" || typeof item === "number")) return value.join(", ");
-  return null;
-}
-
-/** «clave: valor» lines of the (already secret-stripped) details; nested objects are left out. */
-export function detailLines(details: Record<string, unknown>): string[] {
-  const lines: string[] = [];
-  for (const [key, value] of Object.entries(details)) {
-    const text = valueText(value);
-    if (text !== null && text !== "") lines.push(`${DETAIL_LABELS[key] ?? key}: ${text}`);
-  }
-  return lines;
 }

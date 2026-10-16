@@ -26,7 +26,8 @@ funcione en la base integrada y en Supabase.
 - **Texto en una columna generada** `search_vector` (`tsvector`) con la configuración `es_unaccent`: sin tildes ni
   mayúsculas y **con las raíces del español** («tintes» y «tinte» dan lo mismo), con un índice GIN. La consulta es un
   OR de palabras clave y de su otro número (singular o plural), pasado siempre como parámetro a
-  `websearch_to_tsquery`, que nunca da error de sintaxis, y se ordena con `ts_rank_cd`.
+  `websearch_to_tsquery`, que nunca da error de sintaxis, y se ordena primero por cuántas palabras distintas de la
+  pregunta tiene el fragmento y, a igualdad, con `ts_rank_cd`.
 - **Nada que reconstruir a mano:** los índices apuntan a la propia fila (no hay `rowid` que cambie) y la columna del
   texto la calcula Postgres en cada `INSERT` y `UPDATE`. `TextSearch.rebuild()` no hace nada; `VectorSearch.rebuild()`
   es un `REINDEX INDEX` del índice HNSW.
@@ -144,8 +145,16 @@ palabras ya limpias unidas con ` or `, que entiende como OR. Nunca da error de s
    los límites de §3.
 5. Unirlas con ` or ` y pasarlo **siempre como parámetro**, nunca pegado al SQL. Si no queda ninguna, no se consulta.
 
-La consulta ordena con `ts_rank_cd` (más alto cuanto mejor) y filtra por las bases del agente antes del `LIMIT`, así
-que el filtro es exacto. Para RRF solo cuenta la posición, no el valor.
+La consulta ordena primero por cuántas palabras de la pregunta tiene el fragmento y después con `ts_rank_cd` (más
+alto cuanto mejor), y filtra por las bases del agente antes del `LIMIT`, así que el filtro es exacto. Para RRF solo
+cuenta la posición, no el valor.
+
+Por qué no basta `ts_rank_cd`: en un OR solo cuenta coincidencias, así que una palabra repetida tres veces pesa lo
+mismo que tres palabras distintas. Medido con la demo (2026-10-09): para «¿Cómo llego en autobús?», la página 1 de
+«Normas de citas y cómo llegar» (tres veces «llegar») y la página 2 (dos veces «llegar» y «Autobús») empataban a
+0,3, y decidía el identificador del fragmento, que es aleatorio. Ahora cada palabra de la pregunta (con su otro
+número) es un `@@` más que se suma como entero, y `ts_rank_cd(…, 32)` (el rango dividido entre sí mismo más 1,
+siempre menor que 1) queda como decimales: la página que tiene las dos palabras va delante.
 
 ## 4. Drizzle con Postgres
 
@@ -201,6 +210,11 @@ Elasticsearch, y consultas OR.
   partir filas de tabla, con el prefijo «Documento: título > sección». Son valores prudentes: el troceado por
   defecto de la búsqueda de archivos de OpenAI es de 800 tokens con 400 de solape (mínimo 100, máximo 4.096,
   solape no mayor que la mitad).
+- **Páginas dentro de un fragmento.** `page` es la página donde empieza el texto propio del fragmento. Si sigue en
+  otra, esa parte va precedida de «[pág. N]». El solape que abre un fragmento con el final de la página anterior
+  también: va bajo «[pág. N−1]», y el texto propio bajo «[pág. N]»; sin esas marcas, un dato del final de una página
+  se leía como de la siguiente. La cabecera del resultado de la búsqueda le dice al modelo qué significan. Los
+  fragmentos de documentos ya procesados cambian al reindexar la base (Ajustes de la base › «Reindexar»).
 - `text-embedding-3-small` admite hasta 8.192 tokens por texto y usa el tokenizador `cl100k_base`: un trozo de
   600 tokens con prefijo queda muy lejos del límite.
 - **Estimar tokens sin tokenizador.** La regla de 4 caracteres por token es la de OpenAI para inglés. En

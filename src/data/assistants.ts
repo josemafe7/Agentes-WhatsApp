@@ -14,7 +14,7 @@ import { idSchema } from "@/lib/validation";
 import { getRateLimiter, type RateLimiter } from "@/server/adapters/rate-limiter";
 import { AiNotConfiguredError } from "@/server/ai/errors";
 import { DEFAULT_HISTORY_MESSAGES } from "@/server/ai/prompt";
-import { runAgent, type AgentRetrieval, type RunAgentDeps } from "@/server/ai/run-agent";
+import { runAgent, TEAM_REFUSAL_REPLY, type AgentRetrieval, type RunAgentDeps } from "@/server/ai/run-agent";
 import { NotFoundError, parseInput, RateLimitError } from "@/server/errors";
 import { storableText } from "@/server/storable-text";
 import { seesInternalAgents } from "./agent-audience";
@@ -40,6 +40,13 @@ export const ASSISTANT_LIMITS = {
 } as const;
 const TOO_FAST = "Has hecho muchas preguntas seguidas. Espera un minuto y vuelve a intentarlo.";
 const DAILY_LIMIT = "Has llegado al máximo de preguntas de hoy a los asistentes. Mañana podrás seguir.";
+
+/** The limit of the day ([INT-12]): unlike the one of the minute, asking again in a while does not help. */
+export class AssistantDailyLimitError extends RateLimitError {
+  constructor() {
+    super(DAILY_LIMIT);
+  }
+}
 
 export type AssistantItem = { id: string; name: string; description: string | null; avatarFileKey: string | null };
 export type AssistantChatItem = { id: string; title: string; updatedAt: Date };
@@ -212,7 +219,7 @@ async function enforceQuestionLimits(userId: string, limiter: RateLimiter): Prom
   const minute = await limiter.hit(`ai:assistant:${userId}`, ASSISTANT_LIMITS.perMinute.limit, ASSISTANT_LIMITS.perMinute.windowMs);
   if (!minute.allowed) throw new RateLimitError(TOO_FAST);
   const day = await limiter.hit(`ai:assistant_day:${userId}`, ASSISTANT_LIMITS.perDay.limit, ASSISTANT_LIMITS.perDay.windowMs);
-  if (!day.allowed) throw new RateLimitError(DAILY_LIMIT);
+  if (!day.allowed) throw new AssistantDailyLimitError();
 }
 
 /** The fragments of the answer as the person sees them: document, section and page, each once ([INT-07]). */
@@ -258,19 +265,27 @@ export async function askAssistant(actor: Actor, input: unknown, deps: AskAssist
       agent,
       history: [...earlier.map((message) => ({ role: message.role === "user" ? ("contact" as const) : ("ai" as const), text: message.content })), { role: "contact" as const, text }],
       mode: "live",
-      context: { sessionId: chatId },
+      // Whole pairs: the earlier questions with their answers and the new question, so what is sent never starts
+      // with an answer whose question was left out.
+      context: { sessionId: chatId, maxHistoryMessages: earlier.length + 1 },
     },
     deps,
   );
-  const sources = await sourcesOf(result.retrievals);
+  // The model refused to answer: whatever it had looked up, the reply the person reads comes from no document.
+  const sources = result.text === TEAM_REFUSAL_REPLY ? [] : await sourcesOf(result.retrievals);
 
   const askedAt = deps.now ?? new Date();
   // One millisecond later, so the pair keeps its order whatever the clock's precision.
   const answeredAt = new Date(askedAt.getTime() + 1);
   const title = existing?.title ?? (toSingleLine(text, MAX_TITLE_CHARS) || "Conversación");
   const [question, answer] = await db.transaction(async (tx) => {
-    if (existing) await tx.update(assistantChats).set({ updatedAt: answeredAt }).where(eq(assistantChats.id, chatId));
-    else await tx.insert(assistantChats).values({ id: chatId, agentId: agent.id, userId: actor.userId, title, createdAt: askedAt, updatedAt: answeredAt });
+    if (existing) {
+      const kept = await tx.update(assistantChats).set({ updatedAt: answeredAt }).where(eq(assistantChats.id, chatId)).returning({ id: assistantChats.id });
+      // Deleted while the answer was being written (another tab): there is nowhere to keep it.
+      if (kept.length === 0) throw new NotFoundError(CHAT_NOT_FOUND);
+    } else {
+      await tx.insert(assistantChats).values({ id: chatId, agentId: agent.id, userId: actor.userId, title, createdAt: askedAt, updatedAt: answeredAt });
+    }
     return tx
       .insert(assistantMessages)
       .values([

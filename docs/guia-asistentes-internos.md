@@ -42,12 +42,22 @@ contestará con lo que haya en sus documentos a cualquiera que tenga acceso a é
 
 - Cada archivo puede tener hasta 1.000 páginas y 25 MB. Un PDF de 1.000 páginas se procesa en alrededor de un
   minuto.
+- **Si la app está publicada en Vercel, el máximo es 4 MB por archivo**, porque allí no cabe más en una subida. La
+  pantalla te dice el máximo antes de subir. Si tu documento pesa más, divídelo en varios archivos (por capítulos,
+  por ejemplo) o guárdalo sin imágenes. Ponles nombres que los distingan («manual-parte-1», «manual-parte-2»): si
+  todas las partes traen el mismo título dentro, la segunda y las siguientes se quedan con su nombre de archivo, y
+  así la respuesta dice de qué parte es cada página.
+- **Si un PDF mezcla páginas con texto y páginas escaneadas**, la app solo lee las que tienen texto. Lo avisa al
+  abrir el documento («12 páginas no tienen texto»). Para que lea las escaneadas, súbelas en un PDF aparte, que se
+  leerá entero con Mistral OCR.
 - Un PDF escaneado (fotos de páginas, sin texto que se pueda seleccionar) necesita la clave de Mistral OCR, que se
   pone en Ajustes › IA.
 - En un PDF con el texto a dos columnas, la app puede mezclar las dos columnas. Si puedes elegir, sube el Word
   original.
 - En Word y Markdown la app reconoce los títulos de cada apartado, y la respuesta puede decir el apartado. En un PDF
-  dice el documento y la página.
+  dice el documento y la página. Si subiste documentos antes de la versión del 2026-10-09, pulsa «Reindexar» en los
+  Ajustes de la base: desde esa versión la página que se cita es más exacta cuando un dato está al final de una
+  página.
 - El agente lee los trozos más parecidos a cada pregunta, no el documento entero. Va muy bien para un dato concreto
   («¿cuántos días de vacaciones tengo?») y mal para un resumen de todo («resúmeme el manual»).
 - Si tienes muchos documentos, activa «Reordenar resultados» en Ajustes › IA: afina qué trozos lee el agente.
@@ -80,18 +90,27 @@ dale acceso solo a esas personas.
 
 ## Probarlo
 
-Antes de darlo al equipo, abre la pestaña **Probar** y hazle las preguntas que le harían. A la derecha ves de qué
-trozos de qué documentos ha sacado cada respuesta, y cuánto ha costado. Lo que pruebas ahí no se guarda.
+Antes de darlo al equipo, abre la pestaña **Probar** y hazle las preguntas que le harían. La respuesta se ve igual
+que la verá tu equipo. A la derecha ves de qué trozos de qué documentos ha sacado cada respuesta, y cuánto ha
+costado. Lo que pruebas ahí no se guarda.
+
+En Agentes, la tarjeta de cada agente interno dice quién tiene acceso: «todo el equipo», cuántas personas, o «solo
+propietario y administradores» si todavía no se lo has dado a nadie.
 
 ## Usarlo
 
 Quien tiene acceso ve **Asistentes** en el menú.
 
-1. Abre el asistente y escribe tu pregunta.
-2. La respuesta llega con «Ver la fuente»: el documento, el apartado y la página de donde sale.
+1. Abre el asistente y escribe tu pregunta. En el ordenador, Intro la envía y Mayús + Intro añade una línea; en el
+   móvil, Intro añade una línea y se envía con el botón.
+2. La respuesta dice de qué documento y página sale cada dato. Debajo, «Ver la fuente» enseña lo que el asistente
+   consultó para responder, de lo más a lo menos relevante: el documento, el apartado, la página y su base.
 3. Puedes seguir preguntando en la misma conversación, empezar otra con «Nueva conversación» o volver a una
    anterior desde «Tus conversaciones». Si tienes muchas, «Cargar más» trae las más antiguas.
 4. Para borrar una conversación, pulsa la papelera que tiene al lado.
+
+Mientras el asistente responde puedes abrir otra conversación o ir a otra parte de la app: la respuesta se guarda
+igual y la encuentras al volver.
 
 En el móvil, «Asistentes» está en «Más».
 
@@ -99,14 +118,16 @@ En el móvil, «Asistentes» está en «Más».
 
 - **Lo que cada persona pregunta solo lo ve ella.** Ni el propietario ni los administradores pueden leer las
   conversaciones de otra persona.
-- La empresa sí ve cuánto se usan los agentes internos y cuánto cuestan, en Informes.
+- El propietario y los administradores sí ven cuánto se usan los agentes internos y cuánto cuestan, en Informes.
+  El resto del equipo ve el coste total de la IA, sin esa parte.
 - Las preguntas y los trozos de documento que el agente necesita van a OpenRouter para que el modelo responda, con
   la orden de no guardarlos ni usarlos, como el resto de la IA de la app.
 - Las conversaciones se borran cuando su dueño las borra, cuando se borra su usuario o cuando se borra el agente.
 
 ## Coste y límites
 
-- En Informes, el coste de IA dice cuánto de él han gastado los agentes internos y cuántas preguntas han respondido.
+- En Informes, el coste de IA dice al propietario y a los administradores cuánto de él han gastado los agentes
+  internos y cuántas preguntas han respondido.
 - Cada persona puede hacer hasta 20 preguntas por minuto y 200 al día. Al pasarse, la app se lo dice y no envía la
   pregunta.
 
@@ -114,6 +135,12 @@ En el móvil, «Asistentes» está en «Más».
 
 - **No veo «Asistentes» en el menú.** No tienes acceso a ningún agente interno. Pídeselo a un administrador.
 - **«Falta la clave de OpenRouter».** El propietario o un administrador tiene que ponerla en Ajustes › IA.
+- **«El asistente no puede responder ahora mismo. Avisa a un administrador».** Hay algo que arreglar en la
+  configuración de la IA (la clave, su saldo o el modelo del agente). El propietario y los administradores ven el
+  motivo exacto si hacen ellos la pregunta, o en la pestaña Probar del agente.
+- **La página que cita no es la del dato.** Abre el documento en Conocimiento y mira sus fragmentos: cada uno dice
+  su página, y «[pág. N]» dentro del texto marca dónde empieza otra. Si el documento se subió hace tiempo, pulsa
+  «Reindexar» en los Ajustes de la base.
 - **Dice que no lo encuentra en la documentación.** Comprueba en la pestaña Conocimiento del agente que la base
   está activada y que el documento está «listo». Prueba la misma pregunta en «Probar búsqueda», dentro de la base.
 - **No puedo activar una base interna en un agente.** Ese agente atiende clientes: una base interna solo la usan

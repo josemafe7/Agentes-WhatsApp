@@ -3,6 +3,7 @@ import type { OpenHandoff } from "@/data/conversations";
 import { formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { handoffSourceLabel } from "../_lib/presentation";
+import { HandoffSummary } from "./handoff-summary";
 
 /** The hand-off waiting for a person, with its reason, summary and urgency ([TRA-07]). */
 export function HandoffNotice({ handoff, timezone, now }: { handoff: OpenHandoff; timezone: string; now: Date }) {
@@ -23,12 +24,7 @@ export function HandoffNotice({ handoff, timezone, now }: { handoff: OpenHandoff
           {handoff.reason}
         </p>
       ) : null}
-      {handoff.summary ? (
-        <p className="whitespace-pre-wrap">
-          <span className="text-muted-foreground">Resumen: </span>
-          {handoff.summary}
-        </p>
-      ) : null}
+      {handoff.summary ? <HandoffSummary summary={handoff.summary} /> : null}
     </div>
   );
 }

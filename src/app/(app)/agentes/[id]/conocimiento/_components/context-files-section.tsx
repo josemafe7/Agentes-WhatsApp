@@ -27,10 +27,12 @@ type ContextFilesSectionProps = {
   canMove: boolean;
   /** Bases a file can be moved to. */
   bases: { id: string; name: string }[];
+  /** An internal agent: only internal bases are offered, and a new one is internal ([INT-04]). */
+  internal?: boolean;
 };
 
 /** Level 1 of the agent's knowledge ([CON-01], [CON-02]): the context files, their size against the cap and actions. */
-export function ContextFilesSection({ agentId, files, budget, cost, canManage, canMove, bases }: ContextFilesSectionProps) {
+export function ContextFilesSection({ agentId, files, budget, cost, canManage, canMove, bases, internal = false }: ContextFilesSectionProps) {
   const [editor, setEditor] = useState<ContextFileEditor | null>(null);
   const [moving, setMoving] = useState<ContextFileItem | null>(null);
   const [deleting, setDeleting] = useState<ContextFileItem | null>(null);
@@ -154,7 +156,7 @@ export function ContextFilesSection({ agentId, files, budget, cost, canManage, c
         totalTokens={budget.totalTokens}
         limits={{ maxTokens: budget.maxTokens, warnTokens: budget.warnTokens }}
       />
-      {canMove ? <MoveToBaseDialog agentId={agentId} file={moving} bases={bases} onClose={() => setMoving(null)} /> : null}
+      {canMove ? <MoveToBaseDialog agentId={agentId} file={moving} bases={bases} internal={internal} onClose={() => setMoving(null)} /> : null}
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(next) => {
