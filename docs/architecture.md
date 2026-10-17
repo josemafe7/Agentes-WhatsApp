@@ -9,8 +9,8 @@
 > fase 11 aligera el calendario y la fase 12 trae varios recordatorios por cita con sus botones, los permisos de los
 > contactos y la creación de plantillas desde la app (decisión 0028), y la fase 13, importar contactos y escribirles por
 > primera vez a su teléfono.
-> Lo que queda para después
-> (Dokploy…) está en «Fases» de `docs/spec.md` y se corrige aquí cuando se construya.
+> Para un servidor propio con Dokploy ya están la imagen y el flujo que la construye (fila «Servidor propio», abajo).
+> Lo que queda para después está en «Fases» de `docs/spec.md` y se corrige aquí cuando se construya.
 
 ## Visión general
 
@@ -530,4 +530,4 @@ lugar. Los detalles verificados están en los documentos de cada integración.
 | Servicios de push de los navegadores | Entregar los avisos push de la PWA | `docs/notificaciones-push.md` |
 | Herramientas HTTP del negocio | Lo que el negocio conecte a sus agentes (n8n, un CRM…) | `docs/spec.md` |
 | Al publicar: Vercel y Supabase (Postgres, Storage y Cron) | Alojar la app, la base de datos y los archivos, y lanzar `tick()` cada minuto | `docs/plataforma-despliegue.md`; los pasos, en `docs/guia-despliegue.md` y `vercel.json` (funciones en Londres, junto a la base, y cron diario) |
-| En el futuro: Dokploy y GitHub | VPS propio e imágenes | `docs/plataforma-despliegue.md` |
+| Servidor propio: Dokploy, GitHub Actions y GHCR | El VPS con `migrate`, `web` y `worker` de una sola imagen (`Dockerfile`, `docker-compose.yml`); GitHub la construye, la prueba con Postgres y pgvector y la publica en `ghcr.io` (`.github/workflows/imagen.yml`) | `docs/plataforma-despliegue.md`, «VPS con Dokploy»; los pasos, en `docs/guia-despliegue.md` |

@@ -1,0 +1,105 @@
+# The app's image for an own server with Dokploy (docs/guia-despliegue.md, «Servidor propio con Dokploy»).
+# On every push to main: it builds the image, tries it with the real docker-compose.yml against a Postgres with pgvector
+# (migrations, the app answering /api/health and the worker running) and, only if all of that works, publishes it in
+# GitHub's registry (ghcr.io) as «latest» and with the commit. A tag v1.2.3 publishes it also as 1.2.3.
+name: Imagen para el servidor
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: imagen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  imagen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Nombre de la imagen (en minúsculas)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Construir
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: agentes-prueba:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Probar con docker-compose.yml y un Postgres con pgvector
+        env:
+          APP_IMAGE: agentes-prueba:ci
+          DATABASE_URL: postgresql://postgres:postgres@db:5432/postgres
+          # http://localhost is accepted only on the same machine: enough for this test.
+          APP_URL: http://localhost:3000
+          SUPABASE_URL: https://prueba.supabase.co
+          SUPABASE_SECRET_KEY: sb_secret_prueba
+        run: |
+          set -euo pipefail
+          # Keys made up for this test only.
+          export BETTER_AUTH_SECRET="$(openssl rand -hex 32)" CRON_SECRET="$(openssl rand -hex 32)" SETUP_TOKEN="$(openssl rand -hex 32)"
+          export APP_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+          compose() { docker compose -f docker-compose.yml -f .github/compose.prueba.yml "$@"; }
+          compose up -d
+          ok=""
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:3000/api/health; then ok=1; break; fi
+            sleep 5
+          done
+          compose ps -a
+          if [ -z "$ok" ]; then compose logs; exit 1; fi
+          echo
+          [ "$(docker inspect -f '{{.State.ExitCode}}' "$(compose ps -a -q migrate)")" = "0" ] || { compose logs migrate; exit 1; }
+          # The first visit goes to the start-up wizard.
+          code="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/)"
+          [ "$code" = "307" ] || [ "$code" = "200" ] || { echo "La portada respondió $code"; compose logs web; exit 1; }
+          sleep 15
+          [ "$(docker inspect -f '{{.State.Running}}' "$(compose ps -a -q worker)")" = "true" ] || { compose logs worker; exit 1; }
+          compose logs worker | grep -q "\[worker\] En marcha" || { compose logs worker; exit 1; }
+          # Migrating again changes nothing and ends well (every deployment does it).
+          compose run --rm migrate
+          # The start-up upkeep says so when a part of it fails.
+          if compose logs web worker | grep -E "No puede|No se ha(n)? podido"; then echo "Algo falló al arrancar"; exit 1; fi
+          compose down -v
+
+      - name: Etiquetas
+        if: github.event_name != 'pull_request'
+        id: meta
+        uses: docker/metadata-action@v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
+            type=semver,pattern={{version}}
+
+      - name: Iniciar sesión en ghcr.io
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publicar
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha

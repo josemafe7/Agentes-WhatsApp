@@ -1,14 +1,14 @@
 # Publicar la app en Vercel
 
 Esta guía explica, paso a paso, cómo publicar en internet la instalación de un negocio con Vercel (la app) y Supabase
-(la base de datos, los archivos y el cron del trabajo en segundo plano). Se hace una vez por negocio. Al final hay un
-resumen de la otra opción, un servidor propio (VPS), para más adelante. Los datos técnicos de cada servicio, con sus
+(la base de datos, los archivos y el cron del trabajo en segundo plano). Se hace una vez por negocio. Al final está la
+otra opción, paso a paso: un servidor propio (VPS) con Dokploy, con la base y los archivos también en Supabase. Los datos técnicos de cada servicio, con sus
 fuentes, están en `docs/plataforma-despliegue.md` del repositorio.
 
 ## Antes de empezar
 
 - **Vercel Hobby (gratis) es solo para pruebas.** Sus normas lo limitan a uso personal y no comercial: sirve para
-  enseñar la demo o probar la app. Un negocio real necesita Vercel Pro o, más adelante, un servidor propio (VPS).
+  enseñar la demo o probar la app. Un negocio real necesita Vercel Pro o un servidor propio (VPS, al final de la guía).
 - **Supabase Free (gratis) también es solo para pruebas:** no hace copias de seguridad, se pausa tras una semana con
   poca actividad y admite archivos de 50 MB como mucho (un documento que llega por WhatsApp puede pesar hasta
   100 MB). Un negocio real necesita Supabase Pro (25 USD al mes el 27-09-2026), que hace una copia de la base cada día,
@@ -508,31 +508,132 @@ base ya puesta al día sirve también para la versión anterior. Si trabajas con
 - **Meta, Google o Microsoft no llegan a la app:** `APP_URL` no es la dirección de producción, o diste a esos servicios
   la dirección de una versión de prueba.
 
-## Más adelante: VPS con Dokploy
+## Servidor propio con Dokploy (Hostinger)
 
-Para un negocio real, la alternativa a Vercel Pro será un servidor propio (VPS) con Dokploy, un panel para publicar
-aplicaciones con Docker. El proyecto todavía no trae los archivos para hacerlo; cuando los tenga, esta guía tendrá su
-apartado paso a paso. Esto es lo que ya está decidido:
+La otra forma de publicar: la app en un servidor propio (un VPS de Hostinger con Dokploy, un panel para publicar
+aplicaciones con Docker) y, como con Vercel, la base de datos y los archivos en Supabase. Tu ordenador sigue igual:
+`pnpm dev` con la demo y la base integrada, sin tocar nunca la de Supabase.
 
-- **Tres servicios** en un `docker-compose`, con la misma imagen: `migrate` aplica las migraciones y termina; `web` es
-  la app; y `worker` hace el trabajo en segundo plano en bucle (`pnpm worker`), así que no hace falta el cron.
-  `web` y `worker` arrancan solo cuando `migrate` ha terminado bien.
-- **La base sigue en Supabase**, con la dirección del «Session pooler» (puerto 5432), la que sirve para un servidor
-  que está siempre encendido. Nunca la base integrada de la demo: solo la abre un programa a la vez, y aquí son dos
-  (`web` y `worker`).
-- **Dominio propio con HTTPS**, con su certificado. Nunca los dominios `traefik.me` que genera Dokploy: no tienen HTTPS
-  y Meta los rechaza.
-- **WhatsApp por código QR** sí funciona en un servidor propio, con dos condiciones: **una sola copia de `web`**
-  (la conexión con WhatsApp la mantiene ese servicio, y dos copias se la quitarían la una a la otra) y el mismo
-  `CRON_SECRET` en `web` y en `worker`, porque el trabajador pide al servicio `web` los envíos de esa vía.
-- **Actualiza Dokploy nada más instalarlo** y mantenlo al día: en julio de 2026 publicó decenas de fallos de seguridad
-  críticos. Su panel lleva verificación en dos pasos, se cierra su puerto 3000 cuando tenga dominio y nunca se da al
-  negocio: quien lo maneja puede controlar el servidor entero.
-- **Nunca «Deploy with Fresh Volumes»** (el botón «Fresh Volumes»): borra los volúmenes del servidor, y con ellos los
-  archivos que guarde ahí.
-- **Copias:** las de Supabase (Pro) para la base; si los archivos se guardan en el disco del servidor en vez de en
-  Supabase Storage, copias diarias de ese volumen a un almacenamiento S3 o Cloudflare R2, fuera del servidor, con la
-  restauración probada. `APP_ENCRYPTION_KEY` se guarda aparte: fuera del servidor y lejos de las copias.
-- Servidor orientativo: Hostinger KVM 2 (8 GB) con la plantilla «Ubuntu 24.04 with Dokploy».
+Cómo funciona:
 
-Los detalles técnicos están en `docs/plataforma-despliegue.md`, apartado «Futuro: VPS con Dokploy».
+- **La imagen de la app** (todo lo que la app necesita para funcionar, empaquetado con el `Dockerfile` del proyecto) la
+  construye GitHub cada vez que subes cambios a `main`: el flujo «Imagen para el servidor» (pestaña **Actions** del
+  repositorio) la prueba con una base de datos de verdad y, si todo va bien, la publica en
+  `ghcr.io/josemafe7/agentes-whatsapp`. El servidor solo la descarga: nunca compila nada.
+- **En el servidor** corren tres piezas de esa imagen (`docker-compose.yml`): `migrate` pone la base de Supabase al día
+  y termina; después arrancan `web` (la app) y `worker` (el trabajo en segundo plano, siempre en marcha). Por eso aquí
+  no hace falta el cron del apartado 6 y **sí funciona WhatsApp por código QR**.
+- Cada despliegue pone la base al día solo: no hay que lanzar las migraciones a mano.
+
+### 1. Supabase
+
+Como en el apartado 1, con dos diferencias:
+
+- **La región:** la misma ciudad que el servidor de Hostinger, o la más cercana (`vercel.json` no cuenta aquí).
+- **La dirección de la base es la del «Session pooler»**, no la del «Transaction pooler»: en **Connect**, elige
+  **Session pooler**. Empieza por `postgresql://postgres.` y acaba en `pooler.supabase.com:5432/postgres` (puerto
+  **5432**). Es la que sirve para un servidor que está siempre encendido. Cambia `[YOUR-PASSWORD]` por la contraseña
+  y guárdala en el gestor de contraseñas.
+
+Necesitas también la «Project URL» y una clave secreta `sb_secret_…` (apartado 1, «Las claves de los archivos»).
+
+### 2. La imagen, pública
+
+La primera vez que el flujo «Imagen para el servidor» termina en verde, GitHub guarda la imagen como privada. El
+repositorio ya es público y la imagen no lleva ninguna clave, así que lo más sencillo es hacerla pública: en GitHub,
+tu perfil › **Packages** › `agentes-whatsapp` › **Package settings** › **Change visibility** › **Public**. Así el
+servidor la descarga sin contraseña.
+
+Si prefieres que siga privada: crea en GitHub un token clásico (**Settings › Developer settings › Personal access
+tokens › Tokens (classic)**) solo con el permiso `read:packages`, y añádelo en Dokploy en **Settings › Registry**
+(registro `ghcr.io`, tu usuario de GitHub y el token como contraseña).
+
+[Captura: Package settings de GitHub, con la visibilidad pública]
+
+### 3. El servidor
+
+1. En Hostinger, un VPS **KVM 2** (8 GB) con la plantilla **«Ubuntu 24.04 with Dokploy»**.
+2. **Actualiza Dokploy nada más instalarlo** (la plantilla puede traer una versión antigua, y en 2026 se publicaron
+   fallos de seguridad graves): entra por SSH (`ssh root@<IP del servidor>`) y lanza
+
+   ```
+   curl -sSL https://dokploy.com/install.sh | sh -s update
+   ```
+
+3. Abre el panel en `http://<IP del servidor>:3000`, crea tu cuenta de administrador y activa la verificación en dos
+   pasos. **El panel nunca se da al negocio:** quien entra en él puede controlar el servidor entero.
+4. En el cortafuegos del VPS (en el panel de Hostinger) deja abiertos solo los puertos 22 (SSH), 80 y 443 (la web) y,
+   mientras configuras el panel, el 3000.
+5. Opcional pero recomendado: pon al panel su propio dominio con HTTPS (en Dokploy, **Settings › Web Server**) y,
+   cuando funcione, cierra el puerto 3000, también en el cortafuegos:
+
+   ```
+   docker service update --publish-rm "published=3000,target=3000,mode=host" dokploy
+   ```
+
+### 4. El dominio de la app
+
+En tu proveedor de dominios, crea un registro **A** para el subdominio de la app (por ejemplo,
+`atencion.tunegocio.es`) que apunte a la IP del servidor. Hazlo antes de desplegar: el certificado HTTPS se pide
+nada más poner el dominio en Dokploy. Nunca uses las direcciones `traefik.me` que propone Dokploy: no tienen HTTPS y
+Meta las rechaza.
+
+### 5. Crear la app en Dokploy
+
+1. **Projects › Create Project** (por ejemplo, `dominia-negocio`) y dentro **Create Service › Compose**.
+2. En **General**, el origen **Git**: la dirección `https://github.com/josemafe7/Agentes-WhatsApp.git`, la rama `main`
+   y el archivo `./docker-compose.yml`. Guarda.
+3. En **Environment**, pega las variables, una por línea (`NOMBRE=valor`). Los secretos se generan como en el
+   apartado 4 (en una terminal de tu ordenador, nunca en un chat):
+
+   ```
+   DATABASE_URL=postgresql://postgres.<ref>:<contraseña>@aws-….pooler.supabase.com:5432/postgres
+   APP_URL=https://atencion.tunegocio.es
+   BETTER_AUTH_SECRET=…
+   APP_ENCRYPTION_KEY=…
+   CRON_SECRET=…
+   SETUP_TOKEN=…
+   SUPABASE_URL=https://<ref>.supabase.co
+   SUPABASE_SECRET_KEY=sb_secret_…
+   ```
+
+   Opcionales: `OPENROUTER_API_KEY` (mejor en Ajustes › IA), `TRUSTED_PROXY_HOPS=2` si pones Cloudflare delante y
+   `EMAIL_IMAP_IDLE=true` para leer al momento los buzones IMAP con «Leer al momento». `BETTER_AUTH_URL` y
+   `DEMO_MODE=false` ya los pone `docker-compose.yml`. Si falta una obligatoria, el despliegue se para y dice cuál.
+4. En **Domains**, **Add Domain**: el servicio **web**, el dominio del paso anterior, el puerto **3000**, **HTTPS**
+   activado y el certificado **Let's Encrypt**.
+5. **Deploy**. En **Logs** verás, en este orden: `migrate` termina con «Base de datos al día: la base de datos de
+   Supabase.»; `web` dice «Ready»; y `worker`, «[worker] En marcha».
+
+[Captura: el servicio Compose de Dokploy con sus pestañas General, Environment y Domains]
+
+### 6. Comprobar y poner en marcha
+
+1. Abre `https://<tu-dominio>/api/health`: tiene que responder `"status":"ok"` y `"database":"ok"`.
+2. Sigue el apartado 7 («Poner en marcha el negocio»), con el código de instalación (`SETUP_TOKEN`). Aquí también
+   puedes conectar WhatsApp por código QR. El correo del sistema, por el puerto 465 o 587.
+3. En **Ajustes › Diagnóstico**, comprueba que la cola de trabajo avanza (lo hace el `worker`).
+
+### 7. Publicar una versión nueva
+
+1. **Copia de seguridad** de la base (apartado 10).
+2. Sube los cambios a `main` y espera a que el flujo «Imagen para el servidor» termine en verde en **Actions**.
+3. En Dokploy, **Deploy**: descarga la imagen nueva, `migrate` pone la base al día y después arrancan `web` y
+   `worker`. Como las migraciones solo añaden, mientras tanto no se rompe nada.
+4. Comprueba `/api/health` (con la versión nueva en `"version"`).
+
+**Volver a la versión anterior:** cada imagen queda también con el código de su commit (`sha-…`, en **Packages** de
+GitHub). Añade en **Environment** `APP_IMAGE=ghcr.io/josemafe7/agentes-whatsapp:sha-<código>` y pulsa **Deploy**.
+Quítala para volver a la última.
+
+### Cuidado
+
+- **Una sola copia de `web`:** la conexión de WhatsApp por código QR la mantiene ese servicio, y dos copias se la
+  quitarían la una a la otra.
+- **Nunca «Deploy with Fresh Volumes»** («Fresh Volumes»): borra los volúmenes del servidor. La app no guarda nada en
+  el servidor (todo va a Supabase), pero es una costumbre que conviene no tener.
+- **Mantén Dokploy al día** y entra en su panel solo tú, con verificación en dos pasos.
+- **Copias:** las de Supabase (apartado 10). `APP_ENCRYPTION_KEY`, en el gestor de contraseñas: nunca en el servidor
+  fuera de Dokploy ni junto a las copias.
+
+Los detalles técnicos están en `docs/plataforma-despliegue.md`, apartado «VPS con Dokploy».

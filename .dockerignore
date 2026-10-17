@@ -1,0 +1,20 @@
+# What never goes into the image (Dockerfile): keys, local databases and files, dependencies and builds of this
+# computer, and test results.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.git
+node_modules
+.next
+data
+coverage
+test-results
+playwright-report
+blob-report
+playwright/.cache
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+.vercel

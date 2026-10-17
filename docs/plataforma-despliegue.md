@@ -1,7 +1,7 @@
 # Plataforma y despliegue
 
 Referencia técnica de dónde corre la app y con qué límites: Vercel, Supabase (base de datos, Storage, Cron, claves y
-copias), la base integrada de la demo (PGlite) y el futuro VPS con Dokploy. Lo de Vercel y Dokploy se comprobó el
+copias), la base integrada de la demo (PGlite) y el VPS con Dokploy. Lo de Vercel y Dokploy se comprobó el
 26-09-2026, y lo de Supabase y PGlite el 27-09-2026, contra la documentación oficial (ver «Fuentes»). Si una cifra
 cambia, se corrige aquí antes de tocar el código. El porqué de Supabase está en `docs/decisions/0024-datos-y-archivos-en-supabase.md`.
 
@@ -371,7 +371,7 @@ sobre las contraseñas públicas de la demo).
   archivo de prueba (más con el ordenador cargado); una carpeta nueva en disco, ~1,4 s.
 - Se copia como cualquier carpeta, con la app parada. Nunca se abre en Vercel: allí la base es Supabase.
 
-## Futuro: VPS con Dokploy
+## VPS con Dokploy
 
 ### Servidor
 
@@ -402,10 +402,15 @@ sobre las contraseñas públicas de la demo).
 
 ### docker-compose
 
+Hecho en `Dockerfile`, `.dockerignore` y `docker-compose.yml` (2026-10-17); paso a paso en `docs/guia-despliegue.md`,
+«Servidor propio con Dokploy (Hostinger)».
+
 - Tres servicios que usan la misma imagen:
-  - `migrate`: aplica las migraciones y termina (sin reinicio automático);
-  - `web`: el servidor de Next.js en modo `standalone`;
-  - `worker`: `tick()` en bucle, con IMAP IDLE opcional.
+  - `migrate`: aplica las migraciones (`tsx scripts/migrate.ts`, como `pnpm db:migrate`) y termina (sin reinicio
+    automático);
+  - `web`: `next start` en el puerto 3000 (`--hostname 0.0.0.0`), con un healthcheck que llama a `/api/health` con el
+    propio Node;
+  - `worker`: `tick()` en bucle (`tsx scripts/worker.ts`, como `pnpm worker`), con IMAP IDLE opcional.
 
   `web` y `worker` dependen de `migrate` con `condition: service_completed_successfully`, que Docker define
   como «la dependencia debe terminar con éxito antes de arrancar el servicio que depende de ella».
@@ -424,22 +429,35 @@ sobre las contraseñas públicas de la demo).
 - Next.js mete las variables `NEXT_PUBLIC_` en el código al compilar: una imagen compartida por varios
   negocios no puede llevar valores públicos propios de cada uno. Lo que cambia por instalación (URL, clave
   pública VAPID, nombre) se lee en el servidor en tiempo de ejecución.
-- `output: 'standalone'` genera `.next/standalone` con un `server.js` mínimo. `public/` y `.next/static` se
-  copian a mano, y el puerto y la interfaz se fijan con `PORT` y `HOSTNAME` (en el contenedor,
-  `HOSTNAME=0.0.0.0`). El modo standalone solo incluye lo que usa el servidor de Next.js: el worker y las
-  migraciones necesitan su propio empaquetado dentro de la imagen.
-- `web` expone `/api/health`, que comprueba la base de datos. Si se usa como healthcheck de Docker, la imagen
-  necesita algo con que llamarla (por ejemplo, el propio Node): no todas las imágenes base traen `curl`.
-- Para no cortar `after()` ni jobs a medias, el contenedor se para con `SIGTERM` y un margen de unos 30 s.
+- **Sin `output: 'standalone'`:** la imagen lleva la app compilada con todas sus dependencias y `web` usa
+  `next start`. El modo standalone solo incluye lo que usa el servidor de Next.js, y `migrate` y `worker` (que
+  ejecutan `scripts/` con `tsx`) necesitarían su propio empaquetado; también habría que copiar a mano `public/`,
+  `.next/static`, las guías de `docs/` y el binario de FFmpeg. La imagen es más grande, pero una sola y sin piezas
+  que se puedan olvidar.
+- La imagen parte de `node:24.21.0-bookworm-slim` (versión exacta, con el margen de 7 días) y pnpm llega con
+  Corepack a la versión de `packageManager`. `pnpm install --frozen-lockfile` aplica las reglas de
+  `pnpm-workspace.yaml` (margen, scripts aprobados: el de `ffmpeg-static` descarga el binario de Linux). `next build`
+  necesita una `APP_ENCRYPTION_KEY` y el secreto del inicio de sesión: se le dan unos de usar y tirar, solo para esa
+  orden, que no quedan en la imagen. Corre con el usuario sin privilegios `node`.
+- `web` expone `/api/health`, que comprueba la base de datos. El healthcheck lo llama con el propio Node: la imagen
+  no trae `curl`.
+- Para no cortar `after()` ni jobs a medias, `web` tiene 30 s para pararse y `worker` 70 s (un trabajo dura como mucho
+  un minuto).
 
 ### Imágenes en GHCR
 
-- Se construyen en GitHub Actions y se suben a `ghcr.io`, nunca en el VPS. GitHub documenta el flujo con
-  `docker/login-action`, `docker/metadata-action` y `docker/build-push-action`, autenticado con el
-  `GITHUB_TOKEN` del flujo y el permiso `packages: write`.
-- En el VPS, Dokploy descarga la imagen con un registro GHCR configurado. GHCR solo admite tokens personales
-  clásicos: para descargar basta `read:packages`, aunque la guía de Dokploy muestre `write:packages`.
-- Las imágenes se etiquetan con la versión (`APP_VERSION`), no solo con `latest`, para poder volver atrás.
+- Se construyen en GitHub Actions y se suben a `ghcr.io`, nunca en el VPS: `.github/workflows/imagen.yml`, con
+  `docker/login-action`, `docker/metadata-action` y `docker/build-push-action`, autenticado con el `GITHUB_TOKEN` del
+  flujo y el permiso `packages: write`. Las acciones van con su versión exacta.
+- Antes de publicarla, el flujo la prueba con el `docker-compose.yml` de verdad y `.github/compose.prueba.yml`, que pone
+  un Postgres 17 con pgvector (`pgvector/pgvector:0.8.7-pg17-bookworm`) en lugar de Supabase: `migrate` termina bien
+  (y otra vez sin cambiar nada), `/api/health` responde, la portada lleva al asistente y `worker` sigue en marcha, sin
+  avisos de fallo al arrancar. Si algo falla, no se publica.
+- Etiquetas: `latest` (la rama `main`), `sha-<commit>` siempre y `1.2.3` con una etiqueta de Git `v1.2.3`. Para
+  volver atrás, `APP_IMAGE` en el entorno de Dokploy apunta a una `sha-…`.
+- El repositorio es público y la imagen no lleva claves: se publica como paquete público y Dokploy la descarga sin
+  registro. Si se quiere privada, GHCR solo admite tokens personales clásicos: para descargar basta `read:packages`,
+  aunque la guía de Dokploy muestre `write:packages`.
 
 ### Dominio propio con HTTPS
 

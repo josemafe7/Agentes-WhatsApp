@@ -1,0 +1,26 @@
+# Only for the test of .github/workflows/imagen.yml: docker-compose.yml with the image just built, a Postgres with
+# pgvector in place of Supabase and the app on port 3000 of the test machine. Never on a server.
+services:
+  db:
+    image: pgvector/pgvector:0.8.7-pg17-bookworm
+    environment:
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  migrate:
+    pull_policy: never
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    pull_policy: never
+    ports:
+      - "3000:3000"
+
+  worker:
+    pull_policy: never

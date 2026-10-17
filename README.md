@@ -680,6 +680,13 @@ minuto (Supabase Cron, porque el plan gratuito de Vercel solo admite uno al día
 misma ciudad que la base de Supabase. Los datos técnicos de cada servicio están en `docs/plataforma-despliegue.md`, y
 el porqué, en `docs/decisions/0024-datos-y-archivos-en-supabase.md`.
 
+**O en un servidor propio con Dokploy** (por ejemplo, un VPS de Hostinger), con la base y los archivos también en
+Supabase: el apartado «Servidor propio con Dokploy (Hostinger)» de esa misma guía. El proyecto trae el `Dockerfile`
+(la imagen de la app), `docker-compose.yml` (las tres piezas que corren en el servidor: `migrate`, `web` y `worker`) y
+el flujo de GitHub «Imagen para el servidor» (`.github/workflows/imagen.yml`), que en cada subida a `main` construye la
+imagen, la prueba con una base de datos de verdad y la publica en `ghcr.io/josemafe7/agentes-whatsapp`. En el
+servidor no se compila nada, las migraciones se aplican solas en cada despliegue y no hace falta cron.
+
 Supabase es solo para la app publicada: `DATABASE_URL`, `SUPABASE_URL` y `SUPABASE_SECRET_KEY` van en las variables
 de Vercel, nunca en `.env.local`, y tu ordenador sigue con la base integrada. Las migraciones se aplican desde tu
 ordenador con la dirección de la base puesta solo para esa orden (o con Claude Code y el conector de Supabase). La

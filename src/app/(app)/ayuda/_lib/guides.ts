@@ -42,7 +42,7 @@ export const HELP_GUIDES: readonly HelpGuide[] = [
     slug: "despliegue",
     file: "guia-despliegue.md",
     group: "start",
-    description: "Publicar la app en Vercel con Supabase (base de datos, archivos y cron), y más adelante en un servidor propio.",
+    description: "Publicar la app en Vercel con Supabase (base de datos, archivos y cron), o en un servidor propio con Dokploy y Supabase.",
   },
   {
     slug: "whatsapp",

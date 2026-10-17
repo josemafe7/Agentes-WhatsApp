@@ -1,0 +1,65 @@
+# The app on an own server with Dokploy, with the database and the files in Supabase (docs/guia-despliegue.md,
+# «Servidor propio con Dokploy»). Three services of the same image, built and tested by GitHub Actions:
+# - migrate: brings the database up to date and ends; web and worker start only when it ended well.
+# - web: the app. Without ports: Dokploy publishes it with HTTPS from its «Domains» tab (service web, port 3000).
+# - worker: the background work in a loop (`pnpm worker`), so no cron is needed.
+# The values go in Dokploy's «Environment» tab: Dokploy writes them to a .env next to this file and they reach the
+# containers only through the ${…} below. Those marked :? stop the deployment if they are missing.
+
+x-app: &app
+  image: ${APP_IMAGE:-ghcr.io/josemafe7/agentes-whatsapp:latest}
+  pull_policy: always
+  environment:
+    # Supabase's «Session pooler» (port 5432): the one for a server that is always on.
+    DATABASE_URL: ${DATABASE_URL:?Falta DATABASE_URL (la del Session pooler de Supabase)}
+    # The app's public address with https://; the sign-in uses the same one.
+    APP_URL: ${APP_URL:?Falta APP_URL (la dirección pública de la app, con https://)}
+    BETTER_AUTH_URL: ${APP_URL}
+    BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Falta BETTER_AUTH_SECRET}
+    APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?Falta APP_ENCRYPTION_KEY}
+    # The same in web and worker: the worker asks web for the sends of WhatsApp by QR code.
+    CRON_SECRET: ${CRON_SECRET:?Falta CRON_SECRET}
+    SETUP_TOKEN: ${SETUP_TOKEN:?Falta SETUP_TOKEN}
+    # The files, in Supabase Storage (a private bucket the app creates by itself).
+    SUPABASE_URL: ${SUPABASE_URL:?Falta SUPABASE_URL}
+    SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:?Falta SUPABASE_SECRET_KEY}
+    DEMO_MODE: "false"
+    # Optional: better in the app, in Ajustes › IA.
+    OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    # Traefik of Dokploy writes the customer's IP: 1. Use 2 with Cloudflare in front.
+    TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+    # true: the worker reads the IMAP mailboxes with «Leer al momento» as mail arrives.
+    EMAIL_IMAP_IDLE: ${EMAIL_IMAP_IDLE:-false}
+
+services:
+  migrate:
+    <<: *app
+    command: ["node_modules/.bin/tsx", "--conditions=react-server", "scripts/migrate.ts"]
+    restart: "no"
+
+  web:
+    <<: *app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose:
+      - "3000"
+    restart: unless-stopped
+    # Time to finish what is under way (replies, sends) when it is stopped or updated.
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+  worker:
+    <<: *app
+    command: ["node_modules/.bin/tsx", "--conditions=react-server", "scripts/worker.ts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    # It lets the job under way finish (up to a minute of work) before stopping.
+    stop_grace_period: 70s

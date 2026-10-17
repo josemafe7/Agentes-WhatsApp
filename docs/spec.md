@@ -2062,7 +2062,14 @@ oficiales el 2026-10-16 y quedan en los documentos de integración de cada fase.
   desactivada de la misma app se perdía; un fallo pasajero al renovar el token daba una falsa alarma; y «Reintentar»
   no miraba la ventana de 24 h. Se precisaron [IG-02], [IG-09] y [BAN-13].
 
-Después: publicación en Vercel (con Supabase) con la prueba del número de prueba de Meta; Dokploy; GitHub (versión,
+Servidor propio con Dokploy y Supabase (encargo del propietario del 2026-10-17, sin fase): preparado el `Dockerfile`, el
+`docker-compose.yml` (`migrate`, `web` y `worker`), el flujo de GitHub que construye la imagen, la prueba con Postgres y
+pgvector y la publica en `ghcr.io`, y la guía paso a paso (`docs/guia-despliegue.md`). Comprobado en una copia limpia:
+instalar y compilar como la imagen, migrar dos veces, la app respondiendo `/api/health` y el worker arrancando y
+parando bien. Falta, y es del propietario: el primer despliegue en su servidor de Hostinger con su proyecto de Supabase
+(también la versión de pgvector de Supabase).
+
+Después: publicación en Vercel (con Supabase) con la prueba del número de prueba de Meta; GitHub (versión,
 migraciones solo aditivas, changelog y aviso de versión nueva); respuestas con voz; Google Calendar e iCal;
 evaluación; agente de fuera de horario; y servicios con dos recursos.
 
