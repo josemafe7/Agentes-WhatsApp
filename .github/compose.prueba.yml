@@ -5,6 +5,11 @@ services:
     image: pgvector/pgvector:0.8.7-pg17-bookworm
     environment:
       POSTGRES_PASSWORD: postgres
+    # Like Supabase: TLS (the app always asks for it outside this same machine; the certificate is made by the
+    # workflow for this test) and the `extensions` schema in the search_path (src/db/index.ts).
+    command: ["postgres", "-c", "ssl=on", "-c", "ssl_cert_file=/tls/server.crt", "-c", "ssl_key_file=/tls/server.key", "-c", "search_path=public,extensions"]
+    volumes:
+      - ./tls-prueba:/tls:ro
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres"]
       interval: 2s

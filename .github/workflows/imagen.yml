@@ -63,6 +63,11 @@ jobs:
             done
           }
           trap 'status=$?; if [ "$status" -ne 0 ]; then report; fi; exit "$status"' EXIT
+          # A certificate for the test database only, owned by its postgres user (uid 999), as Postgres requires.
+          mkdir -p tls-prueba
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=db" -keyout tls-prueba/server.key -out tls-prueba/server.crt 2>/dev/null
+          sudo chown 999:999 tls-prueba/server.key tls-prueba/server.crt
+          sudo chmod 600 tls-prueba/server.key
           compose up -d
           ok=""
           for i in $(seq 1 60); do
