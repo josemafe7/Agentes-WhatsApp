@@ -54,6 +54,15 @@ jobs:
           export BETTER_AUTH_SECRET="$(openssl rand -hex 32)" CRON_SECRET="$(openssl rand -hex 32)" SETUP_TOKEN="$(openssl rand -hex 32)"
           export APP_ENCRYPTION_KEY="$(openssl rand -base64 32)"
           compose() { docker compose -f docker-compose.yml -f .github/compose.prueba.yml "$@"; }
+          # If anything fails, the last lines of each service go out as annotations: they can be read without signing in.
+          report() {
+            compose ps -a || true
+            for service in db migrate web worker; do
+              text="$(compose logs --no-color --tail 40 "$service" 2>&1 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g')"
+              echo "::error title=Registro de ${service}::${text}"
+            done
+          }
+          trap 'status=$?; if [ "$status" -ne 0 ]; then report; fi; exit "$status"' EXIT
           compose up -d
           ok=""
           for i in $(seq 1 60); do
@@ -69,11 +78,13 @@ jobs:
           [ "$code" = "307" ] || [ "$code" = "200" ] || { echo "La portada respondió $code"; compose logs web; exit 1; }
           sleep 15
           [ "$(docker inspect -f '{{.State.Running}}' "$(compose ps -a -q worker)")" = "true" ] || { compose logs worker; exit 1; }
-          compose logs worker | grep -q "\[worker\] En marcha" || { compose logs worker; exit 1; }
+          compose logs worker > worker.log
+          grep "\[worker\] En marcha" worker.log || { cat worker.log; exit 1; }
           # Migrating again changes nothing and ends well (every deployment does it).
           compose run --rm migrate
           # The start-up upkeep says so when a part of it fails.
-          if compose logs web worker | grep -E "No puede|No se ha(n)? podido"; then echo "Algo falló al arrancar"; exit 1; fi
+          compose logs web worker > servicios.log
+          if grep -E "No puede|No se ha(n)? podido" servicios.log; then echo "Algo falló al arrancar"; exit 1; fi
           compose down -v
 
       - name: Etiquetas
