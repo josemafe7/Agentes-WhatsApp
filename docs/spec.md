@@ -2066,8 +2066,11 @@ Servidor propio con Dokploy y Supabase (encargo del propietario del 2026-10-17, 
 `docker-compose.yml` (`migrate`, `web` y `worker`), el flujo de GitHub que construye la imagen, la prueba con Postgres y
 pgvector y la publica en `ghcr.io`, y la guía paso a paso (`docs/guia-despliegue.md`). Comprobado en una copia limpia:
 instalar y compilar como la imagen, migrar dos veces, la app respondiendo `/api/health` y el worker arrancando y
-parando bien. Falta, y es del propietario: el primer despliegue en su servidor de Hostinger con su proyecto de Supabase
-(también la versión de pgvector de Supabase).
+parando bien. El 2026-10-17, con el conector de Supabase, el proyecto «agentes whatsapp pro» (Irlanda, plan gratuito,
+pgvector 0.8.2) quedó con las migraciones aplicadas por el usuario `dominia_app` y la demo cargada; la app de una
+copia limpia entró en ella y sirvió sus archivos. Sus usuarios de prueba conservan las contraseñas del README, por
+decisión del propietario: es su instalación de pruebas. Falta, y es del
+propietario: el primer despliegue en su servidor de Hostinger (`agentes.blunexai.com`).
 
 Después: publicación en Vercel (con Supabase) con la prueba del número de prueba de Meta; GitHub (versión,
 migraciones solo aditivas, changelog y aviso de versión nueva); respuestas con voz; Google Calendar e iCal;

@@ -16,8 +16,8 @@ funcione en la base integrada y en Supabase.
 ## Lo esencial
 
 - **El mismo Postgres en todas partes:** la base integrada es PostgreSQL 18.3 (PGlite 0.5.8) con pgvector 0.8.1;
-  Supabase ofrece Postgres 17 (su versión de pgvector se mira en el proyecto: hace falta la 0.8.0 o posterior,
-  **a comprobar** en el primero real). Las extensiones `vector` y `unaccent` van en el esquema `extensions`, como en
+  Supabase ofrece Postgres 17 (su versión de pgvector se mira en el proyecto: hace falta la 0.8.0 o posterior; el
+  primero real, del 2026-10-17, trae la 0.8.2). Las extensiones `vector` y `unaccent` van en el esquema `extensions`, como en
   Supabase.
 - **Embeddings en `halfvec(1536)`** (media precisión: 3.080 bytes por vector) con un índice **HNSW**
   `halfvec_cosine_ops`. Con pocos fragmentos elegibles (hasta 5.000), búsqueda exacta en un CTE `MATERIALIZED`; con más,
@@ -43,7 +43,7 @@ funcione en la base integrada y en Supabase.
 |---|---|---|
 | Base integrada (`data/pglite`) y pruebas de Vitest (en memoria) | Sí: pgvector 0.8.1, con `@electric-sql/pglite-pgvector` 0.0.9 | Sí: `unaccent` viene con PGlite |
 | Pruebas de Playwright (`data/e2e-*pglite`) | Sí, la misma base integrada | Sí |
-| Supabase | Sí; la versión de pgvector, **a comprobar** en el proyecto | Sí: las dos extensiones se crean en `extensions` |
+| Supabase | Sí: pgvector 0.8.2 (comprobado el 2026-10-17 en un proyecto real; hace falta la 0.8.0 o posterior) | Sí: las dos extensiones se crean en `extensions` |
 
 Cómo se ha comprobado: con los paquetes instalados, `CREATE EXTENSION … WITH SCHEMA extensions`, la columna generada
 con índice GIN, `halfvec(1536)` con HNSW y `SET LOCAL hnsw.iterative_scan = relaxed_order` dentro de una transacción

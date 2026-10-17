@@ -537,12 +537,20 @@ Como en el apartado 1, con dos diferencias:
 
 Necesitas también la «Project URL» y una clave secreta `sb_secret_…` (apartado 1, «Las claves de los archivos»).
 
+**Si lo prepara Claude Code con el conector de Supabase** (así se hizo el 2026-10-17 con la demo de
+`agentes.blunexai.com`): con el conector crea las extensiones `vector` y `unaccent` y la configuración `es_unaccent`
+(lo que hace `drizzle/0000_extensions.sql`), y un usuario solo para la app, `dominia_app`, con contraseña al azar,
+permiso para crear en la base y en el esquema `public`, uso del esquema `extensions` y su `search_path` con
+`extensions`. Después aplica las migraciones con `pnpm db:migrate` entrando como `dominia_app` por el Session pooler
+(`postgresql://dominia_app.<ref>:<contraseña>@…pooler.supabase.com:5432/postgres`): así las tablas son suyas y el
+servicio `migrate` de Dokploy, que entra con ese mismo usuario, aplica solo las versiones nuevas. Nunca migres esa base
+con el usuario `postgres`: las tablas nuevas serían de otro dueño y la app no podría cambiarlas.
+
 ### 2. La imagen, pública
 
-La primera vez que el flujo «Imagen para el servidor» termina en verde, GitHub guarda la imagen como privada. El
-repositorio ya es público y la imagen no lleva ninguna clave, así que lo más sencillo es hacerla pública: en GitHub,
-tu perfil › **Packages** › `agentes-whatsapp` › **Package settings** › **Change visibility** › **Public**. Así el
-servidor la descarga sin contraseña.
+Como el repositorio es público, la imagen también lo es y el servidor la descarga sin contraseña (comprobado el
+2026-10-17). No lleva ninguna clave. Si algún día Dokploy dice que no tiene permiso para descargarla, revisa en GitHub,
+tu perfil › **Packages** › `agentes-whatsapp` › **Package settings**, que su visibilidad sea **Public**.
 
 Si prefieres que siga privada: crea en GitHub un token clásico (**Settings › Developer settings › Personal access
 tokens › Tokens (classic)**) solo con el permiso `read:packages`, y añádelo en Dokploy en **Settings › Registry**
