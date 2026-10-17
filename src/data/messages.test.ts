@@ -122,6 +122,44 @@ describe("a person replies from the inbox [BAN-11] [BAN-05]", () => {
     expect(await outbound(conversation.id)).toHaveLength(0);
   });
 
+  it("outside Instagram's 24 h window nothing can be sent, and it says why without templates; WhatsApp keeps its text [IG-04] [BAN-18]", async () => {
+    const ig = await createChannel({ name: "IG", type: "instagram", isDemo: true });
+    const { contact } = await createContactWithIdentity("instagram");
+    const closed = await createConversation(ig.id, contact.id, { lastInboundAt: new Date(Date.now() - 25 * 3_600_000) });
+    const error = await errorOf(sendHumanMessage(users.owner.actor, { conversationId: closed.id, text: "Hola" }));
+    expect(error).toBeInstanceOf(ConflictError);
+    expect((error as ConflictError).userMessage).toBe("Han pasado más de 24 horas desde el último mensaje del cliente: Instagram no deja responder hasta que vuelva a escribir.");
+    expect(await outbound(closed.id)).toHaveLength(0);
+    const wa = await createChannel({ name: "WA texto", type: "whatsapp", isDemo: true });
+    const waContact = await createContactWithIdentity("whatsapp");
+    const waClosed = await createConversation(wa.id, waContact.contact.id, { lastInboundAt: new Date(Date.now() - 25 * 3_600_000) });
+    const waError = await errorOf(sendHumanMessage(users.owner.actor, { conversationId: waClosed.id, text: "Hola" }));
+    expect((waError as ConflictError).userMessage).toBe("Han pasado más de 24 horas desde el último mensaje del cliente: solo puedes enviar una plantilla aprobada.");
+  });
+
+  it("a person's reply longer than Instagram's 1,000 bytes is refused and said why, never cut [IG-05]", async () => {
+    const ig = await createChannel({ name: "IG", type: "instagram", isDemo: true });
+    const { contact } = await createContactWithIdentity("instagram");
+    const open = await createConversation(ig.id, contact.id, { lastInboundAt: new Date() });
+    // 600 characters with accents: 1,200 bytes.
+    const error = await errorOf(sendHumanMessage(users.owner.actor, { conversationId: open.id, text: "á".repeat(600) }));
+    expect(error).toBeInstanceOf(ValidationError);
+    expect((error as ValidationError).fieldErrors?.text?.[0]).toMatch(/1\.000 bytes/);
+    expect(await outbound(open.id)).toHaveLength(0);
+    await sendHumanMessage(users.owner.actor, { conversationId: open.id, text: "á".repeat(500) });
+    expect(await outbound(open.id)).toHaveLength(1);
+  });
+
+  it("an AI draft edited past Instagram's 1,000 bytes is refused too, never cut [IG-05]", async () => {
+    const ig = await createChannel({ name: "IG borradores", type: "instagram", isDemo: true });
+    const { contact } = await createContactWithIdentity("instagram");
+    const open = await createConversation(ig.id, contact.id, { lastInboundAt: new Date() });
+    const [draft] = await db.insert(messages).values({ conversationId: open.id, channelId: ig.id, direction: "outbound", senderType: "ai", contentType: "text", text: "Hola", status: "draft" }).returning();
+    const error = await errorOf(approveDraft(users.owner.actor, { messageId: draft.id, text: "é".repeat(600) }));
+    expect(error).toBeInstanceOf(ValidationError);
+    expect((await db.select().from(messages).where(eq(messages.id, draft.id)))[0].status).toBe("draft");
+  });
+
   it("Solo lectura and agents of other channels cannot reply [PER-02] [PER-03]", async () => {
     await forbidden(sendHumanMessage(users.viewer.actor, { conversationId: inA.id, text: "Hola" }));
     await forbidden(sendHumanMessage(users.agentA.actor, { conversationId: inB.id, text: "Hola" }));
@@ -166,6 +204,33 @@ describe("failed sends [BAN-13]", () => {
     const [message] = await outbound(conversation.id);
     expect(message.externalId).toBe("wamid.2");
     expect(await errorOf(retryFailedMessage(users.owner.actor, sent.messageId))).toBeInstanceOf(ConflictError);
+  });
+
+  const closedWindow = () => ({ lastInboundAt: new Date(Date.now() - 25 * 3_600_000) });
+  const failedReply = (conversation: { id: string; channelId: string | null }, overrides: Parameters<typeof createMessage>[1] = {}) =>
+    createMessage(conversation, { direction: "outbound", senderType: "human", senderName: "Olga", externalId: null, status: "failed", error: { message: "No se ha podido enviar el mensaje." }, text: "Hola", ...overrides });
+  const statusOf = async (id: string) => (await db.select().from(messages).where(eq(messages.id, id)))[0].status;
+
+  it("«Reintentar» is sending now: outside Instagram's 24 h window it is refused with the reason and the message stays failed [BAN-13] [IG-04]", async () => {
+    const ig = await createChannel({ name: "IG reintentar", type: "instagram", isDemo: true });
+    const { contact } = await createContactWithIdentity("instagram");
+    const conversation = await createConversation(ig.id, contact.id, closedWindow());
+    const failed = await failedReply(conversation);
+    const error = await errorOf(retryFailedMessage(users.owner.actor, failed.id));
+    expect(error).toBeInstanceOf(ConflictError);
+    expect((error as ConflictError).userMessage).toBe("Han pasado más de 24 horas desde el último mensaje del cliente: Instagram no deja responder hasta que vuelva a escribir.");
+    expect(await statusOf(failed.id)).toBe("failed");
+  });
+
+  it("outside WhatsApp's 24 h window a failed template can be retried, a free text cannot [BAN-13] [BAN-08]", async () => {
+    const wa = await createChannel({ name: "WA reintentar", type: "whatsapp", isDemo: true });
+    const { contact } = await createContactWithIdentity("whatsapp");
+    const conversation = await createConversation(wa.id, contact.id, closedWindow());
+    const text = await failedReply(conversation);
+    const template = await failedReply(conversation, { contentType: "template", text: "Te recordamos tu cita de mañana." });
+    expect(await errorOf(retryFailedMessage(users.owner.actor, text.id))).toBeInstanceOf(ConflictError);
+    expect(await statusOf(text.id)).toBe("failed");
+    expect(await retryFailedMessage(users.owner.actor, template.id)).toMatchObject({ messageId: template.id, status: "sent", error: null });
   });
 });
 

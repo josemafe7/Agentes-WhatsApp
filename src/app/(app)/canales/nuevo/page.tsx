@@ -97,6 +97,12 @@ const OTHER_OPTIONS: ChannelOption[] = [
     description: "Un bot de Telegram del negocio: lo creas en un minuto, pegas su token y la app lo configura sola.",
     href: "/canales/nuevo/telegram",
   },
+  {
+    type: "instagram",
+    title: "Instagram",
+    description: "Los mensajes directos de la cuenta profesional del negocio, con tu propia app de Meta: pegas su token y su clave, y respondes con la IA y desde la bandeja.",
+    href: "/canales/nuevo/instagram",
+  },
 ];
 
 const CARD = "relative flex flex-col gap-3 rounded-xl border bg-card p-4 transition-colors focus-within:ring-2 focus-within:ring-ring hover:bg-accent";

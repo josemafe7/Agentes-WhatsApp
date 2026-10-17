@@ -3,13 +3,15 @@
 // message, «entregado» carries the `pricing` Meta would give (docs/integracion-whatsapp.md §9.3): a template is charged
 // in its category (`regular`), any other message is one of the month's 1,000 free service messages
 // (`free_customer_service`). The estimate then comes from the rates of Ajustes › WhatsApp, as for a real number. Only
-// demo numbers: a simulated reply on a real number never gets a made-up price.
+// demo numbers: a simulated reply on a real number never gets a made-up price. A first message to a phone ([WA-63])
+// says who got it, so the contact gets its WhatsApp «sin confirmar» as with Meta.
 import "server-only";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { messages, whatsappTemplates } from "@/db/schema";
 import { normalizePricingCategory } from "@/lib/meta/pricing";
 import type { ChannelDeliveryStatus, ChannelRecord, StatusUpdateEvent } from "../types";
+import { firstContactPhoneOf } from "./first-contact";
 import { applyWhatsAppStatuses } from "./statuses";
 
 type DemoPricing = NonNullable<StatusUpdateEvent["pricing"]>;
@@ -38,5 +40,8 @@ export async function applyDemoWhatsAppStatus(
   status: { externalId: string; status: Extract<ChannelDeliveryStatus, "delivered" | "read">; at: Date },
 ): Promise<void> {
   const pricing = status.status === "delivered" ? await demoPricingOf(channel.id, status.externalId) : null;
-  await applyWhatsAppStatuses(channel, [{ kind: "status_update", ...status, pricing }], status.at);
+  // A first message to a phone says who got it, as Meta's would ([WA-63]): the demo can show a contact «sin confirmar».
+  const [message] = await db.select({ metadata: messages.metadata }).from(messages).where(and(eq(messages.channelId, channel.id), eq(messages.externalId, status.externalId)));
+  const phone = message ? firstContactPhoneOf(message.metadata) : null;
+  await applyWhatsAppStatuses(channel, [{ kind: "status_update", ...status, pricing, ...(phone ? { recipient: { waId: phone, userId: null } } : {}) }], status.at);
 }

@@ -21,6 +21,8 @@ const GROUP_BY_TOOL = new Map<string, ToolGroupKey>([
   ["cancelar_cita", "agenda"],
   ["reprogramar_cita", "agenda"],
   ["guardar_datos_contacto", "customers"],
+  ["anotar_permiso_avisos", "customers"],
+  ["dar_de_baja", "customers"],
   ["transferir_a_humano", "handoff"],
 ]);
 

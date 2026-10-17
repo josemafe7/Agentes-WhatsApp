@@ -241,6 +241,7 @@ export const legalSettingsInputSchema = z
     retentionAudioDays: wholeNumber("Escribe un número entero de días.", 1, 3_650, "Entre 1 y 3.650 días."),
     retentionAttachmentsDays: wholeNumber("Escribe un número entero de días.", 1, 3_650, "Entre 1 y 3.650 días."),
     retentionWebhookDays: wholeNumber("Escribe un número entero de días.", 7, 30, "Entre 7 y 30 días."),
+    retentionCampaignResultsMonths: wholeNumber("Escribe un número entero de meses.", 1, 120, "Entre 1 y 120 meses."),
     retentionMode: z.enum(["delete", "anonymize"], { error: "Elige borrar o anonimizar." }),
   })
   .strict();
@@ -282,6 +283,7 @@ export async function updateLegalSettings(actor: Actor, input: unknown): Promise
       audioDays: data.retentionAudioDays,
       attachmentsDays: data.retentionAttachmentsDays,
       webhookDays: data.retentionWebhookDays,
+      campaignResultsMonths: data.retentionCampaignResultsMonths,
       mode: data.retentionMode,
     },
   });

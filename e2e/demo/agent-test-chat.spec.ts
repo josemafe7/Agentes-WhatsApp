@@ -119,7 +119,8 @@ test.describe("with the OpenRouter key", () => {
     const [primary, fallback] = body.models ?? [];
     expect(providerOfModel(fallback)).not.toBe(providerOfModel(primary));
     // In this phase the only tool is the hand-off ([HER-10]).
-    expect(body.tools?.map((tool) => tool.function?.name)).toEqual(["transferir_a_humano"]);
+    // The two tools every agent has: passing to a person and the customer's baja ([HER-16]).
+    expect(body.tools?.map((tool) => tool.function?.name)).toEqual(["transferir_a_humano", "dar_de_baja"]);
 
     // [MOT-05][MOT-06][MOT-07] One system message: platform rules, business profile, then the agent's instructions.
     const [system, ...rest] = body.messages;

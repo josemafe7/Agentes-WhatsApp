@@ -10,8 +10,10 @@ import type { ChannelType } from "@/lib/enums";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { EmailMessageContent } from "../[id]/_email/email-message-content";
+import { useRetryClosedText } from "../[id]/_lib/retry-window";
 import { MessageCost } from "../[id]/_whatsapp/message-cost";
-import { CONTENT_TYPE_LABELS, contactDisplayName, DELIVERY_META, formatFileSize, mediaNotStoredText } from "../_lib/presentation";
+import { channelMarkText } from "../_lib/channel-mark";
+import { CONTENT_TYPE_LABELS, contactDisplayName, DELETED_BY_CONTACT_TEXT, DELIVERY_META, formatFileSize, mediaNotStoredText } from "../_lib/presentation";
 
 /** What stays of a file the daily clean-up removed ([CUM-05]). */
 const AUDIO_REMOVED_TEXT = "El audio se borró por la política de conservación";
@@ -29,7 +31,7 @@ type MessageBubbleProps = {
   timezone: string;
   hasSources: boolean;
   onShowSources: () => void;
-  /** «Reintentar» on a failed send, for whoever may reply ([BAN-13]). */
+  /** «Reintentar» on a failed send, for whoever may reply ([BAN-13]); not while the 24 h window is closed ([BAN-08]). */
   onRetry: (() => void) | null;
   retrying: boolean;
   /** Under a draft of the AI: «Aprobar y enviar», «Editar» and «Descartar», for whoever may review it ([CAN-07]). */
@@ -45,12 +47,16 @@ type MessageBubbleProps = {
  */
 export function MessageBubble({ message, first, last, channel, contactName, timezone, hasSources, onShowSources, onRetry, retrying, draftReview, actions }: MessageBubbleProps) {
   const time = formatDateTime(message.createdAt, timezone, { preset: "time" });
+  // Sending again is sending now: out of the 24 h window only a WhatsApp template goes ([BAN-08], [IG-04]).
+  const windowClosedText = useRetryClosedText();
+  const retryClosedText = message.contentType === "template" ? null : windowClosedText;
   if (message.senderType === "system") {
     return (
       <div className="flex items-start justify-center gap-1.5 px-6 text-center text-xs text-muted-foreground">
         <Info aria-hidden className="mt-px size-3.5 shrink-0" />
         <p>
           <span className="sr-only">Sistema: </span>
+          {message.campaignName ? <span className="font-medium">Envío «{message.campaignName}»: </span> : null}
           {message.text ?? CONTENT_TYPE_LABELS.system} · <time dateTime={message.createdAt.toISOString()}>{time}</time>
         </p>
       </div>
@@ -78,8 +84,13 @@ export function MessageBubble({ message, first, last, channel, contactName, time
     <div className={cn("flex flex-col gap-1", outbound ? "items-end" : "items-start")}>
       {first ? <AuthorLine message={message} channel={channel} contactName={contactName} /> : null}
       <div className={bubble}>
-        {/* In an email thread each email is a card with its headers ([BAN-09]); any other message, as it is. */}
-        <EmailMessageContent message={message} onPrimary={human} timezone={timezone} fallback={<MessageContent message={message} onPrimary={human} />} />
+        {message.deletedByContact ? (
+          // Its content is gone, as the customer wanted: only that it existed stays ([IG-07]).
+          <p className="text-muted-foreground italic">{DELETED_BY_CONTACT_TEXT}</p>
+        ) : (
+          // In an email thread each email is a card with its headers ([BAN-09]); any other message, as it is.
+          <EmailMessageContent message={message} onPrimary={human} timezone={timezone} fallback={<MessageContent message={message} onPrimary={human} />} />
+        )}
       </div>
       {message.reactions.length > 0 ? (
         <p className="text-sm" aria-label={`Reacciones: ${message.reactions.map((reaction) => reaction.emoji).join(" ")}`}>
@@ -103,6 +114,7 @@ export function MessageBubble({ message, first, last, channel, contactName, time
           </span>
         ) : null}
         {outbound ? <MessageCost pricing={message.pricing} /> : null}
+        {message.answersCampaign ? <span>Responde al envío «{message.answersCampaign}»</span> : null}
         {hasSources ? (
           <Button type="button" variant="link" size="xs" className="h-auto p-0 text-xs text-primary-text" onClick={onShowSources}>
             <BookOpen aria-hidden />
@@ -115,7 +127,8 @@ export function MessageBubble({ message, first, last, channel, contactName, time
       {message.status === "failed" ? (
         <div role="alert" className="flex max-w-[85%] flex-wrap items-center justify-end gap-2 text-xs text-destructive-text md:max-w-[70%]">
           <span>{message.error?.message ?? "No se ha podido enviar el mensaje."}</span>
-          {onRetry ? (
+          {onRetry && retryClosedText ? <span className="text-muted-foreground">{retryClosedText}</span> : null}
+          {onRetry && !retryClosedText ? (
             <Button type="button" variant="outline" size="xs" onClick={onRetry} disabled={retrying}>
               {retrying ? <LoaderCircle aria-hidden className="animate-spin motion-reduce:animate-none" /> : <RotateCcw aria-hidden />}
               Reintentar
@@ -128,14 +141,12 @@ export function MessageBubble({ message, first, last, channel, contactName, time
 }
 
 function AuthorLine({ message, channel, contactName }: { message: MessageItem; channel: { type: ChannelType; name: string }; contactName: string | null }) {
-  const { icon: ChannelIcon, iconClassName, label } = CHANNEL_IDENTITY[channel.type];
+  const { icon: ChannelIcon, iconClassName } = CHANNEL_IDENTITY[channel.type];
+  const where = channelMarkText(channel.type, channel.name);
   const channelMark = (
-    <span title={`${label} · ${channel.name}`} className="inline-flex">
+    <span title={where} className="inline-flex">
       <ChannelIcon aria-hidden className={cn("size-3.5", iconClassName)} />
-      <span className="sr-only">
-        {" "}
-        por {label} · {channel.name}
-      </span>
+      <span className="sr-only"> por {where}</span>
     </span>
   );
   if (message.senderType === "ai") {

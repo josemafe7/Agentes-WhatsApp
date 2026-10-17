@@ -122,6 +122,7 @@ describe("a published app refuses to start with an unsafe configuration", () => 
       "MISTRAL_BASE_URL",
       "TELEGRAM_API_BASE_URL",
       "YCLOUD_API_BASE_URL",
+      "INSTAGRAM_GRAPH_BASE_URL",
     ]);
     for (const name of BASE_URL_OVERRIDE_VARIABLES) {
       const problems = productionConfigProblems({ ...PRODUCTION, [name]: "https://proxy.evil.example" });

@@ -26,6 +26,9 @@
 //   POST /:v/:number/register | deregister | request_code | verify_code, POST /:v/:number {pin}   §5.2–§5.5.
 //   GET  /:v/:WABA/message_templates     meta-data.json «templates» (2 approved: one NAMED, one POSITIONAL; one pending,
 //                                        one rejected), paged by `limit` and the `after` cursor (§5.8).
+//   POST /:v/:WABA/message_templates     a new template (docs/integracion-whatsapp-plantillas.md §1): name in lowercase,
+//                                        numbers and `_`, a language, UTILITY or MARKETING and a BODY → { id, status:
+//                                        "PENDING", category }; the review never ends here (the list stays as it is).
 //   POST /:v/:number/messages            «read» (+ typing_indicator) → success; any send → a new wamid per call, with
 //                                        contacts[].wa_id for `to` or contacts[].user_id for `recipient` (§11.2).
 //                                        Templates must be approved in that language (132001) with every variable
@@ -265,6 +268,16 @@ function subscriptionOf(form) {
 
 // ─── Templates (§5.8) and sends (§11) ───────────────────────────────────────────────────────────────────
 
+/** POST /{WABA}/message_templates: checks what the docs mark as required and leaves it «PENDING». */
+function createTemplate(body) {
+  if (!isRecord(body) || typeof body.name !== "string" || !/^[a-z0-9_]{1,512}$/.test(body.name)) return invalidParameter("name");
+  if (typeof body.language !== "string" || !body.language) return invalidParameter("language");
+  if (!["UTILITY", "MARKETING"].includes(String(body.category))) return invalidParameter("category");
+  if (!Array.isArray(body.components) || !body.components.some((component) => isRecord(component) && component.type === "BODY")) return invalidParameter("components");
+  sequence += 1;
+  return ok({ id: `6${String(Date.now()).slice(-9)}${String(sequence).padStart(5, "0")}`, status: "PENDING", category: body.category });
+}
+
 function templatesPage(wabaId, query) {
   const limit = Math.min(Math.max(Number(query.limit) || 25, 1), 1_000);
   const start = query.after ? Number(Buffer.from(String(query.after), "base64url").toString("utf8")) || 0 : 0;
@@ -496,6 +509,7 @@ export const metaRoutes = [
         unsubscribedWabas.delete(node);
         return ok({ success: true });
       }
+      if (edge === "message_templates" && /^1\d{14}$/.test(node)) return createTemplate(body);
       if (!NUMBER.test(node)) return unsupportedGet(node);
       switch (edge) {
         case "messages":

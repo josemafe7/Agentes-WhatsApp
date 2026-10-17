@@ -63,6 +63,11 @@ describe("pages without a session [PER-09]", () => {
     }
   });
 
+  it("[ENV-06] the baja page of an envío is public; a look-alike path is not", () => {
+    expect(isPublicPath("/baja/abc123")).toBe(true);
+    expect(isPublicPath("/bajas")).toBe(false);
+  });
+
   it("uses the same cookie prefix as Better Auth", () => {
     expect(AUTH_COOKIE_PREFIX).toBe(SERVER_COOKIE_PREFIX);
   });

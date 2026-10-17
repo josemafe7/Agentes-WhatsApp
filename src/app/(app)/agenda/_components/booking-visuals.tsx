@@ -1,7 +1,7 @@
 // Pieces that make a booking recognisable (DESIGN.md «Estados de cita», «Colores de recurso»): the status pill with
 // its icon and word, the origin icon (IA, persona, web), the resource's colour and the «Prueba» chip. No state: used
 // by the server page and by the client grid, panel and dialogs.
-import { FlaskConical } from "lucide-react";
+import { FlaskConical, UserRoundCheck } from "lucide-react";
 import type { CSSProperties } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BOOKING_SOURCE_ICONS, BOOKING_STATUS_DISPLAY } from "@/lib/booking-display";
@@ -37,6 +37,19 @@ export function SourceIcon({ source, label, className }: { source: BookingSource
       <Icon aria-hidden className={cn("size-3.5", tone, className)} />
       <span className="sr-only">{text}</span>
     </span>
+  );
+}
+
+export const CUSTOMER_CONFIRMED = "Confirmada por el cliente";
+
+/** «Confirmada por el cliente» with a reminder's button ([AGD-33]): the icon alone where space is short. */
+export function CustomerConfirmedMark({ withText = false, className }: { withText?: boolean; className?: string }) {
+  if (!withText) return <UserRoundCheck aria-hidden className={cn("size-3 shrink-0 text-success", className)} />;
+  return (
+    <Badge variant="outline" className={cn("h-[22px] gap-1 border-success/40 text-success", className)}>
+      <UserRoundCheck aria-hidden />
+      {CUSTOMER_CONFIRMED}
+    </Badge>
   );
 }
 

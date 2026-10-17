@@ -71,7 +71,7 @@ describe("without a key the agent does not reply [PRU-07] [ARR-14]", () => {
 });
 
 describe("one reply, recorded [MOT-08] [MOT-10] [MOT-11] [PRU-02]", () => {
-  it("sends the prompt with the fallback, privacy rules, session, low reasoning and the hand-off tool", async () => {
+  it("sends the prompt with the fallback, privacy rules, session, low reasoning, the hand-off tool and the baja one [HER-16]", async () => {
     const fake = openRouter(() => jsonResponse(chatCompletion({ content: "¡Hola! Soy el asistente de IA. Mañana tengo hueco a las 10:00." })));
     const result = await run(fake);
     const [call] = chatCalls(fake);
@@ -87,7 +87,8 @@ describe("one reply, recorded [MOT-08] [MOT-10] [MOT-11] [PRU-02]", () => {
     expect(String(request.session_id)).toMatch(/^prueba-/);
     // gpt-5.6-luna does not take temperature (§3.6).
     expect(request).not.toHaveProperty("temperature");
-    expect((request.tools as { function: { name: string } }[]).map((tool) => tool.function.name)).toEqual(["transferir_a_humano"]);
+    // The two tools every agent has: passing to a person and the customer's baja ([HER-16]).
+    expect((request.tools as { function: { name: string } }[]).map((tool) => tool.function.name)).toEqual(["transferir_a_humano", "dar_de_baja"]);
     const messages = request.messages as { role: string; content: string }[];
     expect(messages[0].role).toBe("system");
     expect(messages[0].content.startsWith("# Reglas de la plataforma")).toBe(true);

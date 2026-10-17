@@ -56,13 +56,21 @@ export function renderReminderText(template: string, values: ReminderValues): st
 /**
  * Default email when the business writes none, with its word for a booking («cita», «reserva»). It says how to cancel
  * (answering the email or calling) and never promises that writing «BAJA» by email unsubscribes: when the business has
- * no mailbox connected, the answer reaches a person, not the app ([AGD-26], [CUM-03]).
+ * no mailbox connected, the answer reaches a person, not the app ([AGD-26], [CUM-03]). In the sectors with health data
+ * it leaves the service out, which may reveal the treatment ([CUM-14]).
  */
-export function defaultReminderEmail(bookingWord: string): { subject: string; body: string } {
+export function defaultReminderEmail(bookingWord: string, options: { healthData?: boolean } = {}): { subject: string; body: string } {
+  const service = options.healthData ? "" : " de {servicio}";
   return {
     subject: `Recordatorio de tu ${bookingWord} en {negocio}`,
     body:
-      `Hola, {nombre}:\n\nTe recordamos tu ${bookingWord} de {servicio} el {fecha} a las {hora}.\n\n` +
+      `Hola, {nombre}:\n\nTe recordamos tu ${bookingWord}${service} el {fecha} a las {hora} con {recurso}.\n\n` +
       `Si no puedes venir, responde a este correo o llámanos para cancelarla y dejar el hueco libre. ¡Gracias!`,
   };
+}
+
+/** Default text of a Telegram reminder ([AGD-24], [TG-13]), with the same data as the WhatsApp model ([CUM-14]). */
+export function defaultReminderTelegram(bookingWord: string, options: { healthData?: boolean } = {}): string {
+  const service = options.healthData ? "" : " de {servicio}";
+  return `Hola, {nombre}: te recordamos tu ${bookingWord}${service} el {fecha} a las {hora} con {recurso} en {negocio}. Pulsa «Confirmo» si vienes o «Necesito cambiarla» si no puedes.`;
 }

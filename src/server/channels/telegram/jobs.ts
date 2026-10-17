@@ -21,7 +21,7 @@ import type { ChannelRecord } from "../types";
 import { readTelegramConfig, telegramClientFor, TelegramNotConnectedError, updateTelegramConfig, type TelegramDeps } from "./config";
 import { checkTelegramHealth, TELEGRAM_HEALTH_LABELS, type TelegramHealthKey, type TelegramHealthReport } from "./health";
 import { downloadAndStoreTelegramMedia, TELEGRAM_MEDIA_DOWNLOAD_JOB, telegramMediaDownloadPayload, type TelegramMediaDownloadPayload } from "./media";
-import { TELEGRAM_HEALTH_CHECK_JOB, TELEGRAM_POLL_JOB, telegramHealthCheckPayload, telegramPollPayload } from "./schedule";
+import { TELEGRAM_ANSWER_CALLBACK_JOB, TELEGRAM_HEALTH_CHECK_JOB, TELEGRAM_POLL_JOB, telegramAnswerCallbackPayload, telegramHealthCheckPayload, telegramPollPayload } from "./schedule";
 import { ingestTelegramUpdate } from "./webhook";
 
 export type TelegramJobDeps = TelegramDeps & { storage?: FileStorage; openRouterFetch?: typeof fetch };
@@ -196,4 +196,17 @@ registerJobHandler(
     await runTelegramPoll(payload.channelId, { remainingMs: context.remainingMs, rescheduleAt: context.rescheduleAt, holder: `poll:${context.job.id}` });
   },
   { payload: telegramPollPayload },
+);
+
+registerJobHandler(
+  TELEGRAM_ANSWER_CALLBACK_JOB,
+  async (payload) => {
+    const channel = await loadTelegramChannel(payload.channelId);
+    if (!channel) return;
+    // A tap answered late («query is too old») is not worth a retry: Telegram already stopped waiting.
+    await telegramClientFor(channel)
+      .answerCallbackQuery({ callbackQueryId: payload.callbackQueryId })
+      .catch(() => false);
+  },
+  { payload: telegramAnswerCallbackPayload },
 );

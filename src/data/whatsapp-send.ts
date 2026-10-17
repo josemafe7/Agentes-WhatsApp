@@ -1,32 +1,44 @@
 // WhatsApp in the inbox ([BAN-08], [WA-42], [WA-43], [CAN-14]): the 24 h window of a conversation (from the customer's
 // last message as Meta dates it, or closed by Meta after a 131047), the APPROVED templates a person may send, and the
 // two ways a template leaves: a person from the inbox, like any reply (it pauses the AI, [BAN-11]), and the app itself
-// (reminders, [AGD-24]) through sendTemplateMessage. No template goes from a disabled channel ([CAN-16]) nor to a
-// customer who opted out in that channel ([CUM-03]). Sending goes through sendOutbound and the channel's adapter.
+// (reminders, [AGD-24]) through sendTemplateMessage. No template goes from a disabled channel ([CAN-16]), to a customer
+// who opted out of WhatsApp ([CUM-03]) nor without the permission it needs ([WA-61], src/server/compliance/
+// template-permission.ts): the inbox says which one is missing and lets it be recorded first. Sending goes through
+// sendOutbound and the channel's adapter.
 import "server-only";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { channels, consents, contactIdentities, contacts, conversations, whatsappTemplates } from "@/db/schema";
+import { channels, contactIdentities, contacts, conversations, whatsappTemplates } from "@/db/schema";
 import { sameTemplateLanguage } from "@/lib/meta/templates";
 import { whatsappWindowState } from "@/lib/meta/window";
 import { can, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
 import { whatsappViaOf } from "@/lib/whatsapp-via";
 import type { ChannelRecord } from "@/server/channels/types";
+import { isOptedOut } from "@/server/compliance/opt-out";
+import { TEMPLATE_BLOCK_TEXT, templateBlock, type TemplateBlock } from "@/server/compliance/template-permission";
 import { ConflictError, NotFoundError, parseInput } from "@/server/errors";
 import { sendOutbound, type SendOutboundResult } from "@/server/outbound/send";
 import { loadConversationFor } from "./conversation-scope";
 import { afterHumanReply, type SendHumanResult } from "./messages";
 import { loadWhatsAppChannel, OFFICIAL_WHATSAPP_VIAS } from "./whatsapp";
+import { firstContactMetadata } from "@/server/channels/whatsapp/first-contact";
 import { enforceWhatsAppLimit } from "./whatsapp-limits";
 import { buildWhatsAppTemplateMessage, listWhatsAppTemplates, templateMessageOf, templateMessageSchema } from "./whatsapp-templates";
 
 /** Same text as a reply from a disabled channel (src/data/messages.ts). */
 const DISABLED_CHANNEL = "El canal está desactivado: no se pueden enviar mensajes.";
-const OPTED_OUT = "Este cliente se ha dado de baja en este canal: no se le pueden enviar plantillas.";
 
-export type WhatsAppInboxTemplate = { id: string; name: string; language: string; category: string | null; components: unknown[] };
+export type WhatsAppInboxTemplate = {
+  id: string;
+  name: string;
+  language: string;
+  category: string | null;
+  components: unknown[];
+  /** Why it may not go to this customer now, and the permission that would let it ([WA-61]). */
+  blocked: Pick<TemplateBlock, "message" | "permission"> | null;
+};
 
 export type WhatsAppInboxState = {
   /** Open while less than 24 h have passed since the customer's last message and Meta has not closed it ([WA-43]). */
@@ -37,21 +49,16 @@ export type WhatsAppInboxState = {
   optedOut: boolean;
 };
 
-/** The customer's latest choice in this channel is «baja» ([CUM-03]); a later opt-in undoes it. */
-async function isOptedOut(contactId: string | null, channelId: string): Promise<boolean> {
-  if (!contactId) return false;
-  const [latest] = await db
-    .select({ type: consents.type })
-    .from(consents)
-    .where(and(eq(consents.contactId, contactId), eq(consents.channelId, channelId), inArray(consents.type, ["opt_out", "opt_in"])))
-    .orderBy(desc(consents.createdAt))
-    .limit(1);
-  return latest?.type === "opt_out";
-}
-
 async function assertTemplateAllowed(channel: ChannelRecord, contactId: string | null): Promise<void> {
   if (channel.status === "disabled") throw new ConflictError(DISABLED_CHANNEL);
-  if (await isOptedOut(contactId, channel.id)) throw new ConflictError(OPTED_OUT);
+  if (await isOptedOut(contactId, channel.id)) throw new ConflictError(TEMPLATE_BLOCK_TEXT.opted_out);
+}
+
+/** After the template and its values are checked: the permission it needs ([WA-61]) and [ENV-14]. */
+async function assertTemplatePermission(channel: ChannelRecord, contactId: string | null, template: TemplateRow): Promise<void> {
+  if (!contactId) throw new ConflictError("Esta conversación no tiene contacto.");
+  const block = await templateBlock({ contactId, channelIsDemo: channel.isDemo, template });
+  if (block) throw new ConflictError(block.message);
 }
 
 /**
@@ -70,9 +77,16 @@ export async function getWhatsAppInboxState(actor: Actor, conversationId: string
     mayReply ? listWhatsAppTemplates(actor, conversation.channelId, { approvedOnly: true }) : Promise.resolve([]),
     isOptedOut(conversation.contactId, conversation.channelId),
   ]);
+  const contactId = conversation.contactId;
+  const channelIsDemo = (await db.select({ isDemo: channels.isDemo }).from(channels).where(eq(channels.id, conversation.channelId)))[0]?.isDemo ?? false;
   return {
     window: { open, closesAt, closedByMeta },
-    templates: templates.map(({ id, name, language, category, components }) => ({ id, name, language, category, components })),
+    templates: await Promise.all(
+      templates.map(async ({ id, name, language, category, components, buttonRoles }) => {
+        const block = contactId ? await templateBlock({ contactId, channelIsDemo, template: { category, buttonRoles } }) : null;
+        return { id, name, language, category, components, blocked: block ? { message: block.message, permission: block.permission } : null };
+      }),
+    ),
     optedOut,
   };
 }
@@ -91,6 +105,7 @@ export async function sendHumanTemplateMessage(actor: Actor, input: unknown): Pr
   const channel = await loadWhatsAppChannel(conversation.channelId, { allowDemo: true, vias: OFFICIAL_WHATSAPP_VIAS });
   await assertTemplateAllowed(channel, conversation.contactId);
   const message = await buildWhatsAppTemplateMessage(actor, channel.id, template);
+  await assertTemplatePermission(channel, conversation.contactId, message.row);
   // Only a template that is really going out counts ([SEG-07]).
   await enforceWhatsAppLimit("template", actor.userId);
   const now = new Date();
@@ -160,7 +175,11 @@ async function contactConversation(channelId: string, contactId: string, now: Da
  * contact or template in that language), ValidationError (input, a template not approved, a missing value) or
  * ConflictError (disabled channel, opted-out contact, no WhatsApp); a failed send comes back as status «failed».
  */
-export async function sendTemplateMessage(input: SendTemplateMessageInput, options: { now?: Date } = {}): Promise<SendTemplateMessageResult> {
+export async function sendTemplateMessage(
+  input: SendTemplateMessageInput,
+  /** `firstContactPhone`: for a contact without WhatsApp yet, the phone it goes to ([WA-63]). */
+  options: { now?: Date; metadata?: Record<string, unknown>; firstContactPhone?: string } = {},
+): Promise<SendTemplateMessageResult> {
   const data = parseInput(sendTemplateMessageSchema, input);
   const channel = await loadWhatsAppChannel(data.channelId, { allowDemo: true, vias: OFFICIAL_WHATSAPP_VIAS });
   const [contact] = await db.select({ id: contacts.id }).from(contacts).where(eq(contacts.id, data.contactId));
@@ -171,11 +190,14 @@ export async function sendTemplateMessage(input: SendTemplateMessageInput, optio
     .from(contactIdentities)
     .where(and(eq(contactIdentities.contactId, contact.id), eq(contactIdentities.channelType, "whatsapp")))
     .limit(1);
-  if (!identity) throw new ConflictError("Este contacto no tiene WhatsApp: no se le puede enviar la plantilla.");
-  // Only APPROVED templates, built as the inbox builds them.
-  const message = templateMessageOf(await findTemplate(channel.id, data.templateName, data.language), data.variables);
+  if (!identity && !options.firstContactPhone) throw new ConflictError("Este contacto no tiene WhatsApp: no se le puede enviar la plantilla.");
+  // Only APPROVED templates, built as the inbox builds them, and only with the permission they need ([WA-61]).
+  const row = await findTemplate(channel.id, data.templateName, data.language);
+  const message = templateMessageOf(row, data.variables);
+  await assertTemplatePermission(channel, contact.id, row);
   const now = options.now ?? new Date();
   const conversationId = await contactConversation(channel.id, contact.id, now);
-  const sent = await sendOutbound({ conversationId, sender: { type: "system" }, text: message.text, contentType: "template", metadata: message.metadata, now });
+  const metadata = { ...message.metadata, ...options.metadata, ...(!identity && options.firstContactPhone ? firstContactMetadata(options.firstContactPhone) : {}) };
+  const sent = await sendOutbound({ conversationId, sender: { type: "system" }, text: message.text, contentType: "template", metadata, now });
   return { conversationId, messageId: sent.messageId, status: sent.status, error: sent.error };
 }

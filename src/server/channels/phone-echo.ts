@@ -1,13 +1,15 @@
 // What the business writes to a customer from its own phone, on a number that also lives there (coexistence through
-// YCloud, [YC-08]; a number linked by QR code, [QR-09]). The channel tells the app about it and the message joins the
-// customer's conversation as a person's, marked «Desde el móvil»; the AI pauses there for the business's pause hours,
-// as when a person answers from the inbox ([BAN-11]), and a pending AI reply is dropped. A message the app itself sent
-// comes back the same way: it is already stored with that id, so it is told apart and nothing happens.
+// YCloud, [YC-08]; a number linked by QR code, [QR-09]), or from the Instagram app on its account ([IG-06]). The channel
+// tells the app about it and the message joins the customer's conversation as a person's, marked «Desde el móvil» (or
+// as the channel names it); the AI pauses there for the business's pause hours, as when a person answers from the inbox
+// ([BAN-11]), and a pending AI reply is dropped. A message the app itself sent comes back the same way: it is already
+// stored with that id, so it is told apart and nothing happens. If the channel tells it before the send answers, it is
+// taken for the phone's and then undone when the send stores its id (absorbOwnEcho).
 import "server-only";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { loadBusinessSettings } from "@/data/settings";
-import { db } from "@/db";
-import { conversations, messages, type MessageMedia } from "@/db/schema";
+import { db, type Executor } from "@/db";
+import { conversations, handoffEvents, messages, type MessageMedia } from "@/db/schema";
 import type { MessageContentType } from "@/lib/enums";
 import { getJobQueue, type JobQueue } from "@/server/adapters/job-queue";
 import { replyDedupeKey } from "@/server/engine/schedule";
@@ -35,9 +37,21 @@ export type PhoneEcho = {
   media?: MessageMedia | null;
   sentAt: Date;
   metadata?: Record<string, unknown>;
+  /** Who it is signed by and why the AI pauses: «Desde el móvil» unless the channel names its own app ([IG-06]). */
+  senderName?: string;
+  pauseReason?: string;
 };
 
 export type PhoneEchoOutcome = { kind: "recorded"; conversationId: string; messageId: string } | { kind: "duplicate" };
+
+/** The pause an echo set (ISO dates) and the one it replaced, kept on its message. */
+type PausedAi = { until: string; before: string | null; reason: string | null };
+
+function readPausedAi(value: unknown): PausedAi | null {
+  const pause = value as Partial<PausedAi> | null | undefined;
+  if (!pause || typeof pause.until !== "string") return null;
+  return { until: pause.until, before: typeof pause.before === "string" ? pause.before : null, reason: typeof pause.reason === "string" ? pause.reason : null };
+}
 
 export async function recordPhoneEcho(channel: ChannelRecord, received: PhoneEcho, options: { now?: Date; queue?: JobQueue } = {}): Promise<PhoneEchoOutcome> {
   const now = options.now ?? new Date();
@@ -60,6 +74,10 @@ export async function recordPhoneEcho(channel: ChannelRecord, received: PhoneEch
     const conversation =
       existing ??
       (await tx.insert(conversations).values({ channelId: channel.id, contactId, status: "open", aiMode: "ai", createdAt: now, updatedAt: now }).returning())[0];
+    const aiPausedUntil = conversation.aiMode === "ai" ? new Date(now.getTime() + aiPauseHours * HOUR_MS) : null;
+    const pauses = aiPausedUntil !== null && (!conversation.aiPausedUntil || conversation.aiPausedUntil < aiPausedUntil);
+    // The pause it replaces, in case this turns out to be the app's own message (absorbOwnEcho).
+    const pausedAi: PausedAi | null = pauses ? { until: aiPausedUntil.toISOString(), before: conversation.aiPausedUntil?.toISOString() ?? null, reason: conversation.pauseReason } : null;
     const [message] = await tx
       .insert(messages)
       .values({
@@ -67,14 +85,14 @@ export async function recordPhoneEcho(channel: ChannelRecord, received: PhoneEch
         channelId: channel.id,
         direction: "outbound",
         senderType: "human",
-        senderName: PHONE_SENDER_NAME,
+        senderName: echo.senderName ?? PHONE_SENDER_NAME,
         externalId: ids[0],
         contentType: echo.contentType,
         text: echo.text,
         searchText: messageSearchText(echo.text),
         media: echo.media ?? null,
         status: "sent",
-        metadata: { ...echo.metadata, sentFromPhone: true },
+        metadata: { ...echo.metadata, sentFromPhone: true, ...(pausedAi ? { pausedAi } : {}) },
         sentAt: echo.sentAt,
         statusUpdatedAt: now,
         createdAt: now,
@@ -83,7 +101,6 @@ export async function recordPhoneEcho(channel: ChannelRecord, received: PhoneEch
       .onConflictDoNothing({ target: [messages.channelId, messages.externalId] })
       .returning({ id: messages.id });
     if (!message) return null;
-    const aiPausedUntil = conversation.aiMode === "ai" ? new Date(now.getTime() + aiPauseHours * HOUR_MS) : null;
     await tx
       .update(conversations)
       .set({
@@ -91,7 +108,7 @@ export async function recordPhoneEcho(channel: ChannelRecord, received: PhoneEch
         lastMessageAt: now,
         // The business has just answered there: nothing is left unread.
         unreadCount: 0,
-        ...(aiPausedUntil && (!conversation.aiPausedUntil || conversation.aiPausedUntil < aiPausedUntil) ? { aiPausedUntil, pauseReason: PHONE_PAUSE_REASON } : {}),
+        ...(pauses ? { aiPausedUntil, pauseReason: echo.pauseReason ?? PHONE_PAUSE_REASON } : {}),
         updatedAt: now,
       })
       .where(eq(conversations.id, conversation.id));
@@ -106,4 +123,33 @@ export async function recordPhoneEcho(channel: ChannelRecord, received: PhoneEch
   if (!recorded) return { kind: "duplicate" };
   await (options.queue ?? getJobQueue()).cancel({ dedupeKey: replyDedupeKey(recorded.conversationId) });
   return { kind: "recorded", ...recorded };
+}
+
+/**
+ * The channel stored id `externalId` for message `messageId` of the app, which it has just sent. If an echo with that
+ * id was recorded meanwhile as written on the phone (the channel told it before the send answered, [IG-06]), that row
+ * is this very message: it goes, with the pause and the first response of a hand-off it brought, so the message is
+ * stored once and the app's own message never pauses the AI. «taken» = the id is another message's (never expected).
+ */
+export async function absorbOwnEcho(tx: Executor, channelId: string, externalId: string, messageId: string): Promise<"free" | "absorbed" | "taken"> {
+  const [echo] = await tx
+    .select({ id: messages.id, conversationId: messages.conversationId, metadata: messages.metadata })
+    .from(messages)
+    .where(and(eq(messages.channelId, channelId), eq(messages.externalId, externalId), ne(messages.id, messageId)));
+  if (!echo) return "free";
+  if (echo.metadata.sentFromPhone !== true) return "taken";
+  const now = new Date();
+  const pause = readPausedAi(echo.metadata.pausedAi);
+  if (pause) {
+    // Unless the AI was paused again since.
+    await tx
+      .update(conversations)
+      .set({ aiPausedUntil: pause.before ? new Date(pause.before) : null, pauseReason: pause.reason, updatedAt: now })
+      .where(and(eq(conversations.id, echo.conversationId), eq(conversations.aiPausedUntil, new Date(pause.until))));
+  }
+  // Children first (docs/architecture.md): a hand-off it answered waits for a person again.
+  await tx.update(handoffEvents).set({ firstHumanResponseAt: null, firstHumanMessageId: null, updatedAt: now }).where(eq(handoffEvents.firstHumanMessageId, echo.id));
+  await tx.delete(messages).where(eq(messages.id, echo.id));
+  await publishConversationEvent({ type: "conversation.updated", conversationId: echo.conversationId, channelId, change: "ai" }, { executor: tx });
+  return "absorbed";
 }

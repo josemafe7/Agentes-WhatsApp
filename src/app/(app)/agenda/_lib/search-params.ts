@@ -129,6 +129,22 @@ export function bookingFilters(query: AgendaQuery, range: { from: string; to: st
   };
 }
 
+/**
+ * [AGD-29] The request for the bookings that take their slot in the days shown (pending and confirmed, tests
+ * included), when the view's filters other than the professional hide some of them; null when they hide none.
+ */
+export function occupyingFilters(query: AgendaQuery, range: { from: string; to: string }) {
+  const hides = query.serviceIds.length > 0 || query.statuses.length > 0 || query.sources.length > 0 || query.tests !== "incluir";
+  if (!hides) return null;
+  return {
+    from: range.from,
+    to: range.to,
+    ...(query.resourceIds.length ? { resourceIds: query.resourceIds } : {}),
+    statuses: ["pending", "confirmed"] as BookingStatus[],
+    includeTest: true,
+  };
+}
+
 /** Origin and «solo pruebas», applied to what the data layer returned (a view filter, not a permission). */
 export function matchesViewFilters(booking: { source: BookingSource; isTest: boolean }, query: AgendaQuery): boolean {
   if (query.sources.length > 0 && !query.sources.includes(booking.source)) return false;

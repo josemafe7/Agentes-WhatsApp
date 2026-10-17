@@ -10,11 +10,13 @@ import "server-only";
 import { and, asc, desc, eq, gt, inArray, isNotNull, lt, notInArray, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { bookingEvents, bookings, businessHours, closures, conversations } from "@/db/schema";
-import { BOOKING_STATUSES, type BookingActorType, type BookingStatus } from "@/lib/enums";
+import { bookingEvents, bookingReminderSends, bookings, businessHours, closures, conversations } from "@/db/schema";
+import { BOOKING_STATUSES, type BookingActorType, type BookingStatus, type ReminderRoute, type ReminderSendStatus } from "@/lib/enums";
+import { leadLabel } from "@/lib/reminder-rules";
 import { can, channelFilter, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
 import { getRateLimiter } from "@/server/adapters/rate-limiter";
+import { loadReminderConfig } from "@/server/booking/reminder-config";
 import {
   addDays,
   ANY_RESOURCE,
@@ -144,8 +146,12 @@ export type BookingHistoryItem = {
   createdAt: Date;
 };
 
+/** One reminder of the booking for its current time ([AGD-25]): which one, how it went, by what channel and why not. */
+export type BookingReminderItem = { lead: string | null; status: ReminderSendStatus; channel: ReminderRoute | null; reason: string | null; at: Date };
+
 export type BookingDetail = BookingView & {
   history: BookingHistoryItem[];
+  reminders: BookingReminderItem[];
   /** «Avisar al cliente» is offered: a real booking with a conversation where this person may reply ([AGD-23]). */
   canNotify: boolean;
 };
@@ -163,7 +169,17 @@ export async function getBooking(actor: Actor, bookingId: unknown): Promise<Book
     .where(eq(bookingEvents.bookingId, view.id))
     .orderBy(asc(bookingEvents.createdAt), asc(bookingEvents.id));
   const target = view.isTest ? null : await noticeChannelOf(view.id);
-  return { ...view, history, canNotify: target !== null && can(actor, PERMISSIONS.inbox.reply, { channelId: target }) };
+  const [sends, config] = await Promise.all([
+    db
+      .select()
+      .from(bookingReminderSends)
+      .where(and(eq(bookingReminderSends.bookingId, view.id), eq(bookingReminderSends.startsAt, view.startsAt)))
+      .orderBy(asc(bookingReminderSends.dueAt)),
+    loadReminderConfig(),
+  ]);
+  const leads = new Map(config.rules.map((rule) => [rule.id, leadLabel(rule.lead)]));
+  const reminders = sends.map((row) => ({ lead: leads.get(row.ruleId) ?? null, status: row.status, channel: row.channel, reason: row.reason, at: row.sentAt ?? row.updatedAt }));
+  return { ...view, history, reminders, canNotify: target !== null && can(actor, PERMISSIONS.inbox.reply, { channelId: target }) };
 }
 
 /** A contact's bookings for their card ([CTO-02]): whoever sees the contact and the agenda. Newest first. */

@@ -203,7 +203,7 @@ describe("the customer opts out by writing it [CUM-03] [CUM-13]", () => {
 
   it("no confirmation once a person lifted it, nor from a disabled channel [CAN-16]", async () => {
     const lifted = await receive("BAJA");
-    await liftOptOut(owner.actor, { contactId: lifted.contactId, channelId: channel.id });
+    await liftOptOut(owner.actor, { contactId: lifted.contactId, kind: "whatsapp", scope: "all" });
     await confirm();
     expect(leaving).toHaveLength(0);
 
@@ -263,17 +263,18 @@ describe("only a person reaches an opted-out customer in that channel [CUM-03] [
     expect(leaving.map((message) => message.text)).toEqual(["Te esperamos."]);
   });
 
-  it("only in that channel: the same customer still gets messages in another one", async () => {
-    await receive("BAJA");
+  it("[CTO-09] it counts for every number of that kind: by the other one, too, only a person reaches them", async () => {
+    const { contactId } = await receive("BAJA");
     const other = await createChannel({ type: "whatsapp", name: "WhatsApp Lola 2", status: "connected", isDemo: false });
     const elsewhere = await receive("Hola, os escribo por el otro número", { to: other, when: at(60_000) });
+    expect(await isOptedOut(contactId, other.id)).toBe(true);
     await sendHumanMessage(owner.actor, { conversationId: elsewhere.conversationId, text: "¡Hola Ana!" });
     expect(leaving.map((message) => message.text)).toEqual(["¡Hola Ana!"]);
   });
 
   it("once a person lifts it, at the customer's request, the business can write again [CTO-08]", async () => {
     const { conversationId, contactId } = await receive("BAJA");
-    await liftOptOut(owner.actor, { contactId, channelId: channel.id, note: "Lo ha pedido por teléfono" });
+    await liftOptOut(owner.actor, { contactId, kind: "whatsapp", scope: "all", note: "Lo ha pedido por teléfono" });
     expect(await isOptedOut(contactId, channel.id)).toBe(false);
     await sendHumanMessage(owner.actor, { conversationId, text: "¡Hola de nuevo, Ana!" });
     expect(leaving.map((message) => message.text)).toEqual(["¡Hola de nuevo, Ana!"]);

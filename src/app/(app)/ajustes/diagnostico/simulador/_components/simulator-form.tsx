@@ -48,6 +48,7 @@ const EMAIL_HELP = "En el correo, el cliente es su dirección: sus mensajes sigu
 const CONTACT_HELP: Partial<Record<ChannelType, string>> = {
   whatsapp: "WhatsApp identifica al cliente por su identificador, no por su teléfono.",
   webchat: "El visitante del chat es anónimo hasta que da sus datos.",
+  instagram: "Instagram identifica al cliente por su identificador de Instagram, no por su @usuario.",
   email_gmail: EMAIL_HELP,
   email_outlook: EMAIL_HELP,
   email_imap: EMAIL_HELP,

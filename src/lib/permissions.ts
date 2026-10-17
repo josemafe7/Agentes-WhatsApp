@@ -33,12 +33,16 @@ export const PERMISSIONS = {
     view: "contacts.view",
     /** Crear y editar datos, etiquetas y campos. */
     edit: "contacts.edit",
-    /** Fusionar duplicados y quitar una baja. */
+    /** Fusionar duplicados y quitar una baja (de todo o de novedades y publicidad). */
     merge: "contacts.merge",
+    /** Marcar permisos y dar de baja cuando el cliente lo pide ([CTO-09], [CTO-10]). */
+    consents: "contacts.consents",
     /** Exportar datos. */
     export: "contacts.export",
     /** Borrar datos. */
     delete: "contacts.delete",
+    /** Importar desde Excel o CSV ([CTO-11]). */
+    import: "contacts.import",
   },
   agenda: {
     /** Ver citas y disponibilidad. */
@@ -81,8 +85,14 @@ export const PERMISSIONS = {
   channels: {
     /** Ver lista, estado y panel, sin credenciales. */
     view: "channels.view",
-    /** Crear, conectar, configurar, desconectar y borrar; agente activo e IA del canal. */
+    /** Crear, conectar, configurar, desconectar y borrar; agente activo, IA del canal y plantillas de WhatsApp. */
     manage: "channels.manage",
+  },
+  campaigns: {
+    /** Ver los envíos, los automáticos, los repetidos y sus resultados ([ENV-01], [ENV-12]). */
+    view: "campaigns.view",
+    /** Crear, programar, cambiar, pausar, reanudar y cancelar ([ENV-02], [ENV-10]). */
+    manage: "campaigns.manage",
   },
   reports: {
     view: "reports.view",
@@ -90,7 +100,7 @@ export const PERMISSIONS = {
     export: "reports.export",
   },
   settings: {
-    /** Negocio, Horario, Privacidad y legal, Notificaciones y Tarifas. */
+    /** Negocio, Horario, Privacidad y legal, Notificaciones, Tarifas y Envíos. */
     business: "settings.business",
     /** IA (claves y modelos) y Correo del sistema. */
     integrations: "settings.integrations",
@@ -137,8 +147,10 @@ const RULES: Record<Action, readonly [Rule, Rule, Rule, Rule, Rule]> = {
   "contacts.view": [Y, Y, Y, CH, Y],
   "contacts.edit": [Y, Y, Y, CH, N],
   "contacts.merge": [Y, Y, Y, N, N],
+  "contacts.consents": [Y, Y, Y, CH, N],
   "contacts.export": [Y, Y, N, N, N],
   "contacts.delete": [Y, Y, N, N, N],
+  "contacts.import": [Y, Y, N, N, N],
   "agenda.view": [Y, Y, Y, Y, Y],
   "agenda.bookings": [Y, Y, Y, Y, N],
   "agenda.block": [Y, Y, Y, N, N],
@@ -157,6 +169,8 @@ const RULES: Record<Action, readonly [Rule, Rule, Rule, Rule, Rule]> = {
   "internal.use": [Y, Y, Y, Y, N],
   "channels.view": [Y, Y, N, N, Y],
   "channels.manage": [Y, Y, N, N, N],
+  "campaigns.view": [Y, Y, Y, N, Y],
+  "campaigns.manage": [Y, Y, N, N, N],
   "reports.view": [Y, Y, Y, N, Y],
   "reports.export": [Y, Y, N, N, N],
   "settings.business": [Y, Y, N, N, N],

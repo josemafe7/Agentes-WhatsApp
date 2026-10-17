@@ -27,7 +27,7 @@ export default async function SimulatorPage() {
     <div className="space-y-6">
       <PageHeader
         title="Simulador de canales"
-        description="Escribe como si fueras un cliente y mira cómo llega a la bandeja y cómo responde la IA. Nada sale a WhatsApp ni al correo."
+        description="Escribe como si fueras un cliente y mira cómo llega a la bandeja y cómo responde la IA. Nada sale a WhatsApp, Telegram, Instagram ni al correo."
         breadcrumbs={BREADCRUMBS}
       />
       {options.channels.length === 0 ? (

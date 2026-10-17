@@ -69,7 +69,7 @@ beforeEach(async () => {
 describe("the booking tools are system tools of the agent [HER-01] [HER-02]", () => {
   it("each one is offered to the model with its Spanish parameters", () => {
     const definitions = toolDefinitions(tools);
-    expect(definitions.map((definition) => definition.function.name)).toEqual(["transferir_a_humano", ...BOOKING_TOOLS]);
+    expect(definitions.map((definition) => definition.function.name)).toEqual(["transferir_a_humano", ...BOOKING_TOOLS, "dar_de_baja"]);
     const create = definitions.find((definition) => definition.function.name === "crear_cita")?.function.parameters;
     expect(create).toMatchObject({ required: ["servicio", "inicio", "nombre"], properties: { profesional: { type: "string" }, personas: { type: "integer" } } });
     const availability = definitions.find((definition) => definition.function.name === "consultar_disponibilidad")?.function.parameters;

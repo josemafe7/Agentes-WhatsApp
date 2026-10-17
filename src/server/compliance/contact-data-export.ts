@@ -1,27 +1,35 @@
 // «Exportar sus datos» ([CTO-06], [CUM-07]): everything the app keeps about one contact, in one JSON file — its data,
-// identities, consents, conversations with their messages (transcripts included), internal notes and hand-offs, and
-// its bookings with their history. Files go as metadata and an in-app link (served only with a session, [MED-08]), never
+// identities, consents, conversations with their messages (transcripts included), internal notes and hand-offs, its
+// bookings with their history and the envíos it was in ([ENV-12]). Files go as metadata and an in-app link (served only with a session, [MED-08]), never
 // their bytes. System read: src/data/contacts-export.ts checks the permission and writes the activity log.
 import "server-only";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { loadBusinessSettings } from "@/data/settings";
 import { fileUrl } from "@/data/business";
 import { db } from "@/db";
-import { bookingEvents, bookings, channels, consents, contactIdentities, contacts, conversations, handoffEvents, internalNotes, messages, type MessageReaction } from "@/db/schema";
-import type {
-  BookingActorType,
-  BookingSource,
-  BookingStatus,
-  ChannelType,
-  ConsentType,
-  ConversationStatus,
-  HandoffTrigger,
-  MessageContentType,
-  MessageDirection,
-  MessageStatus,
-  SenderType,
-  Urgency,
+import { bookingEvents, bookingReminderSends, bookings, campaignRecipients, campaigns, channels, consents, contactIdentities, contacts, conversations, handoffEvents, internalNotes, messages, type MessageReaction } from "@/db/schema";
+import {
+  CHANNEL_KIND_OF,
+  type BookingActorType,
+  type BookingSource,
+  type BookingStatus,
+  type CampaignRecipientStatus,
+  type ChannelKind,
+  type ChannelType,
+  type ConsentMethod,
+  type ConsentType,
+  type ContactPermission,
+  type ConversationStatus,
+  type HandoffTrigger,
+  type MessageContentType,
+  type MessageDirection,
+  type MessageStatus,
+  type ReminderSendStatus,
+  type SenderType,
+  type Urgency,
 } from "@/lib/enums";
+import { hasPermission } from "@/lib/consents";
+import { loadConsentState } from "./consent-state";
 import { appUrl } from "@/server/app-url";
 import { selectBookingViews } from "@/server/booking";
 
@@ -83,6 +91,8 @@ export type ExportedBooking = {
   cancelReason: string | null;
   createdAt: Date;
   history: { action: string; actorType: BookingActorType; actorName: string | null; changes: Record<string, unknown>; createdAt: Date }[];
+  /** Each reminder of the booking for each time it had ([CTO-06], [AGD-25]): when, by which channel and how it went. */
+  reminders: { forStartsAt: Date; dueAt: Date; status: ReminderSendStatus; channel: string | null; sentAt: Date | null; reason: string | null }[];
 };
 
 export type ContactExport = {
@@ -104,15 +114,34 @@ export type ContactExport = {
     updatedAt: Date;
   };
   identities: { channelType: ChannelType; externalId: string; phone: string | null; displayName: string | null; createdAt: Date }[];
-  consents: { type: ConsentType; channel: ChannelRef | null; channelType: ChannelType | null; source: string; recordedByName: string | null; note: string | null; createdAt: Date }[];
+  consents: {
+    type: ConsentType;
+    channel: ChannelRef | null;
+    channelType: ChannelType | null;
+    /** The kind of channel a baja applies to ([CTO-09]). */
+    channelKind: ChannelKind | null;
+    source: string;
+    /** How the customer gave it or asked for it, and when, if not when it was recorded. */
+    method: ConsentMethod | null;
+    givenAt: Date | null;
+    /** The AI's question and the customer's answer ([HER-15]). */
+    evidence: { question: string; answer: string } | null;
+    recordedByName: string | null;
+    note: string | null;
+    createdAt: Date;
+  }[];
+  /** Its two permissions now ([CTO-09]). */
+  permissions: Record<ContactPermission, boolean>;
   conversations: ExportedConversation[];
   bookings: ExportedBooking[];
+  /** The envíos it was in: what and when, by which channel and how it went ([ENV-12]). */
+  campaigns: { name: string; scheduledAt: Date; channel: string | null; status: CampaignRecipientStatus; sentAt: Date | null; reason: string | null }[];
 };
 
 const DESCRIPTION =
   "Datos de un contacto exportados desde DominIA Agentes: sus datos, sus identidades en cada canal, sus consentimientos y " +
   "bajas, sus conversaciones con los mensajes (y la transcripción de los audios), las notas internas y los traspasos, y " +
-  "sus citas con su historial. Los archivos van con su nombre, tipo, tamaño y huella; su enlace solo se abre con una " +
+  "sus citas con su historial y los recordatorios que recibió de cada una, y los envíos en los que estuvo. Los archivos van con su nombre, tipo, tamaño y huella; su enlace solo se abre con una " +
   "sesión en la app. Las fechas están en UTC (formato ISO 8601).";
 
 function exportedFile(media: typeof messages.$inferSelect.media): ExportedFile | null {
@@ -204,6 +233,16 @@ async function exportedBookings(contactId: string, timeZone: string): Promise<Ex
       ),
     )
     .orderBy(asc(bookingEvents.createdAt), asc(bookingEvents.id));
+  const sends = await db
+    .select()
+    .from(bookingReminderSends)
+    .where(
+      inArray(
+        bookingReminderSends.bookingId,
+        views.map((view) => view.id),
+      ),
+    )
+    .orderBy(asc(bookingReminderSends.dueAt));
   return views.map((view) => ({
     id: view.id,
     service: view.service.name,
@@ -224,6 +263,9 @@ async function exportedBookings(contactId: string, timeZone: string): Promise<Ex
     history: history
       .filter((event) => event.bookingId === view.id)
       .map((event) => ({ action: event.action, actorType: event.actorType, actorName: event.actorName, changes: event.changes, createdAt: event.createdAt })),
+    reminders: sends
+      .filter((send) => send.bookingId === view.id)
+      .map((send) => ({ forStartsAt: send.startsAt, dueAt: send.dueAt, status: send.status, channel: send.channel, sentAt: send.sentAt, reason: send.reason })),
   }));
 }
 
@@ -251,7 +293,11 @@ export async function collectContactData(contactId: string, options: { now?: Dat
         channelName: channels.name,
         channelKind: channels.type,
         channelType: consents.channelType,
+        consentKind: consents.channelKind,
         source: consents.source,
+        method: consents.method,
+        givenAt: consents.givenAt,
+        evidence: consents.evidence,
         recordedByName: consents.recordedByName,
         note: consents.note,
         createdAt: consents.createdAt,
@@ -263,6 +309,20 @@ export async function collectContactData(contactId: string, options: { now?: Dat
     exportedConversations(contact.id),
     exportedBookings(contact.id, business.timezone),
   ]);
+  const campaignRows = await db
+    .select({
+      name: campaigns.name,
+      scheduledAt: campaigns.scheduledAt,
+      channel: campaignRecipients.channel,
+      status: campaignRecipients.status,
+      sentAt: campaignRecipients.sentAt,
+      reason: campaignRecipients.reason,
+    })
+    .from(campaignRecipients)
+    .innerJoin(campaigns, eq(campaigns.id, campaignRecipients.campaignId))
+    .where(eq(campaignRecipients.contactId, contact.id))
+    .orderBy(asc(campaigns.scheduledAt), asc(campaignRecipients.id));
+  const permissionState = await loadConsentState(contact.id);
   return {
     format: CONTACT_EXPORT_FORMAT,
     version: CONTACT_EXPORT_VERSION,
@@ -285,12 +345,18 @@ export async function collectContactData(contactId: string, options: { now?: Dat
       type: row.type,
       channel: row.channelId && row.channelName && row.channelKind ? { id: row.channelId, name: row.channelName, type: row.channelKind } : null,
       channelType: row.channelType,
+      channelKind: row.consentKind ?? (row.channelType ? CHANNEL_KIND_OF[row.channelType] : row.channelKind ? CHANNEL_KIND_OF[row.channelKind] : null),
       source: row.source,
+      method: row.method,
+      givenAt: row.givenAt,
+      evidence: row.evidence ?? null,
       recordedByName: row.recordedByName,
       note: row.note,
       createdAt: row.createdAt,
     })),
+    permissions: { reminders: hasPermission(permissionState, "reminders"), marketing: hasPermission(permissionState, "marketing") },
     conversations: exported,
     bookings: bookingRows,
+    campaigns: campaignRows,
   };
 }

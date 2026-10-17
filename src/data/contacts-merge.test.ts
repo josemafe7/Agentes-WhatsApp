@@ -1,14 +1,16 @@
 // Duplicates and merging ([CTO-04], [CTO-05]): suggested but never merged on their own; merged by Propietario,
 // Administrador or Supervisor ([PER-01] «Contactos: fusionar duplicados y quitar una baja»), with everything of both
 // contacts under the kept one and the merge in the activity log. Refused calls change nothing ([SEG-04]).
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
 import { auditLog, bookings, consents, contactIdentities, contacts, conversations, internalNotes, jobs, messages, notifications } from "@/db/schema";
+import { hasPermission } from "@/lib/consents";
 import type { Role } from "@/lib/enums";
 import { getJobQueue } from "@/server/adapters/job-queue";
 import { createBooking } from "@/server/booking";
 import { at, createHairdresser, NOW } from "@/server/booking/test-helpers";
+import { loadConsentState } from "@/server/compliance/consent-state";
 import { clearContactData, createRichContact } from "@/server/compliance/contact-data-test-helpers";
 import { replyDedupeKey } from "@/server/engine/schedule";
 import { AuthError, ConflictError, ValidationError } from "@/server/errors";
@@ -149,6 +151,23 @@ describe("fusionar dos contactos [CTO-05]", () => {
     expect((await db.select({ id: bookings.id }).from(bookings).where(eq(bookings.contactId, jose.contact.id))).map((row) => row.id).sort()).toEqual([jose.bookingId, duplicate.bookingId].sort());
     const kept_conversations = await db.select({ id: conversations.id }).from(conversations).where(eq(conversations.contactId, jose.contact.id));
     expect(kept_conversations.map((row) => row.id).sort()).toEqual([jose.conversations.web.id, jose.conversations.whatsapp.id, duplicate.mailConversationId].sort());
+  });
+
+  it("if either one withdrew a permission or is opted out, the one that stays is too", async () => {
+    const day = (n: number) => new Date(NOW.getTime() - (10 - n) * 24 * 60 * MINUTE_MS);
+    // The kept contact gave «Avisos» and lifted a Telegram baja later; the other withdrew «Avisos» and opted out first.
+    await db.insert(consents).values([
+      { contactId: jose.contact.id, type: "reminders_granted", source: "person", createdAt: day(3) },
+      { contactId: jose.contact.id, channelKind: "telegram", type: "opt_in", source: "person", createdAt: day(4) },
+      { contactId: duplicate.id, type: "reminders_withdrawn", source: "person", createdAt: day(1) },
+      { contactId: duplicate.id, channelKind: "telegram", type: "opt_out", source: "keyword", createdAt: day(2) },
+    ]);
+    await mergeContacts(users.owner.actor, { keepId: jose.contact.id, mergeId: duplicate.id }, { now: NOW });
+    const state = await loadConsentState(jose.contact.id);
+    expect(hasPermission(state, "reminders")).toBe(false);
+    expect(state.optOuts.telegram.all).not.toBeNull();
+    const added = await db.select().from(consents).where(and(eq(consents.contactId, jose.contact.id), eq(consents.source, "merge")));
+    expect(added.map((row) => row.type).sort()).toEqual(["opt_out", "reminders_withdrawn"]);
   });
 
   it("the conversations in the same channel become the older one, with every message in date order", async () => {

@@ -326,7 +326,7 @@ function ListEmpty({ query, filtered, hasChannels, canConnectChannel, canUseSimu
     <EmptyState
       icon={Inbox}
       title="Todavía no hay conversaciones"
-      description="Cuando un cliente escriba por WhatsApp, correo o el chat web, aparecerá aquí."
+      description="Cuando un cliente escriba por cualquiera de tus canales, aparecerá aquí."
       action={
         canConnectChannel || canUseSimulator ? (
           <div className="flex flex-wrap justify-center gap-2">

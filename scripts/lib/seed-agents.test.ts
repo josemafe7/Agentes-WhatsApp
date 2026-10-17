@@ -24,7 +24,8 @@ const NOW = new Date("2026-09-26T10:00:00Z");
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOTIFY = ["5b0f9c2e-8d1a-4c3b-9f6e-2a7d4e1b8c90"];
 
-async function seed(argv: string[] = []) {
+/** These tests check the hair salon's content: they load it by name (the default demo is the physio clinic, [ARR-06]). */
+async function seed(argv: string[] = ["--sector=peluqueria"]) {
   const code = await runSeedCommand(argv, { out: captureOutput(), env: DEMO_ENV, now: NOW });
   expect(code).toBe(0);
 }

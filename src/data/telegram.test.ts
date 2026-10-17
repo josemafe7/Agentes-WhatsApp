@@ -68,7 +68,7 @@ describe("connecting a bot [TG-01] [CAN-17]", () => {
     expect(secrets?.botToken).toBe(TG_TEST.botToken);
 
     const setWebhook = calls.find((call) => call.method === "setWebhook");
-    expect(setWebhook?.body).toEqual({ url: telegramWebhookUrl(result.channelId), secret_token: secrets?.webhookSecret, allowed_updates: ["message"] });
+    expect(setWebhook?.body).toEqual({ url: telegramWebhookUrl(result.channelId), secret_token: secrets?.webhookSecret, allowed_updates: ["message", "callback_query", "my_chat_member"] });
     expect(webhookUrl).toBe(`${PUBLIC_URL}/api/webhooks/telegram/${result.channelId}`);
     expect(secrets?.webhookSecret).toMatch(/^[A-Za-z0-9_-]{20,256}$/);
     expect(await pendingJobs(TELEGRAM_HEALTH_CHECK_JOB)).toHaveLength(1);

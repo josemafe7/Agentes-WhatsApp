@@ -24,7 +24,7 @@ import { writeAudit } from "./audit";
 import { assertCan } from "./guard";
 
 /** Channel types that receive webhooks (email is polled, the web chat calls our API). */
-const WEBHOOK_CHANNEL_TYPES = ["whatsapp", "telegram"] as const satisfies readonly ChannelType[];
+const WEBHOOK_CHANNEL_TYPES = ["whatsapp", "telegram", "instagram"] as const satisfies readonly ChannelType[];
 const JOBS_WITH_ERRORS_LIMIT = 20;
 const AI_ERRORS_LIMIT = 20;
 

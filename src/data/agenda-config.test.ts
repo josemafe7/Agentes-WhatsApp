@@ -1,16 +1,15 @@
 import { eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
-import { businessSettings, channels, jobs, reminderSettings, resourceSchedules, serviceResources, whatsappTemplates } from "@/db/schema";
+import { businessSettings, jobs, resourceSchedules, serviceResources } from "@/db/schema";
 import type { Role } from "@/lib/enums";
 import { createHairdresser } from "@/server/booking/test-helpers";
 import { AuthError, NotFoundError, ValidationError } from "@/server/errors";
-import { actorFor, createChannel, createUser, type TestUser } from "@/test/factories";
+import { actorFor, createUser, type TestUser } from "@/test/factories";
 import {
   createResource,
   createService,
   getAgendaSettings,
-  getReminderSettings,
   getResource,
   getService,
   listResources,
@@ -18,10 +17,10 @@ import {
   setResourceActive,
   setServiceActive,
   updateAgendaSettings,
-  updateReminderSettings,
   updateResource,
   updateService,
 } from "./agenda-config";
+import { getReminderSettings, updateReminderSettings } from "./reminder-settings";
 
 const ROLES: Role[] = ["owner", "admin", "supervisor", "agent", "viewer"];
 const CONFIGURE: Role[] = ["owner", "admin"];
@@ -64,7 +63,7 @@ describe("only owner and admin configure the agenda [PER-01] «Agenda: configura
     await expect(updateResource(actor, { resourceId: hair.laura.id, type: "person", name: "Laura" })).rejects.toBeInstanceOf(AuthError);
     await expect(setResourceActive(actor, { id: hair.laura.id, active: false })).rejects.toBeInstanceOf(AuthError);
     await expect(getReminderSettings(actor)).rejects.toBeInstanceOf(AuthError);
-    await expect(updateReminderSettings(actor, { enabled: false, leadMinutes: 1440, channel: "email" })).rejects.toBeInstanceOf(AuthError);
+    await expect(updateReminderSettings(actor, { enabled: false, rules: [] })).rejects.toBeInstanceOf(AuthError);
     expect((await listServices(users.owner.actor)).map((service) => [service.name, service.active])).toEqual([
       ["Corte", true],
       ["Tinte", true],
@@ -138,50 +137,5 @@ describe("resources with weekly schedules [AGD-02] [AGD-03]", () => {
     await expect(createResource(owner, { type: "person", name: "Pepa", serviceIds: [crypto.randomUUID()] })).rejects.toBeInstanceOf(ValidationError);
     await expect(createResource(owner, { type: "robot", name: "Pepa" })).rejects.toBeInstanceOf(ValidationError);
     expect((await db.select().from(serviceResources)).length).toBe(3);
-  });
-});
-
-describe("reminders: off by default, WhatsApp template or email [AGD-24] [AGD-20]", () => {
-  let number: typeof channels.$inferSelect;
-
-  beforeEach(async () => {
-    await db.delete(reminderSettings);
-    await db.delete(whatsappTemplates);
-    await db.delete(channels);
-    number = await createChannel({ type: "whatsapp", name: "WhatsApp Recepción", isDemo: true });
-    await db.insert(whatsappTemplates).values([
-      { channelId: number.id, name: "recordatorio_cita", language: "es", category: "UTILITY", status: "APPROVED", variables: ["1", "2", "3"] },
-      { channelId: number.id, name: "promo_otono", language: "es", category: "MARKETING", status: "APPROVED", variables: [] },
-      { channelId: number.id, name: "recordatorio_nuevo", language: "es", category: "UTILITY", status: "PENDING", variables: ["1"] },
-    ]);
-  });
-
-  it("start disabled and offer the approved utility templates and the booking fields", async () => {
-    const { settings, options } = await getReminderSettings(users.admin.actor);
-    expect(settings).toMatchObject({ enabled: false, leadMinutes: 1440, channel: "whatsapp_template" });
-    expect(options.whatsapp).toEqual([{ channelId: number.id, name: "WhatsApp Recepción", isDemo: true, templates: [{ name: "recordatorio_cita", language: "es", variables: ["1", "2", "3"] }] }]);
-    expect(options.fields.map((field) => field.key)).toContain("booking.date");
-  });
-
-  it("by WhatsApp need a number, an approved utility template and a booking field for each variable", async () => {
-    const owner = users.owner.actor;
-    const base = { enabled: true, leadMinutes: 1440, channel: "whatsapp_template" as const, whatsappChannelId: number.id, templateName: "recordatorio_cita", templateLanguage: "es" };
-    await expect(updateReminderSettings(owner, { ...base, templateVariables: { 1: "contact.name", 2: "booking.date" } })).rejects.toMatchObject({ fieldErrors: { templateVariables: expect.any(Array) } });
-    await expect(updateReminderSettings(owner, { ...base, templateName: "promo_otono", templateVariables: {} })).rejects.toMatchObject({ fieldErrors: { templateName: expect.any(Array) } });
-    await expect(updateReminderSettings(owner, { ...base, whatsappChannelId: crypto.randomUUID() })).rejects.toMatchObject({ fieldErrors: { whatsappChannelId: expect.any(Array) } });
-    await expect(updateReminderSettings(owner, { ...base, templateVariables: { 1: "contact.dni", 2: "booking.date", 3: "booking.time" } })).rejects.toBeInstanceOf(ValidationError);
-    const saved = await updateReminderSettings(owner, { ...base, leadMinutes: 120, templateVariables: { 1: "contact.name", 2: "booking.date", 3: "booking.time" } });
-    expect(saved).toMatchObject({ enabled: true, leadMinutes: 120, templateName: "recordatorio_cita" });
-    expect(await db.select().from(jobs).where(eq(jobs.type, "booking.reminders"))).toHaveLength(1);
-  });
-
-  it("by email need only the choice (default text); turning them off stops the job", async () => {
-    const admin = users.admin.actor;
-    expect(await updateReminderSettings(admin, { enabled: true, leadMinutes: 1440, channel: "email", emailSubject: "Tu cita", emailBody: "Hola {nombre}" })).toMatchObject({ enabled: true, channel: "email", emailSubject: "Tu cita" });
-    await expect(updateReminderSettings(admin, { enabled: true, leadMinutes: 5, channel: "email" })).rejects.toBeInstanceOf(ValidationError);
-    expect(await updateReminderSettings(admin, { enabled: false, leadMinutes: 1440, channel: "email" })).toMatchObject({ enabled: false });
-    const [job] = await db.select().from(jobs).where(eq(jobs.type, "booking.reminders"));
-    expect(job.status).toBe("cancelled");
-    expect(await db.select().from(reminderSettings)).toHaveLength(1);
   });
 });

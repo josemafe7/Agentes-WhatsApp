@@ -44,27 +44,31 @@ describe("WhatsApp of the demo (pnpm seed)", () => {
   beforeAll(async () => {
     vi.stubGlobal("fetch", fetchSpy);
     await emptyDatabase();
-    expect(await runSeedCommand([], { out: captureOutput(), env: DEMO_ENV })).toBe(0);
+    // The hair salon by name (the default demo is the physio clinic, [ARR-06]): this test checks its template text.
+    expect(await runSeedCommand(["--sector=peluqueria"], { out: captureOutput(), env: DEMO_ENV })).toBe(0);
   });
 
   afterAll(() => {
     vi.unstubAllGlobals();
   });
 
-  it("[WA-22] [ARR-11] the demo number has its templates as «Sincronizar plantillas» leaves them: two approved, one pending and one rejected", async () => {
+  it("[WA-22] [ARR-11] [ARR-25] the demo number has the two models of the app approved and the others as «Sincronizar plantillas» leaves them: one more approved, one pending and one rejected", async () => {
     const templates = await listWhatsAppTemplates(await demoActor("owner"), (await demoWhatsApp()).id);
     expect(templates.map((template) => [template.name, template.status, template.category])).toEqual([
       ["aviso_cierre", "REJECTED", "UTILITY"],
       ["novedades_del_mes", "PENDING", "MARKETING"],
+      ["novedades_y_publicidad", "APPROVED", "MARKETING"],
       ["recordatorio_cita", "APPROVED", "UTILITY"],
       ["retomar_conversacion", "APPROVED", "UTILITY"],
     ]);
-    expect(templates.find((template) => template.name === "recordatorio_cita")?.variables).toEqual(["nombre", "fecha", "hora"]);
+    expect(templates.find((template) => template.name === "recordatorio_cita")?.variables).toEqual(["nombre", "servicio", "dia", "hora", "profesional", "negocio"]);
+    expect(templates.find((template) => template.name === "novedades_y_publicidad")?.buttonRoles).toEqual({ "No quiero publicidad": "marketing_opt_out" });
     expect(templates.find((template) => template.name === "retomar_conversacion")?.variables).toEqual(["1"]);
     expect(templates.find((template) => template.name === "aviso_cierre")?.rejectedReason).toBe("INVALID_FORMAT");
-    // In the business's own words: the sector's booking term and its name.
+    // In the business's own words: the sector's booking term, and its name as the example Meta reviews.
     const body = JSON.stringify(buildDemoTemplates(DEMO_BUSINESSES.peluqueria, getSectorPreset("peluqueria"))[0].components);
-    expect(body).toContain("tu cita en Peluquería Aurora");
+    expect(body).toContain("Recordatorio de tu cita");
+    expect(body).toContain("Peluquería Aurora");
   });
 
   it("[AJU-09] Ajustes › WhatsApp shows example rates, flagged «ejemplo», never as real prices", async () => {
@@ -82,14 +86,14 @@ describe("WhatsApp of the demo (pnpm seed)", () => {
       .where(eq(contacts.name, "Cristina Herrero"));
     const state = await getWhatsAppInboxState(owner, row.id);
     expect(state?.window.open).toBe(false);
-    expect(state?.templates.map((template) => template.name)).toEqual(["recordatorio_cita", "retomar_conversacion"]);
+    expect(state?.templates.map((template) => template.name)).toEqual(["novedades_y_publicidad", "recordatorio_cita", "retomar_conversacion"]);
 
     const template = state?.templates.find((candidate) => candidate.name === "recordatorio_cita");
     await db.delete(jobs);
     const sent = await sendHumanTemplateMessage(owner, {
       conversationId: row.id,
       templateId: template?.id,
-      values: { nombre: "Cristina", fecha: "3 de octubre", hora: "10:30" },
+      values: { nombre: "Cristina", servicio: "Corte", dia: "3 de octubre", hora: "10:30", profesional: "Lucía", negocio: "Peluquería Aurora" },
     });
     expect(sent.status).toBe("sent");
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -100,7 +104,7 @@ describe("WhatsApp of the demo (pnpm seed)", () => {
       await registration?.handler(job.payload, { job, workerId: "w", queue: getJobQueue(), remainingMs: () => 10_000, rescheduleAt: () => {} });
     }
     const [message] = await db.select().from(messages).where(and(eq(messages.id, sent.messageId), eq(messages.contentType, "template")));
-    expect(message.text).toContain("Hola, Cristina. Te recordamos tu cita en Peluquería Aurora el 3 de octubre a las 10:30.");
+    expect(message.text).toContain("Hola Cristina, te recordamos tu cita de Corte el 3 de octubre a las 10:30 con Lucía en Peluquería Aurora.");
     const utility = DEMO_EXAMPLE_RATES.find((rate) => rate.category === "utility");
     expect(message).toMatchObject({ status: "read", pricingType: "regular", pricingCategory: "utility", costEstimate: utility?.price });
   });

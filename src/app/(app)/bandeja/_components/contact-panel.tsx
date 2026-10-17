@@ -4,7 +4,10 @@ import type { ReactNode } from "react";
 import { CHANNEL_IDENTITY } from "@/components/channels/channel-identity";
 import type { ContactDetail } from "@/data/contacts";
 import type { ConversationDetail } from "@/data/conversations";
+import { CHANNEL_KIND_LABELS, hasPermission, PERMISSION_LABELS } from "@/lib/consents";
 import { formatDateTime, formatRelative } from "@/lib/format";
+import { OptOutRequestButton } from "../../contactos/[id]/_consents/consent-dialogs";
+import { activeOptOuts } from "../../contactos/_lib/view";
 import { contactDisplayName, STATUS_META } from "../_lib/presentation";
 import { ChannelMark } from "./contact-avatar";
 
@@ -17,6 +20,8 @@ type ContactPanelProps = {
   canOpenContact: boolean;
   /** The contact's next bookings and «Nueva cita» (bandeja/[id]/_bookings), right after the data. */
   bookings?: ReactNode;
+  /** «Dar de baja» when the customer asks for it ([CTO-10]), for whoever may mark consents on this contact. */
+  canRecordOptOut?: boolean;
 };
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -32,13 +37,13 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
  * The contact next to the conversation ([BAN-15], [CTO-02]): data, identities by channel (never the phone as a key),
  * labels, custom fields, opt-outs, the conversation summary and the other conversations the person may see.
  */
-export function ContactPanel({ conversation, contact, timezone, now, canOpenContact, bookings }: ContactPanelProps) {
+export function ContactPanel({ conversation, contact, timezone, now, canOpenContact, bookings, canRecordOptOut }: ContactPanelProps) {
   const basic = contact ?? conversation.contact;
   if (!basic) {
     return <p className="px-4 py-4 text-sm text-muted-foreground">Esta conversación no tiene contacto.</p>;
   }
   const others = contact?.conversations.filter((item) => item.id !== conversation.id) ?? [];
-  const optOuts = contact?.consents.filter((consent) => consent.type === "opt_out") ?? [];
+  const optOuts = contact ? activeOptOuts(contact.consentState) : [];
   const customFields = Object.entries(contact?.customFields ?? {});
 
   return (
@@ -62,18 +67,26 @@ export function ContactPanel({ conversation, contact, timezone, now, canOpenCont
 
       {bookings}
 
-      {optOuts.length > 0 ? (
-        <Section title="Bajas">
+      {contact ? (
+        <Section title="Permisos y bajas">
           <ul className="flex flex-col gap-1 text-sm">
-            {optOuts.map((consent) => (
-              <li key={consent.id} className="flex items-start gap-2 text-warning">
+            {(["reminders", "marketing"] as const).map((permission) => (
+              <li key={permission} className="flex items-center justify-between gap-2">
+                <span>{PERMISSION_LABELS[permission]}</span>
+                <span className="text-xs font-medium text-muted-foreground">{hasPermission(contact.consentState, permission) ? "Sí" : "No"}</span>
+              </li>
+            ))}
+            {optOuts.map((optOut) => (
+              <li key={`${optOut.kind}:${optOut.scope}`} className="flex items-start gap-2 text-warning">
                 <Ban aria-hidden className="mt-0.5 size-4 shrink-0" />
                 <span>
-                  Se ha dado de baja{consent.channelName ? ` en ${consent.channelName}` : ""} el {formatDateTime(consent.createdAt, timezone, { preset: "date" })}
+                  Se ha dado de baja {optOut.scope === "marketing" ? "de novedades y publicidad " : ""}en {CHANNEL_KIND_LABELS[optOut.kind]} el{" "}
+                  {formatDateTime(optOut.since, timezone, { preset: "date" })}
                 </span>
               </li>
             ))}
           </ul>
+          {canRecordOptOut ? <OptOutRequestButton contactId={contact.id} /> : null}
         </Section>
       ) : null}
 

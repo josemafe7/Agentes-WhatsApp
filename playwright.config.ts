@@ -13,10 +13,10 @@ import {
   RESTAURANT_URL,
 } from "./e2e/support/env";
 
-// docs/testing.md: one build of the app started three times — the demo (data/e2e-pglite), an empty installation for
-// the setup wizard (data/e2e-fresh-pglite) and the restaurant demo for the agenda by capacity
-// (data/e2e-restaurante-pglite), each with its own embedded database (PGlite) that only that server opens — with every
-// external service answered by e2e/mocks/server.mjs.
+// docs/testing.md: one build of the app started three times — the hair-salon demo, loaded with --sector=peluqueria
+// (data/e2e-pglite), an empty installation for the setup wizard (data/e2e-fresh-pglite) and the restaurant demo for
+// the agenda by capacity (data/e2e-restaurante-pglite), each with its own embedded database (PGlite) that only that
+// server opens — with every external service answered by e2e/mocks/server.mjs.
 // Playwright starts webServers before globalSetup, so the databases are prepared at the head of the demo
 // server's command (e2e/support/prepare-databases.mjs), before the build.
 const BUILD_AND_START_TIMEOUT_MS = 600_000;

@@ -172,7 +172,8 @@ describe("pnpm seed with precomputed embeddings [ARR-12]", () => {
 
   it("stores them, so search by meaning works at once: only the question is embedded", async () => {
     vi.mocked(fixturesModule.loadDemoEmbeddings).mockReturnValueOnce(await fixturesFor(["peluqueria"]));
-    const code = await runSeedCommand([], { out: captureOutput(), env: { DEMO_MODE: "true", NODE_ENV: "development" }, now: new Date("2026-09-26T10:00:00Z") });
+    // The hair salon by name (the default demo is the physio clinic, [ARR-06]): the fixtures above are its own.
+    const code = await runSeedCommand(["--sector=peluqueria"], { out: captureOutput(), env: { DEMO_MODE: "true", NODE_ENV: "development" }, now: new Date("2026-09-26T10:00:00Z") });
     expect(code).toBe(0);
 
     expect(await db.select({ id: kbChunks.id }).from(kbChunks).where(isNull(kbChunks.embedding))).toEqual([]);

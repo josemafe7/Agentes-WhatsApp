@@ -2,6 +2,7 @@
 
 import { useMemo } from "react"
 import { cva, type VariantProps } from "class-variance-authority"
+import { CircleAlert } from "lucide-react"
 import { cn } from "cn"
 
 import { Label } from "@/components/ui/label"
@@ -212,14 +213,16 @@ function FieldError({
     return null
   }
 
+  // DESIGN.md «Formularios»: in --destructive-text, with circle-alert.
   return (
     <div
       role="alert"
       data-slot="field-error"
-      className={cn("text-sm font-normal text-destructive", className)}
+      className={cn("flex items-start gap-1.5 text-sm font-normal text-destructive-text", className)}
       {...props}
     >
-      {content}
+      <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
+      <div className="min-w-0">{content}</div>
     </div>
   )
 }

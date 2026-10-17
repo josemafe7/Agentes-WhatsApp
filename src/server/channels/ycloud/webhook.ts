@@ -14,6 +14,7 @@ import { idSchema } from "@/lib/validation";
 import { whatsappViaOf } from "@/lib/whatsapp-via";
 import { verifyYCloudSignature } from "@/lib/ycloud/signature";
 import type { JobQueue } from "@/server/adapters/job-queue";
+import { applyMarketingPreference } from "@/server/compliance/whatsapp-marketing";
 import { ingestEvents } from "@/server/inbound/ingest";
 import { storableJson } from "@/server/storable-text";
 import { recordPhoneEcho } from "../phone-echo";
@@ -107,6 +108,10 @@ export async function processYCloudWebhook(
   if (change.kind === "template") {
     await enqueueYCloudTemplatesSync(channel.id, options.queue);
     return done(200, { queuedNow: true });
+  }
+  if (change.kind === "preference" && forThisNumber(change.number)) {
+    await applyMarketingPreference(channel.id, change.preference, now);
+    return done(200);
   }
   return done(200);
 }

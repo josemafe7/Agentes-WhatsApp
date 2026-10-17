@@ -60,8 +60,13 @@ function changeParts(changes: Record<string, unknown>, context: Context): string
   if (isChange(changes.people, isNumber)) parts.push(`Personas: ${changes.people.from} → ${changes.people.to}`);
   const fields = fieldNames(changes.fields, context.words);
   if (fields.length) parts.push(`Cambiad${fields.length > 1 || fields[0] === "las notas" ? "as" : "o"} ${joinSpanish(fields)}`);
+  // A new time drops the customer's confirmation ([AGD-33]).
+  if (isChange(changes.customerConfirmed, (value): value is boolean => typeof value === "boolean")) parts.push("Ya no está confirmada por el cliente");
   return parts;
 }
+
+/** The channels a reminder went by ([AGD-24]); the old single reminder said «whatsapp_template». */
+const CHANNEL_NAMES: Record<string, string> = { whatsapp: "WhatsApp", whatsapp_template: "WhatsApp", telegram: "Telegram", email: "correo" };
 
 const NOTICE_KINDS: Record<string, string> = { confirmed: "confirmación enviada", moved: "cambio de hora enviado", cancelled: "cancelación enviada" };
 
@@ -82,9 +87,13 @@ function describe(item: HistoryItem, context: Context): string {
     case "notice_sent":
       return isString(changes.kind) && NOTICE_KINDS[changes.kind] ? `Aviso al ${context.words.customer}: ${NOTICE_KINDS[changes.kind]}` : `Aviso enviado al ${context.words.customer}`;
     case "reminder_sent":
-      return "Recordatorio enviado";
+      return `Recordatorio enviado${isString(changes.lead) ? ` (${changes.lead})` : ""}${isString(changes.channel) && CHANNEL_NAMES[changes.channel] ? ` por ${CHANNEL_NAMES[changes.channel]}` : ""}`;
     case "reminder_failed":
-      return "No se ha podido enviar el recordatorio";
+      return `No se ha podido enviar el recordatorio${isString(changes.channel) && CHANNEL_NAMES[changes.channel] ? ` por ${CHANNEL_NAMES[changes.channel]}` : ""}${isString(changes.reason) ? `: ${changes.reason}` : ""}`;
+    case "reminder_not_sent":
+      return `Recordatorio no enviado${isString(changes.lead) ? ` (${changes.lead})` : ""}${isString(changes.reason) ? `: ${changes.reason}` : ""}`;
+    case "customer_confirmed":
+      return "Confirmada por el cliente";
     default:
       return "Cambio registrado";
   }

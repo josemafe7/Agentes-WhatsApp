@@ -18,6 +18,8 @@ function allowlistHelp(channel: ChannelDetail): string {
   if (channel.type === "whatsapp") return `Números con su prefijo, como +34 600 111 222. ${common}`;
   if (channel.type === "webchat") return `Emails o teléfonos que el visitante haya dado, o su identificador de visitante (en la ficha del contacto). ${common}`;
   if (channel.type === "telegram") return `Identificadores de Telegram de los contactos. ${common}`;
+  // The customer's Instagram id (IGSID), as the contact's page shows it: never the @username, which can change ([IG-08]).
+  if (channel.type === "instagram") return `El identificador de Instagram del cliente (en la ficha del contacto), no su @usuario. ${common}`;
   return `Direcciones de correo, como ana@ejemplo.com. ${common}`;
 }
 

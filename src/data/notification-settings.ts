@@ -21,6 +21,8 @@ export const NOTIFICATION_EVENTS = [
   "whatsapp_quality",
   "model_deprecated",
   "booking_pending",
+  "whatsapp_template",
+  "campaign_paused",
 ] as const;
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number];
 
@@ -61,6 +63,10 @@ export const NOTIFICATION_EVENT_DEFINITIONS: Record<NotificationEvent, EventDefi
   },
   // A booking waits for manual confirmation ([AGD-22]): everyone who manages bookings (agents, of their channels).
   booking_pending: { audience: "roles", defaults: { enabled: true, roles: TEAM }, channels: { inApp: true, push: true, email: true } },
+  // A WhatsApp template rejected, approved in another category or moved to another one ([WA-60]).
+  whatsapp_template: { audience: "roles", defaults: { enabled: true, roles: MANAGERS }, channels: { inApp: true, push: false, email: true } },
+  // An envío stopped by itself ([ENV-09]): who manages the envíos.
+  campaign_paused: { audience: "roles", defaults: { enabled: true, roles: MANAGERS }, channels: { inApp: true, push: true, email: true } },
 };
 
 function isEvent(key: string): key is NotificationEvent {

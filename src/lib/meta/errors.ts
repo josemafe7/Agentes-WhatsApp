@@ -149,6 +149,8 @@ export class MetaGraphError extends Error {
     code: number | null,
     info: MetaErrorInfo,
     readonly details: string | null = null,
+    /** Meta's `error_subcode` (the template creation errors, `2388xxx`, may come there). */
+    readonly subcode: number | null = null,
   ) {
     super(info.message);
     this.name = "MetaGraphError";
@@ -160,10 +162,13 @@ export class MetaGraphError extends Error {
   }
 
   /** From Meta's `error` object ([WA-09]). */
-  static fromMeta(httpStatus: number, error: { code?: number | null; is_transient?: boolean | null; error_data?: { details?: string | null } | null } | null): MetaGraphError {
+  static fromMeta(
+    httpStatus: number,
+    error: { code?: number | null; error_subcode?: number | null; is_transient?: boolean | null; error_data?: { details?: string | null } | null } | null,
+  ): MetaGraphError {
     const described = describeMetaError(error?.code ?? null, { isTransient: error?.is_transient === true });
     const details = error?.error_data?.details;
-    return new MetaGraphError(httpStatus, described.code, described, typeof details === "string" ? details.slice(0, 500) : null);
+    return new MetaGraphError(httpStatus, described.code, described, typeof details === "string" ? details.slice(0, 500) : null, error?.error_subcode ?? null);
   }
 }
 

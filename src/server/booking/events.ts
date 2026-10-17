@@ -5,8 +5,8 @@ import type { Executor } from "@/db";
 import { bookingEvents } from "@/db/schema";
 import type { BookingActorType } from "@/lib/enums";
 
-/** Who changes a booking: a person, an AI agent, or the app itself (reminders, notices). */
-export type BookingActor = { type: "user"; userId: string; name: string } | { type: "ai"; agentId: string; name: string } | { type: "system" };
+/** Who changes a booking: a person, an AI agent, the app itself (reminders, notices) or the customer (a reminder's button). */
+export type BookingActor = { type: "user"; userId: string; name: string } | { type: "ai"; agentId: string; name: string } | { type: "system" } | { type: "contact" };
 
 export type BookingEventAction =
   | "created"
@@ -16,11 +16,14 @@ export type BookingEventAction =
   | "cancelled"
   | "notice_sent"
   | "reminder_sent"
-  | "reminder_failed";
+  | "reminder_failed"
+  | "reminder_not_sent"
+  | "customer_confirmed";
 
 function actorFields(actor: BookingActor): { actorType: BookingActorType; actorUserId: string | null; actorName: string | null } {
   if (actor.type === "user") return { actorType: "user", actorUserId: actor.userId, actorName: actor.name };
   if (actor.type === "ai") return { actorType: "ai", actorUserId: null, actorName: actor.name };
+  if (actor.type === "contact") return { actorType: "contact", actorUserId: null, actorName: null };
   return { actorType: "system", actorUserId: null, actorName: null };
 }
 

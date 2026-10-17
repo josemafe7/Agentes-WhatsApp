@@ -12,17 +12,28 @@ export type RetentionSettings = {
   audioDays: number;
   attachmentsDays: number;
   webhookDays: number;
+  /** The result of each contact of an envío; after it, the row stays without who it was ([ENV-12]). */
+  campaignResultsMonths: number;
   /** What the daily clean-up does with expired conversations. */
   mode: "delete" | "anonymize";
 };
-/** Defaults of [CUM-05]: conversations 12 months, audio 30 days, attachments 90 days, raw webhooks 14 days. */
+/**
+ * Defaults of [CUM-05]: conversations 12 months, audio 30 days, attachments 90 days, raw webhooks 14 days, results of
+ * the envíos 12 months.
+ */
 export const DEFAULT_RETENTION: RetentionSettings = {
   conversationsMonths: 12,
   audioDays: 30,
   attachmentsDays: 90,
   webhookDays: 14,
+  campaignResultsMonths: 12,
   mode: "delete",
 };
+/**
+ * What the column starts with, as its migration made it: migrations are only additive, so a period added later is not
+ * here and the readers take its default (src/data/settings.ts).
+ */
+const RETENTION_COLUMN_DEFAULT = { conversationsMonths: 12, audioDays: 30, attachmentsDays: 90, webhookDays: 14, mode: "delete" };
 /** Hand-off defaults ([TRA-04]): round robin among people who can serve the channel, or leave unassigned. */
 export type HandoffSettings = { assignment: "round_robin" | "unassigned" };
 export const DEFAULT_HANDOFF: HandoffSettings = { assignment: "round_robin" };
@@ -57,7 +68,7 @@ export const businessSettings = pgTable(
     dataDeletionText: text("data_deletion_text"),
     /** Default AI disclosure sent in the first message ([CUM-01]); channels may override it. */
     aiDisclosureText: text("ai_disclosure_text"),
-    retention: json<RetentionSettings>("retention").notNull().default(jsonDefault(DEFAULT_RETENTION)),
+    retention: json<RetentionSettings>("retention").notNull().default(jsonDefault(RETENTION_COLUMN_DEFAULT)),
     /** Hours the AI pauses after a person writes from the inbox ([BAN-11]). */
     aiPauseHours: integer("ai_pause_hours").notNull().default(12),
     /** «Exigir verificación en dos pasos a propietario y administradores» ([USU-12]). */

@@ -1,5 +1,5 @@
 // What some Meta failures leave behind, whether they come back from a send or later as a «failed» status:
-// 131047 closes the 24 h window of that conversation even if our count says open (Meta wins, [WA-43]); 131042, or a
+// 131050 is a baja of novedades y publicidad by WhatsApp ([WA-62]); 131047 closes the 24 h window of that conversation even if our count says open (Meta wins, [WA-43]); 131042, or a
 // failed service message after the month's 1,000 free ones, raises «Puede que falte el método de pago en Meta» and
 // tells owner and admins at most once a day ([WA-51]). The free count is only for this alert, never for costs.
 import "server-only";
@@ -8,6 +8,7 @@ import { db } from "@/db";
 import { channels, conversations } from "@/db/schema";
 import { FREE_SERVICE_MESSAGES_PER_MONTH } from "@/lib/meta/pricing";
 import { WINDOW_CLOSED_METADATA_KEY } from "@/lib/meta/window";
+import { MARKETING_STOPPED_CODE, recordMarketingStop } from "@/server/compliance/whatsapp-marketing";
 import { notify } from "@/server/notifications/notify";
 import { publishConversationEvent } from "@/server/realtime/events";
 import type { ChannelRecord } from "../types";
@@ -50,6 +51,12 @@ export type MetaFailure = {
 
 export async function recordMetaFailure(channel: Pick<ChannelRecord, "id" | "name" | "config">, failure: MetaFailure): Promise<void> {
   const { now } = failure;
+  // 131050: the customer stopped the business's marketing in WhatsApp: a baja of novedades y publicidad ([WA-62]).
+  if (failure.code === MARKETING_STOPPED_CODE && failure.conversationId) {
+    const [conversation] = await db.select({ contactId: conversations.contactId }).from(conversations).where(eq(conversations.id, failure.conversationId));
+    if (conversation?.contactId) await recordMarketingStop({ contactId: conversation.contactId, source: "meta_131050", channelId: channel.id, now });
+    return;
+  }
   if (failure.code === WINDOW_CLOSED_CODE && failure.conversationId) {
     const [conversation] = await db.select({ metadata: conversations.metadata }).from(conversations).where(eq(conversations.id, failure.conversationId));
     if (conversation) {

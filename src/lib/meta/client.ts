@@ -17,6 +17,7 @@ import {
   sendMessageResponseSchema,
   subscribedAppsSchema,
   successSchema,
+  createdTemplateSchema,
   templateSchema,
   templatesPageSchema,
   uploadMediaResponseSchema,
@@ -25,6 +26,7 @@ import {
   type DebugTokenData,
   type HealthEntity,
   type MediaInfo,
+  type CreatedTemplate,
   type MetaTemplate,
   type PhoneNumberResponse,
   type SendMessageResponse,
@@ -59,6 +61,7 @@ export const WHATSAPP_WEBHOOK_FIELDS = [
   "message_template_status_update",
   "template_category_update",
   "message_template_quality_update",
+  "user_preferences",
   "business_capability_update",
   "account_alerts",
   "security",
@@ -121,6 +124,8 @@ export type MetaGraphClient = {
   setTwoStepPin(phoneNumberId: string, pin: string, options?: CallOptions): Promise<boolean>;
   /** Every page, following the `after` cursor (never the absolute `next` URL). */
   listTemplates(wabaId: string, options?: CallOptions): Promise<MetaTemplate[]>;
+  /** «Nueva plantilla» ([WA-57], docs/integracion-whatsapp-plantillas.md §1). */
+  createTemplate(wabaId: string, body: Record<string, unknown>, options?: CallOptions): Promise<CreatedTemplate>;
   sendMessage(phoneNumberId: string, payload: Record<string, unknown>, options?: CallOptions): Promise<SendMessageResponse>;
   /** «Leído», and «escribiendo…» with `typing` (it also marks as read) ([WA-45]). */
   markRead(phoneNumberId: string, messageId: string, options?: CallOptions & { typing?: boolean }): Promise<boolean>;
@@ -336,7 +341,7 @@ export function createMetaGraphClient(options: MetaGraphClientOptions = {}): Met
       let after: string | null = null;
       for (let page = 0; page < MAX_TEMPLATE_PAGES; page++) {
         const query: Record<string, string> = {
-          fields: "id,name,language,status,category,parameter_format,components,rejected_reason",
+          fields: "id,name,language,status,category,parameter_format,components,rejected_reason,message_send_ttl_seconds",
           limit: String(TEMPLATE_PAGE_SIZE),
           ...(after ? { after } : {}),
         };
@@ -349,6 +354,11 @@ export function createMetaGraphClient(options: MetaGraphClientOptions = {}): Met
         if (!after) break;
       }
       return templates;
+    },
+
+    async createTemplate(wabaId, payload, opts) {
+      const body = await call({ method: "POST", path: `${assertNode(wabaId)}/message_templates`, body: { json: payload }, auth: "user", ...opts });
+      return parseWith(createdTemplateSchema, body);
     },
 
     async sendMessage(phoneNumberId, payload, opts) {

@@ -21,11 +21,11 @@ const keys = (items: readonly { key: string }[]) => items.map((item) => item.key
 
 // docs/spec.md «Quién puede hacer qué» and docs/pantallas.md «Quién ve qué»: each role sees only its sections.
 const EXPECTED_SECTIONS: Record<Role, string[]> = {
-  owner: ["bandeja", "contactos", "agenda", "agentes", "conocimiento", "canales", "informes", "ajustes"],
-  admin: ["bandeja", "contactos", "agenda", "agentes", "conocimiento", "canales", "informes", "ajustes"],
-  supervisor: ["bandeja", "contactos", "agenda", "agentes", "conocimiento", "informes", "ajustes"],
+  owner: ["bandeja", "contactos", "agenda", "envios", "agentes", "conocimiento", "canales", "informes", "ajustes"],
+  admin: ["bandeja", "contactos", "agenda", "envios", "agentes", "conocimiento", "canales", "informes", "ajustes"],
+  supervisor: ["bandeja", "contactos", "agenda", "envios", "agentes", "conocimiento", "informes", "ajustes"],
   agent: ["bandeja", "contactos", "agenda", "ajustes"],
-  viewer: ["bandeja", "contactos", "agenda", "agentes", "conocimiento", "canales", "informes", "ajustes"],
+  viewer: ["bandeja", "contactos", "agenda", "envios", "agentes", "conocimiento", "canales", "informes", "ajustes"],
 };
 
 describe("visibleSections", () => {
@@ -55,6 +55,7 @@ describe("visibleSections", () => {
       "/bandeja",
       "/contactos",
       "/agenda",
+      "/envios",
       "/agentes",
       "/conocimiento",
       "/canales",
@@ -68,7 +69,7 @@ describe("groupSections", () => {
   it("splits the menu in the three groups of DESIGN.md", () => {
     const groups = groupSections(visibleSections(actorFor("owner"))).map(keys);
     expect(groups).toEqual([
-      ["bandeja", "contactos", "agenda"],
+      ["bandeja", "contactos", "agenda", "envios"],
       ["agentes", "conocimiento", "canales"],
       ["informes", "ajustes"],
     ]);
@@ -91,6 +92,7 @@ describe("visibleSettingsPages", () => {
     "privacidad",
     "notificaciones",
     "recordatorios",
+    "envios",
     "actividad",
     "diagnostico",
     "cuenta",
@@ -126,6 +128,7 @@ describe("visibleSettingsPages", () => {
       privacidad: "/ajustes/privacidad",
       notificaciones: "/ajustes/notificaciones",
       recordatorios: "/ajustes/recordatorios",
+      envios: "/ajustes/envios",
       actividad: "/ajustes/actividad",
       diagnostico: "/ajustes/diagnostico",
       cuenta: ACCOUNT_HREF,
@@ -144,7 +147,7 @@ describe("groupSettingsPages", () => {
     expect(groups).toEqual([
       ["negocio", "usuarios", "horario"],
       ["ia", "correo", "whatsapp"],
-      ["privacidad", "notificaciones", "recordatorios"],
+      ["privacidad", "notificaciones", "recordatorios", "envios"],
       ["actividad", "diagnostico"],
       ["cuenta", "acerca"],
     ]);
@@ -207,7 +210,7 @@ describe("mobile navigation", () => {
   it("[PWA-02] the bottom bar shows Bandeja, Agenda and Contactos; the rest goes to «Más»", () => {
     const { primary, more } = splitMobileSections(visibleSections(actorFor("owner")));
     expect(keys(primary)).toEqual(["bandeja", "agenda", "contactos"]);
-    expect(keys(more)).toEqual(["agentes", "conocimiento", "canales", "informes", "ajustes"]);
+    expect(keys(more)).toEqual(["envios", "agentes", "conocimiento", "canales", "informes", "ajustes"]);
   });
 
   it("[PWA-02] an agent gets the inbox first and only Ajustes under «Más»", () => {
@@ -281,10 +284,10 @@ describe("trailForPath", () => {
 describe("«Asistentes» [INT-05] [INT-06]", () => {
   const withAssistants = (role: Role) => keys(visibleSections(actorFor(role), { hasAssistants: true }));
 
-  it("is in the menu only of who has an internal agent to use, after Agenda", () => {
-    expect(withAssistants("owner")).toEqual(["bandeja", "contactos", "agenda", "asistentes", "agentes", "conocimiento", "canales", "informes", "ajustes"]);
+  it("is in the menu only of who has an internal agent to use, after Agenda and Envíos", () => {
+    expect(withAssistants("owner")).toEqual(["bandeja", "contactos", "agenda", "envios", "asistentes", "agentes", "conocimiento", "canales", "informes", "ajustes"]);
     expect(withAssistants("admin")).toContain("asistentes");
-    expect(withAssistants("supervisor")).toEqual(["bandeja", "contactos", "agenda", "asistentes", "agentes", "conocimiento", "informes", "ajustes"]);
+    expect(withAssistants("supervisor")).toEqual(["bandeja", "contactos", "agenda", "envios", "asistentes", "agentes", "conocimiento", "informes", "ajustes"]);
     expect(withAssistants("agent")).toEqual(["bandeja", "contactos", "agenda", "asistentes", "ajustes"]);
     // Without any assistant for them, nobody has the section.
     for (const role of ["owner", "admin", "supervisor", "agent", "viewer"] as const) expect(keys(visibleSections(actorFor(role)))).not.toContain("asistentes");

@@ -55,11 +55,21 @@ export type SendDeps = { sleep?: (ms: number) => Promise<void>; storage?: FileSt
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** The buttons a reminder carries ([TG-13]): text and a short code of 1 to 64 bytes. */
+function buttonsOf(metadata: Record<string, unknown> | undefined): { text: string; data: string }[] {
+  const raw = metadata?.telegramButtons;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((button) => {
+    const { text, data } = (button ?? {}) as { text?: unknown; data?: unknown };
+    return typeof text === "string" && typeof data === "string" && new TextEncoder().encode(data).length <= 64 ? [{ text, data }] : [];
+  });
+}
+
 async function sendOnce(client: TelegramClient, chatId: string, message: OutboundMessage, storage: FileStorage) {
   if (message.contentType === "text") {
     const text = message.text?.trim();
     if (!text) throw new ChannelSendError("El mensaje está vacío.", false);
-    return client.sendMessage({ chatId, text: fitTelegramText(text) });
+    return client.sendMessage({ chatId, text: fitTelegramText(text), buttons: buttonsOf(message.metadata) });
   }
   if (message.contentType === "image") {
     const fileKey = message.media?.fileKey;

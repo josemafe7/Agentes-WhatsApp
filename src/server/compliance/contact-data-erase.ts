@@ -1,7 +1,8 @@
 // «Borrar sus datos» ([CTO-07], [CUM-07]): the contact and everything about them goes — identities, consents,
 // conversations with their messages and transcripts, internal notes, hand-offs, the sources of the AI's answers, the
-// team notifications and raw channel webhooks that name them, reminder emails in the system mail log, and their
-// files — while their bookings stay, anonymised, so the reports still add up. The AI usage rows stay too (they are
+// team notifications and raw channel webhooks that name them, reminder and envío emails in the system mail log, and
+// their files — while their bookings stay, anonymised, so the reports still add up, and so does their row in each envío
+// (without who it was, [ENV-12]). The AI usage rows stay too (they are
 // what the AI cost, [INF-07]), unlinked. What names them elsewhere is cleared as well: the subject of the team's notice
 // emails in the system mail log (and the .eml copies kept in data/outbox in development and the demo), and the payload
 // of every background job about them — a pending one is cancelled, a finished one keeps only that it was erased.
@@ -20,6 +21,7 @@ import {
   aiRuns,
   bookingEvents,
   bookings,
+  campaignRecipients,
   consents,
   contactIdentities,
   contacts,
@@ -49,7 +51,7 @@ const IDS_PER_STATEMENT = 500;
 /** LIKE conditions per query when looking for the jobs that name them. */
 const TERMS_PER_QUERY = 50;
 /** Channels whose raw webhooks carry the customer's identifiers (the web chat and email store none). */
-const WEBHOOK_CHANNEL_TYPES = new Set(["whatsapp", "telegram"]);
+const WEBHOOK_CHANNEL_TYPES = new Set(["whatsapp", "telegram", "instagram"]);
 /** What a job about an erased contact keeps of its payload. */
 const ERASED_PAYLOAD = { erased: true };
 /** The subject a notice email about an erased contact keeps in the log. */
@@ -59,6 +61,8 @@ export const ERASED_NOTICE_SUBJECT = "Aviso sobre un contacto borrado";
  * and cancelling one could leave a person of the team without their link.
  */
 const TEAM_ONLY_JOB_TYPES = new Set(["system_email.send"]);
+/** Emails of the system mail written to the customer: they go with them. */
+const TO_CUSTOMER = ["reminder", "campaign"] as const;
 /** Names of the files data/outbox holds (src/server/mailer.ts): nothing else is ever deleted there. */
 const OUTBOX_FILE = /^[A-Za-z0-9._-]{1,200}\.eml$/;
 
@@ -117,7 +121,16 @@ async function eraseRows(tx: Transaction, contactId: string, found: Found, now: 
     await tx.update(bookingEvents).set({ actorName: null }).where(and(inArray(bookingEvents.bookingId, bookingIds), eq(bookingEvents.actorType, "contact")));
   }
   if (webhookIds.length > 0) await tx.delete(webhookEvents).where(inArray(webhookEvents.id, webhookIds));
-  if (emails.length > 0) await tx.delete(systemEmails).where(and(eq(systemEmails.kind, "reminder"), inArray(systemEmails.toEmail, emails)));
+  if (emails.length > 0) await tx.delete(systemEmails).where(and(inArray(systemEmails.kind, TO_CUSTOMER), inArray(systemEmails.toEmail, emails)));
+  // What still names them in the log of the system mail (a reminder or an envío to an address they no longer have).
+  await tx.delete(systemEmails).where(and(inArray(systemEmails.kind, TO_CUSTOMER), eq(systemEmails.contactId, contactId)));
+  // Their row in each envío stays for its totals, without who it was; what had not gone out yet no longer goes.
+  await tx
+    .update(campaignRecipients)
+    .set({ status: "not_sent", reason: "Se borró el contacto", updatedAt: now })
+    .where(and(eq(campaignRecipients.contactId, contactId), inArray(campaignRecipients.status, ["pending", "sending"])));
+  await tx.update(campaignRecipients).set({ contactId: null, messageId: null, unsubscribeToken: null, updatedAt: now }).where(eq(campaignRecipients.contactId, contactId));
+  await tx.update(systemEmails).set({ contactId: null, bookingId: null, updatedAt: now }).where(eq(systemEmails.contactId, contactId));
   for (const ids of chunked(found.noticeEmailIds)) {
     await tx.update(systemEmails).set({ subject: ERASED_NOTICE_SUBJECT, outboxFile: null, updatedAt: now }).where(inArray(systemEmails.id, ids));
   }
@@ -143,7 +156,7 @@ function noticeLinks(found: Pick<Found, "conversationIds" | "bookingIds">): stri
 /** A phone number as YCloud writes it in its webhooks, with «+» («+34600111222»); the other channels send only digits. */
 const withPlusForm = (value: string) => (/^\d{6,20}$/.test(value) ? [value, `+${value}`] : [value]);
 
-/** The raw webhooks that name one of the contact's WhatsApp or Telegram identifiers (their quoted value). */
+/** The raw webhooks that name one of the contact's WhatsApp, Telegram or Instagram identifiers (their quoted value). */
 async function webhooksNaming(identifiers: string[]): Promise<string[]> {
   if (identifiers.length === 0) return [];
   const conditions: SQL[] = identifiers.flatMap(withPlusForm).map((value) => jsonTextContains(webhookEvents.payload, JSON.stringify(value)));
@@ -229,7 +242,7 @@ export async function eraseContactData(
   const titles = new Set([...noticeRows.map((row) => row.title), ...namedJobs.map((job) => titleOf(job.payload)).filter((title): title is string => title !== null)]);
   const noticeEmails = await noticeEmailsTitled(titles);
   const reminderEmails =
-    emails.length > 0 ? await db.select({ outboxFile: systemEmails.outboxFile }).from(systemEmails).where(and(eq(systemEmails.kind, "reminder"), inArray(systemEmails.toEmail, emails))) : [];
+    emails.length > 0 ? await db.select({ outboxFile: systemEmails.outboxFile }).from(systemEmails).where(and(inArray(systemEmails.kind, TO_CUSTOMER), inArray(systemEmails.toEmail, emails))) : [];
 
   const found: Found = {
     conversationIds,

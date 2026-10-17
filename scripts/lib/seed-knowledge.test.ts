@@ -61,7 +61,8 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dominia-seed-knowledge-"));
 const storage = new DiskStorage(dir);
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-async function seed(argv: string[] = []) {
+/** These tests check the hair salon's content: they load it by name (the default demo is the physio clinic, [ARR-06]). */
+async function seed(argv: string[] = ["--sector=peluqueria"]) {
   const code = await runSeedCommand(argv, { out: captureOutput(), env: DEMO_ENV, now: NOW });
   expect(code).toBe(0);
 }

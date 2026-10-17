@@ -167,7 +167,7 @@ export function WebhooksSection({ webhooks }: { webhooks: DiagnosticsView["webho
       <Section {...SECTIONS.webhooks}>
         <EmptyState
           icon={RadioTower}
-          title="Todavía no hay canales de WhatsApp ni de Telegram"
+          title="Todavía no hay canales de WhatsApp, Telegram ni Instagram"
           description="Cuando conectes uno, aquí verás cuándo llegó su último aviso."
         />
       </Section>

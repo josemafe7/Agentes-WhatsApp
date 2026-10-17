@@ -3,14 +3,18 @@ import Link from "next/link";
 import { StatusLight } from "@/components/status-light";
 import { Button } from "@/components/ui/button";
 import type { ChannelDetail } from "@/data/channels";
+import { getBusinessProfile } from "@/data/settings";
+import { listWhatsAppTemplates } from "@/data/whatsapp-templates";
 import { getYCloudPanel } from "@/data/ycloud";
 import { formatDateTime } from "@/lib/format";
 import type { Actor } from "@/lib/permissions";
+import { getSectorPreset } from "@/lib/sectors";
 import { YCLOUD_HEALTH_LABELS } from "@/server/channels/ycloud/health";
 import { messagingLimitOf, qualityOf } from "../../nuevo/whatsapp/_lib/labels";
 import { ycloudWizardHref } from "../../nuevo/whatsapp-ycloud/_lib/steps";
 import { PanelAlert } from "../_email/panel-alert";
 import { panelLights } from "../_lib/health-lights";
+import { TemplatesSection } from "../_whatsapp/templates-section";
 import { YCloudPanelActions } from "./ycloud-panel-actions";
 
 type YCloudPanelProps = { actor: Actor; channel: ChannelDetail; canManage: boolean; timezone: string };
@@ -21,7 +25,7 @@ type YCloudPanelProps = { actor: Actor; channel: ChannelDetail; canManage: boole
  * checks the permission again on the server ([SEG-04]).
  */
 export async function YCloudPanel({ actor, channel, canManage, timezone }: YCloudPanelProps) {
-  const panel = await getYCloudPanel(actor, channel.id);
+  const [panel, templates, business] = await Promise.all([getYCloudPanel(actor, channel.id), listWhatsAppTemplates(actor, channel.id), getBusinessProfile(actor)]);
   const connected = panel.hasCredentials;
   const lights = panelLights(YCLOUD_HEALTH_LABELS, panel.lastHealth, {
     lastInboundAt: panel.lastInboundAt,
@@ -100,6 +104,16 @@ export async function YCloudPanel({ actor, channel, canManage, timezone }: YClou
         </dl>
         <p className="text-xs text-muted-foreground">{review}</p>
       </section>
+      <TemplatesSection
+        channelId={panel.id}
+        templates={templates}
+        canSync={false}
+        canCreate={canManage && connected}
+        timezone={timezone}
+        healthData={business.sector ? getSectorPreset(business.sector).healthData : false}
+        businessName={business.name}
+        provider="desde YCloud"
+      />
     </>
   );
 }

@@ -8,10 +8,10 @@
 // - our own sent copy → a mailbox draft the person sent from Gmail or Outlook is marked as sent ([COR-15]).
 // Never calls the AI ([CAN-10]). System code.
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { loadBusinessSettings } from "@/data/settings";
 import { db } from "@/db";
-import { conversations, messages, type MessageMedia } from "@/db/schema";
+import { campaigns, conversations, messages, systemEmails, type MessageMedia } from "@/db/schema";
 import type { MessageContentType } from "@/lib/enums";
 import type { FileStorage } from "@/server/adapters/file-storage";
 import { getJobQueue, type JobQueue } from "@/server/adapters/job-queue";
@@ -22,7 +22,7 @@ import { messageSearchText } from "@/server/inbound/message-search";
 import { baseMimeType, isPdf } from "@/server/media/limits";
 import { MediaRejectedError, storeInboundMedia } from "@/server/media/store";
 import { publishConversationEvent } from "@/server/realtime/events";
-import type { ChannelRecord, InboundMessageEvent } from "../types";
+import type { ChannelRecord, InboundMessageEvent, InboundSender } from "../types";
 import { senderVerification } from "./auth-results";
 import { enforceDailyCaps, type DailyCap } from "./caps";
 import { updateEmailConfig } from "./config";
@@ -144,11 +144,18 @@ export async function ingestInboundEmail(channel: ChannelRecord, email: Incoming
   // Files that could not be kept are said, so the AI can ask for them another way ([COR-19]).
   const text = dropped.length > 0 ? `${body}\n\n${DROPPED_NOTE}: ${dropped.slice(0, 10).join(", ")}` : body;
   const sentAt = sentAtOf(email, now);
-  const sender = { externalIds: [from.address], email: from.address, displayName: from.name };
+  const sender: InboundSender = { externalIds: [from.address], email: from.address, displayName: from.name };
   const subject = email.parsed.subject ? { subject: email.parsed.subject } : {};
   const original = quotedRemoved || truncated ? { originalText: email.parsed.text.slice(0, MAX_ORIGINAL_TEXT) } : {};
   // Anyone can write any From: only the receiving server's Authentication-Results vouches for it ([COR-25]).
   const senderVerified = senderVerification(email.parsed.headers, from.address, email.parsed.fromCount).verified;
+  // An answer to an email the system mail sent to a contact (a reminder) goes to that contact ([AGD-24], [AGD-26]), and
+  // says which booking it answers: the only one the AI may deal with while the address is «sin confirmar».
+  const answered = await systemEmailAnswered([email.parsed.inReplyTo, ...email.parsed.references]);
+  if (answered) sender.answersContact = { contactId: answered.contactId, withIdentity: senderVerified };
+  const reminderAnswer = answered?.bookingId ? { answersReminder: { bookingId: answered.bookingId } } : {};
+  // An answer to an envío's email says which envío it answers ([ENV-12]).
+  const campaignAnswer = answered?.campaign ? { answersCampaign: answered.campaign } : {};
   const events: InboundMessageEvent[] = [
     {
       kind: "inbound_message",
@@ -160,6 +167,8 @@ export async function ingestInboundEmail(channel: ChannelRecord, email: Incoming
       sentAt,
       metadata: {
         ...subject,
+        ...reminderAnswer,
+        ...campaignAnswer,
         email: emailMetadataOf(email, { quotedRemoved, senderVerified, ...(truncated ? { truncated } : {}), ...original, ...(dropped.length ? { droppedAttachments: dropped.slice(0, 100) } : {}) }),
       },
     },
@@ -184,6 +193,21 @@ export async function ingestInboundEmail(channel: ChannelRecord, email: Incoming
   if (email.parsed.subject) await rememberSubject(conversationId, email.parsed.subject);
   const capped = await enforceDailyCaps(channel, conversationId, { now, queue: deps.queue });
   return { kind: "ingested", conversationId, messageIds: fresh.map((message) => message.messageId as string), capped };
+}
+
+/** The contact (and the booking or the envío) an email of the system mail went to, when one of these Message-IDs is one of them. */
+async function systemEmailAnswered(ids: readonly (string | null)[]): Promise<{ contactId: string; bookingId: string | null; campaign: { id: string; name: string } | null } | null> {
+  const wanted = [...new Set(ids.filter((id): id is string => Boolean(id)))].slice(0, 50);
+  if (wanted.length === 0) return null;
+  const [row] = await db
+    .select({ contactId: systemEmails.contactId, bookingId: systemEmails.bookingId, campaignId: campaigns.id, campaignName: campaigns.name })
+    .from(systemEmails)
+    .leftJoin(campaigns, eq(campaigns.id, systemEmails.campaignId))
+    .where(and(inArray(systemEmails.messageId, wanted), isNotNull(systemEmails.contactId)))
+    .orderBy(desc(systemEmails.createdAt))
+    .limit(1);
+  if (!row?.contactId) return null;
+  return { contactId: row.contactId, bookingId: row.bookingId, campaign: row.campaignId && row.campaignName ? { id: row.campaignId, name: row.campaignName } : null };
 }
 
 /** The thread's subject on the conversation, for the inbox list ([BAN-09]). */

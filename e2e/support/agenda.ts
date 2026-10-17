@@ -13,8 +13,11 @@
 //                    the booking stays where it was and a toast says why («Ese hueco ya no está libre.»).
 //   «Citas de prueba (N)»  in the page header while there are test bookings: a dialog with «Borrar todas», confirmed with
 //                    «Borrar» ([PRU-04]).
-//   /ajustes/recordatorios   «Enviar recordatorios» (switch), «Cuándo» (select: «1 semana antes»…), «Por dónde» (radio
-//                    «WhatsApp» / «Email»), «Asunto», «Guardar recordatorios» → «Recordatorios guardados.».
+//   /ajustes/recordatorios   «Enviar recordatorios» (switch) and up to three cards «Recordatorio N» («Añadir
+//                    recordatorio», «Quitar»), each with «En horas» («Antelación del recordatorio N»: «1 semana antes»…) or
+//                    «En días, a una hora» («Días antes del recordatorio N», «a las»), its channels in order (checkboxes
+//                    «WhatsApp», «Telegram», «Correo»), «Número» and «Plantilla de utilidad aprobada» by WhatsApp, «Asunto» by
+//                    email; «Guardar recordatorios» → «Recordatorios guardados.».
 // The agent's side: the simulated OpenRouter books like a customer would (e2e/mocks/routes/booking.mjs), so the specs read
 // the offered slots from the reply («[AAAA-MM-DDTHH:mm]») and what the tools returned from the mock's records.
 import fs from "node:fs";
@@ -34,10 +37,12 @@ import {
   unsavedChangesBar,
 } from "./agents";
 import { setUpWebchat, type WebchatSetup } from "./channels";
+import { chooseOption, chosenLabel } from "./forms";
 import { openNotifications } from "./inbox";
 import type { MockClient } from "./mock-client";
 import { uniqueName } from "./names";
 import { OUTBOX_DIR, parseEml } from "./outbox";
+import { DEMO_WHATSAPP } from "./simulator";
 import { clickAndWaitForPost, escapeRegExp } from "./ui";
 
 export const AGENDA_PATH = "/agenda";
@@ -393,43 +398,96 @@ export async function expectPendingBookingNotice(page: Page, bookingId: string):
 
 // ─── Reminders ([AGD-24], [AGD-25]) ─────────────────────────────────────────────────────────────────────────
 
-export type ReminderForm = { enabled: boolean; lead: string; channel: "WhatsApp" | "Email"; subject: string };
+type ReminderRoute = "WhatsApp" | "Telegram" | "Correo";
+const REMINDER_ROUTES: readonly ReminderRoute[] = ["WhatsApp", "Telegram", "Correo"];
+
+/** One card: its lead («1 semana antes» in hours, or days before at a time), its channels in order and their message. */
+export type ReminderRuleForm = {
+  lead: { hours: string } | { days: number; at: string };
+  routes: ReminderRoute[];
+  /** By WhatsApp: the demo number and this approved utility template (its data and buttons come already set). */
+  whatsappTemplate?: string;
+  subject?: string;
+};
+export type ReminderForm = { enabled: boolean; rules: ReminderRuleForm[] };
+
+/** The demo's reminders (seed/steps/bookings.ts, [ARR-25]): the run puts them back after changing them. */
+export const DEMO_REMINDERS: ReminderForm = {
+  enabled: true,
+  rules: [
+    { lead: { days: 1, at: "10:00" }, routes: ["WhatsApp", "Correo"], whatsappTemplate: "recordatorio_cita" },
+    { lead: { hours: "2 horas antes" }, routes: ["WhatsApp"], whatsappTemplate: "recordatorio_cita" },
+  ],
+};
 
 function remindersSwitch(page: Page): Locator {
   return page.getByRole("main").getByRole("switch", { name: "Enviar recordatorios" });
 }
 
-function leadPicker(page: Page): Locator {
-  return page.getByRole("main").getByRole("combobox", { name: "Cuándo" });
+function reminderCards(page: Page): Locator {
+  return page.getByRole("main").getByRole("region", { name: /^Recordatorio \d$/ });
 }
 
-/** What Ajustes › Recordatorios shows now (to put it back after a test). */
-export async function readReminderForm(page: Page): Promise<ReminderForm> {
-  await page.goto(REMINDERS_PATH);
+async function fillReminderCard(page: Page, card: Locator, index: number, rule: ReminderRuleForm): Promise<void> {
+  if ("hours" in rule.lead) {
+    await card.getByRole("radio", { name: "En horas" }).check();
+    const picker = card.getByRole("combobox", { name: `Antelación del recordatorio ${index + 1}` });
+    if ((await chosenLabel(picker)) !== rule.lead.hours) await chooseOption(page, picker, rule.lead.hours);
+  } else {
+    await card.getByRole("radio", { name: "En días, a una hora" }).check();
+    const days = rule.lead.days === 1 ? "1 día antes" : `${rule.lead.days} días antes`;
+    const picker = card.getByRole("combobox", { name: `Días antes del recordatorio ${index + 1}` });
+    if ((await chosenLabel(picker)) !== days) await chooseOption(page, picker, days);
+    await card.getByLabel("a las", { exact: true }).fill(rule.lead.at);
+  }
+  // The channels in this order: all unmarked, then marked one after the other.
+  for (const route of REMINDER_ROUTES) {
+    const box = card.getByRole("checkbox", { name: route, exact: true });
+    if (await box.isChecked()) await box.uncheck();
+  }
+  for (const route of rule.routes) await card.getByRole("checkbox", { name: route, exact: true }).check();
+  if (rule.whatsappTemplate) {
+    const number = card.getByRole("combobox", { name: "Número" });
+    if (!/demo/i.test(await chosenLabel(number))) await chooseOption(page, number, DEMO_WHATSAPP);
+    const template = card.getByRole("combobox", { name: "Plantilla de utilidad aprobada" });
+    if (!(await chosenLabel(template)).startsWith(`${rule.whatsappTemplate} · `)) await chooseOption(page, template, new RegExp(`^${escapeRegExp(rule.whatsappTemplate)} · `));
+  }
+  if (rule.subject !== undefined) await card.getByRole("textbox", { name: "Asunto" }).fill(rule.subject);
+}
+
+async function saveReminders(page: Page): Promise<void> {
   const main = page.getByRole("main");
-  const enabled = await remindersSwitch(page).isChecked();
-  const lead = ((await leadPicker(page).textContent()) ?? "").trim();
-  const channel = (await main.getByRole("radio", { name: "Email", exact: true }).isChecked()) ? "Email" : "WhatsApp";
-  const subject = channel === "Email" ? await main.getByLabel(/^Asunto/).inputValue() : "";
-  return { enabled, lead, channel, subject };
+  await clickAndWaitForPost(page, main.getByRole("button", { name: "Guardar recordatorios" }));
+  await expect(main.getByRole("status").filter({ hasText: "Recordatorios guardados." })).toBeVisible();
 }
 
-/** Fills Ajustes › Recordatorios and saves it («Recordatorios guardados.»). */
+/**
+ * Replaces the reminders of Ajustes › Recordatorios with these cards, in this order, and saves it («Recordatorios
+ * guardados.»). They are new reminders: one that already went to a booking would not go again ([AGD-25]), so the old
+ * cards are removed after adding the new ones.
+ */
 export async function saveReminderForm(page: Page, form: ReminderForm): Promise<void> {
   await page.goto(REMINDERS_PATH);
   const main = page.getByRole("main");
   const toggle = remindersSwitch(page);
   if ((await toggle.isChecked()) !== form.enabled) await toggle.click();
-  const picker = leadPicker(page);
-  if (((await picker.textContent()) ?? "").trim() !== form.lead) {
-    await picker.click();
-    await page.getByRole("option", { name: form.lead, exact: true }).click();
-    await expect(picker).toHaveText(form.lead);
-  }
-  await main.getByRole("radio", { name: form.channel, exact: true }).check();
-  if (form.channel === "Email") await main.getByLabel(/^Asunto/).fill(form.subject);
-  await clickAndWaitForPost(page, main.getByRole("button", { name: "Guardar recordatorios" }));
-  await expect(main.getByRole("status").filter({ hasText: "Recordatorios guardados." })).toBeVisible();
+  const cards = reminderCards(page);
+  await expect(cards.first()).toBeVisible();
+  // Down to one old card, then one new one in its place (a card can only be removed while there is another).
+  while ((await cards.count()) > 1) await cards.last().getByRole("button", { name: "Quitar", exact: true }).click();
+  await main.getByRole("button", { name: "Añadir recordatorio" }).click();
+  await cards.first().getByRole("button", { name: "Quitar", exact: true }).click();
+  while ((await cards.count()) < form.rules.length) await main.getByRole("button", { name: "Añadir recordatorio" }).click();
+  for (const [index, rule] of form.rules.entries()) await fillReminderCard(page, cards.nth(index), index, rule);
+  await saveReminders(page);
+}
+
+/** Only «Enviar recordatorios», saved: the same reminders, switched off or on. */
+export async function switchReminders(page: Page, enabled: boolean): Promise<void> {
+  await page.goto(REMINDERS_PATH);
+  const toggle = remindersSwitch(page);
+  if ((await toggle.isChecked()) !== enabled) await toggle.click();
+  await saveReminders(page);
 }
 
 /** The .eml files of data/outbox to `to` written since `since` (the demo keeps unsent mail there, [AJU-06]). */

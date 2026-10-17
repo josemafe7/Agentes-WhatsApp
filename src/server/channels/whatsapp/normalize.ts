@@ -30,6 +30,7 @@ export const ACCOUNT_FIELDS = new Set([
   "message_template_status_update",
   "template_category_update",
   "message_template_quality_update",
+  "user_preferences",
   "business_capability_update",
   "account_alerts",
   "security",
@@ -275,7 +276,10 @@ function statusOf(status: WebhookStatus): StatusUpdateEvent | null {
   const first = status.errors?.[0];
   const error = value === "failed" ? { code: first?.code ?? undefined, message: describeMetaError(first?.code ?? null).message } : null;
   const pricing = status.pricing && (status.pricing.type || status.pricing.category) ? { type: clean(status.pricing.type), category: clean(status.pricing.category) } : null;
-  return { kind: "status_update", externalId: status.id, status: value, at: toDate(status.timestamp), error, pricing };
+  const waId = phoneDigits(status.recipient_id) || null;
+  const userId = clean(status.recipient_user_id);
+  const recipient = waId || userId ? { waId, userId: userId && isBsuid(userId) ? userId : null } : null;
+  return { kind: "status_update", externalId: status.id, status: value, at: toDate(status.timestamp), error, pricing, recipient };
 }
 
 function messagesChange(wabaId: string, rawValue: unknown): MessagesChange | null {
@@ -316,12 +320,15 @@ function accountChange(wabaId: string, time: number | null | undefined, field: s
   const value = rawValue as Record<string, unknown>;
   const display = typeof value.display_phone_number === "string" ? phoneDigits(value.display_phone_number) || null : null;
   const entityId = value.entity_type === "PHONE_NUMBER" && (typeof value.entity_id === "string" || typeof value.entity_id === "number") ? String(value.entity_id) : null;
+  // `user_preferences` names its number like a message does ([WA-62]).
+  const metadata = typeof value.metadata === "object" && value.metadata !== null ? (value.metadata as Record<string, unknown>) : null;
+  const metadataNumber = typeof metadata?.phone_number_id === "string" ? metadata.phone_number_id : null;
   return {
     kind: "account",
     field,
     wabaId,
     displayPhoneNumber: display,
-    phoneNumberId: entityId,
+    phoneNumberId: entityId ?? metadataNumber,
     event: { kind: "account_event", event: field, data: { ...value, wabaId, ...(typeof time === "number" ? { time } : {}) } },
   };
 }

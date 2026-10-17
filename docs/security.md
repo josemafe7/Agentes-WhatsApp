@@ -46,7 +46,7 @@ datos de cada servicio (límites, cabeceras, planes), en `docs/plataforma-despli
 
 - Lo que el negocio pone en la app se guarda cifrado con AES-256-GCM y `APP_ENCRYPTION_KEY` (32 bytes
   aleatorios), en `src/server/crypto.ts`, con un IV nuevo en cada cifrado: tokens de Meta, App Secret y
-  PIN; claves de OpenRouter y Mistral; credenciales IMAP y SMTP; accesos de Google, Microsoft y Telegram;
+  PIN; claves de OpenRouter y Mistral; credenciales IMAP y SMTP; accesos de Google, Microsoft, Telegram e Instagram;
   la clave de API de YCloud y el secreto de su dirección de avisos; la sesión de un número de WhatsApp vinculado
   por código QR (sus credenciales en `secrets_enc` y cada clave de sesión en una fila de `whatsapp_qr_keys`);
   cabeceras secretas de las herramientas HTTP; y la clave privada VAPID. Un secreto nuevo, igual.
@@ -213,7 +213,10 @@ datos de cada servicio (límites, cabeceras, planes), en `docs/plataforma-despli
   WhatsApp, `X-Hub-Signature-256` (HMAC-SHA256 del cuerpo en bruto con el App Secret del canal); Telegram,
   `X-Telegram-Bot-Api-Secret-Token` con el secreto propio de cada bot, en una dirección que lleva el id de su canal
   ([TG-02]); YCloud, `YCloud-Signature` (HMAC-SHA256 de la hora y el cuerpo en bruto con el secreto de la dirección de
-  ese canal, y solo si la hora es de los últimos 5 minutos, [YC-05]); el cron, `Authorization: Bearer` con
+  ese canal, y solo si la hora es de los últimos 5 minutos, [YC-05]); Instagram (fase 16), `X-Hub-Signature-256` con la
+  clave secreta de Instagram o la de la app de Meta guardadas en ese canal, en una dirección que lleva su id, y la
+  comprobación de Meta (`GET` con `hub.verify_token`) solo responde con el token de verificación de ese canal
+  ([IG-02]); el cron, `Authorization: Bearer` con
   `CRON_SECRET`. Siempre en tiempo constante ([SEG-08], [SEG-09]).
 - WhatsApp por código QR no tiene avisos: los mensajes llegan por la conexión que mantiene la propia app. Su única
   ruta, `/api/internal/whatsapp-qr`, es interna (el trabajador de un servidor propio pide un envío al servidor web):
@@ -301,13 +304,32 @@ datos de cada servicio (límites, cabeceras, planes), en `docs/plataforma-despli
     máximo de Meta) o que nombra más de 100 números o cuentas se rechaza con 400 sin guardar nada. Las firmas
     rechazadas se cuentan en memoria y se escriben como mucho una vez por minuto y canal, nunca una por petición;
   - Telegram, por persona: 30 comprobaciones del token por minuto (conectar, «Revalidar» y «Cambiar token»);
+  - Instagram (fase 16), por persona: 30 comprobaciones del token por minuto (conectar, «Revalidar» y «Cambiar
+    token»); sus avisos, por IP, con los mismos límites que los de Telegram (también las comprobaciones de Meta que se
+    rechazan). Una respuesta escrita en la bandeja de más de 1.000 bytes se rechaza en el servidor ([IG-05]);
   - YCloud, por persona: 30 comprobaciones de la clave por minuto («Comprobar clave», conectar, «Revalidar», «Cambiar
     clave» y «Sincronizar plantillas»); sus avisos, por IP, con los mismos límites que los de Telegram;
   - WhatsApp por código QR, por persona: 10 códigos generados cada 10 minutos (cada uno abre una conexión con
     WhatsApp, y la insistencia es justo lo que WhatsApp castiga);
-  - WhatsApp, por persona: 30 plantillas por minuto desde la bandeja (Meta puede cobrar cada una), 5 códigos
-    por SMS o llamada por hora, 10 intentos del código cada 15 minutos y 30 «Validar con Meta» o «Conectar»
-    por minuto (`src/data/whatsapp-limits.ts`);
+  - WhatsApp, por persona: 30 plantillas por minuto desde la bandeja (Meta puede cobrar cada una), 20 plantillas
+    nuevas por hora («Nueva plantilla», fase 12: cada una va a la revisión de Meta o de YCloud), 5 códigos por SMS
+    o llamada por hora, 10 intentos del código cada 15 minutos y 30 «Validar con Meta» o «Conectar» por minuto
+    (`src/data/whatsapp-limits.ts`);
+  - importar contactos (fase 13), por persona y hora: 60 archivos revisados y 20 importados, de hasta 5 MB (4 en
+    Vercel) y 5.000 filas cada uno; el tamaño se mira antes de leer el cuerpo, y un Excel no se descomprime más allá
+    de los límites de los del conocimiento (`src/data/contacts-import.ts`, `src/app/(app)/contactos/_lib/import-upload.ts`);
+  - envíos (fase 14), por persona y hora: 120 revisiones de destinatarios (cada una lee todos los contactos del envío)
+    y 30 envíos programados (sus mensajes cuestan dinero), como mucho 20.000 contactos por envío; y su ritmo de salida
+    (30 por minuto y número de WhatsApp sin pasar el límite del portfolio, 20 por minuto por Telegram y los topes del
+    correo de Ajustes › Envíos), que protege las cuentas del negocio (`src/data/campaigns.ts`,
+    `src/server/campaigns/runner.ts`); los envíos automáticos y repetidos (fase 15), 30 guardados por persona y hora
+    (crear o cambiar uno; cada uno hace envíos que cuestan dinero), solo propietario y administrador, y cada envío que
+    hacen pasa por las mismas reglas, el mismo ritmo y las mismas paradas (`src/data/campaign-rules.ts`,
+    `src/server/campaigns/automatic.ts`);
+  - «Darme de baja» de un envío por correo, por IP y sin sesión ([ENV-11], [PER-09]): 10 por minuto en la página y 30
+    por minuto en la baja en un clic (`POST /api/baja/[token]`), cada una con su contador. El enlace es un token
+    aleatorio de 24 bytes, propio de cada contacto y envío, sin datos personales; uno que no es nuestro recibe la misma
+    respuesta y no cambia nada, y abrir la página no da de baja a nadie (solo el botón);
   - chat web, por IP y por visitante ([WEB-08]), siempre antes de leer nada de la base de datos: una avalancha de
     peticiones solo cuesta un contador por petición. Un visitante con su token válido lee el motivo («Demasiados
     mensajes, espera un momento»); sin token, la respuesta no lleva cabeceras CORS. Además, con la IA del chat
@@ -520,10 +542,14 @@ cuenta.
 - Se guardan los mínimos, y la app explica qué guarda y para qué en sus páginas legales ([CUM-08]). Cada
   persona puede pedir que se borren sus datos, y la app permite exportarlos y borrarlos ([CUM-07]). Borrar un contacto
   se lleva también lo que lo nombra fuera de sus conversaciones: los avisos del equipo, el asunto de los correos de
-  aviso en el registro del correo del sistema (y sus copias `.eml` de `data/outbox`), sus recordatorios y lo que
-  guardaban de él los trabajos en segundo plano (uno pendiente se cancela; uno terminado solo guarda que se borró).
+  aviso en el registro del correo del sistema (y sus copias `.eml` de `data/outbox`), sus recordatorios y los correos
+  de envíos que recibió, lo que guardaban de él los trabajos en segundo plano (uno pendiente se cancela; uno terminado
+  solo guarda que se borró) y su fila en cada envío, que se queda sin él para los totales (fase 14).
 - La conservación se configura, con borrado o anonimización cada día; los avisos en bruto de los canales,
-  pocos días ([CUM-05]).
+  pocos días, y a quién se escribió en cada envío, 12 meses ([CUM-05]): después la fila del envío se queda sin el
+  contacto, sin su mensaje y sin su enlace de baja, y se borra el registro de sus correos (dirección y asunto).
+- La publicidad solo va a quien dio el permiso «Novedades y publicidad», con su origen guardado, y cada mensaje deja
+  darse de baja en ese canal ([ENV-05], [ENV-06], [ENV-11]): la app lo comprueba justo antes de cada mensaje.
 - Con clientes en Europa, los datos en Europa: la base y los archivos de Supabase en una región concreta, con las
   funciones de Vercel en la misma ciudad. El repositorio viene preparado para Londres, que está en el Reino Unido,
   fuera de la UE: la UE reconoce al Reino Unido una protección de datos adecuada, pero con datos de clientes el negocio

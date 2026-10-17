@@ -23,3 +23,18 @@ export function saveTextFile(file: TextFile): void {
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), RELEASE_AFTER_MS);
 }
+
+export type BinaryFile = { fileName: string; mimeType: string; base64: string };
+
+/** A small binary file (the Excel template) that came as base64. */
+export function saveBinaryFile(file: BinaryFile): void {
+  const bytes = Uint8Array.from(atob(file.base64), (character) => character.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], { type: file.mimeType }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = file.fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), RELEASE_AFTER_MS);
+}

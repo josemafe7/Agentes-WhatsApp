@@ -469,6 +469,9 @@ caso: se muestra el `message` y se pasa al modo manual.
   cambia para toda la app.
 - **Al desconectar** un número no se borra la suscripción de la app, porque la comparten todos los números
   de la app.
+- **Añadir un campo después** (por ejemplo `user_preferences`, de la fase 12): volver a hacer el `POST` con la
+  lista nueva **añade** los campos sin quitar los que había («amend the subscription… without overwriting existing
+  fields», referencia de Graph API «App Subscriptions», consultada el 2026-10-16). En modo manual se marca a mano.
 
 **Campos recomendados**, además de los de la especificación [F22]:
 
@@ -481,6 +484,7 @@ caso: se muestra el `message` y se pasa al modo manual.
 | `message_template_status_update` | Estado de las plantillas |
 | `template_category_update` | Cambios de categoría de una plantilla (cambian su precio) |
 | `message_template_quality_update` | Calidad de las plantillas |
+| `user_preferences` | El cliente para o reanuda la publicidad del negocio desde WhatsApp ([WA-62]; ver `docs/integracion-whatsapp-plantillas.md` §6) |
 | `business_capability_update` | Cambios del límite de mensajes y del número máximo de números |
 | `account_alerts` | Avisos: no se puede subir el límite y similares |
 | `security` | Cambios del PIN de verificación en dos pasos |
@@ -745,6 +749,9 @@ este error, así que no se usa en la lógica.
   Métodos de pago [F41].
 
 ### 5.8 Sincronizar plantillas: `GET /{WABA_ID}/message_templates`
+
+Crearlas desde la app, su caducidad (`message_send_ttl_seconds`, que la app también pide al sincronizar) y los cambios
+de categoría están en `docs/integracion-whatsapp-plantillas.md`.
 
 - **Token**: usuario del sistema.
 - **Parámetros** [F29][F30]:

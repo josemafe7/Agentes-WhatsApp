@@ -10,6 +10,8 @@ export const SYSTEM_TOOL_NAMES = [
   "cancelar_cita",
   "reprogramar_cita",
   "guardar_datos_contacto",
+  "anotar_permiso_avisos",
+  "dar_de_baja",
   "transferir_a_humano",
 ] as const;
 export type SystemToolName = (typeof SYSTEM_TOOL_NAMES)[number];
@@ -24,14 +26,20 @@ export const SYSTEM_TOOL_LABELS: Record<SystemToolName, string> = {
   cancelar_cita: "Cancelar citas",
   reprogramar_cita: "Cambiar citas de hora",
   guardar_datos_contacto: "Guardar los datos del cliente",
+  anotar_permiso_avisos: "Anotar el permiso de avisos",
+  dar_de_baja: "Dar de baja",
   transferir_a_humano: "Pasar a una persona",
 };
 
 /**
  * Always on, whatever the agent says: there is always a way to a person ([CUM-02], [TRA-09]), and the platform
- * rules tell the model to use it ([MOT-05]).
+ * rules tell the model to use it ([MOT-05]); and a customer who asks in their own words not to be written again is
+ * always heard ([HER-16], [CUM-03]).
  */
-export const ALWAYS_ENABLED_TOOLS: readonly SystemToolName[] = ["transferir_a_humano"];
+export const ALWAYS_ENABLED_TOOLS: readonly SystemToolName[] = ["transferir_a_humano", "dar_de_baja"];
+
+/** On and off with «Crear citas», and only in WhatsApp and Telegram conversations ([HER-15]). */
+export const WITH_BOOKING_TOOLS: readonly SystemToolName[] = ["anotar_permiso_avisos"];
 
 /** Tools of a new agent. In phase 1 the agent only has the hand-off ([HER-10]). */
 export const DEFAULT_SYSTEM_TOOLS: readonly SystemToolName[] = ["transferir_a_humano"];

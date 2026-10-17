@@ -1,4 +1,5 @@
-// Read parts of the contact's card ([CTO-02], [CTO-08]): identities, conversation history, consents and bajas, and the
+// Read parts of the contact's card ([CTO-02], [CTO-08], [CTO-09]): identities, conversation history, permissions,
+// consents and bajas, and the
 // read-only view of the data for Solo lectura (the bookings are in ../[id]/_bookings). Server components: only data the
 // server already checked with getContact (src/data/contacts.ts) reaches them.
 import { BellOff, ChevronRight } from "lucide-react";
@@ -10,8 +11,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { ContactDetail } from "@/data/contacts";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { LiftOptOutButton } from "../[id]/_consents/lift-opt-out-button";
-import { CONSENT_TYPE_LABELS, CONVERSATION_STATUS_VIEW, identityPhone, type ActiveOptOut } from "../_lib/view";
+import { CHANNEL_KIND_LABELS, CONSENT_METHOD_LABELS, hasPermission, PERMISSION_LABELS, type ConsentState } from "@/lib/consents";
+import { LiftOptOutButton, OptOutRequestButton, PermissionButton } from "../[id]/_consents/consent-dialogs";
+import { CONSENT_TYPE_LABELS, consentSourceLabel, CONVERSATION_STATUS_VIEW, identityPhone, type ActiveOptOut } from "../_lib/view";
 import { ChannelName } from "./channel-icons";
 import { LabelBadges } from "./label-badges";
 
@@ -37,8 +39,8 @@ function Muted({ children }: { children: ReactNode }) {
 }
 
 /**
- * A baja is always visible on the card while it lasts ([CTO-08], [CUM-03], [CUM-04]). With `liftFor`, whoever may
- * lift it gets «Levantar baja» on each channel that still exists.
+ * A baja is always visible on the card while it lasts ([CTO-08], [CUM-03], [CUM-04]), by kind of channel: of everything,
+ * or only of novedades y publicidad. With `liftFor`, whoever may lift it gets «Levantar baja» on each one.
  */
 export function OptOutNotice({ optOuts, timezone, liftFor }: { optOuts: ActiveOptOut[]; timezone: string; liftFor?: { contactId: string } }) {
   if (optOuts.length === 0) return null;
@@ -49,20 +51,80 @@ export function OptOutNotice({ optOuts, timezone, liftFor }: { optOuts: ActiveOp
       <AlertDescription className="text-foreground">
         <ul className="grid gap-1">
           {optOuts.map((optOut) => (
-            <li key={optOut.channelId ?? "sin-canal"} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <li key={`${optOut.kind}:${optOut.scope}`} className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span>
-                En {optOut.channelName ? `«${optOut.channelName}»` : "un canal que ya no existe"} desde el{" "}
-                {formatDateTime(optOut.since, timezone, { preset: "date" })}.
+                {optOut.scope === "all" ? "Está dado de baja en este canal" : "Está dado de baja de novedades y publicidad"}:{" "}
+                {CHANNEL_KIND_LABELS[optOut.kind]}, desde el {formatDateTime(optOut.since, timezone, { preset: "date" })}.
               </span>
-              {liftFor && optOut.channelId && optOut.channelName ? (
-                <LiftOptOutButton contactId={liftFor.contactId} channelId={optOut.channelId} channelName={optOut.channelName} />
-              ) : null}
+              {liftFor ? <LiftOptOutButton contactId={liftFor.contactId} kind={optOut.kind} scope={optOut.scope} /> : null}
             </li>
           ))}
         </ul>
-        <p className="mt-1">La IA no le responde ni le envía recordatorios por ese canal. Si vuelve a escribir, su mensaje llega a la bandeja para una persona.</p>
+        <p className="mt-1">
+          Una baja de todo para la IA, los recordatorios, las plantillas y los envíos por ese canal; una de novedades y publicidad, solo lo de
+          marketing. Si vuelve a escribir, su mensaje llega a la bandeja para una persona.
+        </p>
       </AlertDescription>
     </Alert>
+  );
+}
+
+/**
+ * Permisos ([CTO-09]): «Avisos de sus citas» (WhatsApp and Telegram reminders) and «Novedades y publicidad», each with
+ * since when, how it was given and who recorded it; with the AI, its question and the answer ([HER-15]). With
+ * `editFor`, «Marcar» and «Quitar».
+ */
+export function PermissionsSection({ state, timezone, editFor }: { state: ConsentState; timezone: string; editFor?: { contactId: string } }) {
+  return (
+    <ContactSection
+      title="Permisos"
+      description="Avisos de sus citas vale para WhatsApp y Telegram (el correo no lo necesita); Novedades y publicidad, para todos los canales."
+    >
+      <ul className="grid gap-4">
+        {(["reminders", "marketing"] as const).map((permission) => {
+          const record = state.permissions[permission];
+          const granted = hasPermission(state, permission);
+          return (
+            <li key={permission} className="grid gap-1 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium">{PERMISSION_LABELS[permission]}</span>
+                <span className={cn("text-xs font-medium", granted ? "text-success" : "text-muted-foreground")}>{granted ? "Sí" : "No"}</span>
+              </div>
+              {record ? (
+                <span className="text-xs text-muted-foreground">
+                  {granted ? "Lo dio" : "Lo retiró"} el {formatDateTime(record.givenAt ?? record.createdAt, timezone, { preset: "date" })}
+                  {record.method ? ` · ${CONSENT_METHOD_LABELS[record.method]}` : ""}
+                  {record.recordedByName ? ` · Anotado por ${record.recordedByName}` : record.source === "ai" ? " · Anotado por la IA" : ""}
+                </span>
+              ) : (
+                <span className="text-xs text-muted-foreground">Sin anotar.</span>
+              )}
+              {record?.note ? <span className="text-xs text-muted-foreground">Nota: {record.note}</span> : null}
+              {record?.evidence ? <EvidenceLines evidence={record.evidence} /> : null}
+              {editFor ? (
+                <div className="mt-1">
+                  <PermissionButton contactId={editFor.contactId} permission={permission} granted={!granted} />
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      {editFor ? (
+        <div className="mt-4 border-t pt-4">
+          <OptOutRequestButton contactId={editFor.contactId} />
+        </div>
+      ) : null}
+    </ContactSection>
+  );
+}
+
+function EvidenceLines({ evidence }: { evidence: { question: string; answer: string } }) {
+  return (
+    <span className="grid gap-0.5 text-xs text-muted-foreground">
+      <span>Pregunta: «{evidence.question}»</span>
+      <span>Respuesta: «{evidence.answer}»</span>
+    </span>
   );
 }
 
@@ -139,7 +201,7 @@ export function ConversationsSection({ conversations, timezone }: { conversation
   );
 }
 
-/** Consentimientos y bajas by channel, with who recorded them and when ([CTO-02], [CTO-08]). */
+/** Consentimientos: every permission, baja and alta with when, where, how and who ([CTO-02], [CTO-08], [CUM-13]). */
 export function ConsentsSection({ consents, timezone }: { consents: ContactDetail["consents"]; timezone: string }) {
   return (
     <ContactSection title="Consentimientos y bajas">
@@ -147,18 +209,27 @@ export function ConsentsSection({ consents, timezone }: { consents: ContactDetai
         <Muted>No hay consentimientos ni bajas anotados.</Muted>
       ) : (
         <ul className="grid gap-3">
-          {consents.map((consent) => (
-            <li key={consent.id} className="grid gap-0.5 text-sm">
-              <span className="font-medium">
-                {CONSENT_TYPE_LABELS[consent.type]}
-                {consent.channelName ? <span className="font-normal text-muted-foreground"> · {consent.channelName}</span> : null}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {formatDateTime(consent.createdAt, timezone)} · Origen: {consent.source}
-                {consent.recordedByName ? ` · Anotado por ${consent.recordedByName}` : ""}
-              </span>
-            </li>
-          ))}
+          {consents.map((consent) => {
+            const where = consent.channelName ?? (consent.kind && consent.type !== "legal_acceptance" ? CHANNEL_KIND_LABELS[consent.kind] : null);
+            return (
+              <li key={consent.id} className="grid gap-0.5 text-sm">
+                <span className="font-medium">
+                  {CONSENT_TYPE_LABELS[consent.type]}
+                  {where ? <span className="font-normal text-muted-foreground"> · {where}</span> : null}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {formatDateTime(consent.createdAt, timezone)} · {consentSourceLabel(consent.source)}
+                  {consent.method ? ` · ${CONSENT_METHOD_LABELS[consent.method]}` : ""}
+                  {consent.recordedByName ? ` · Anotado por ${consent.recordedByName}` : ""}
+                </span>
+                {consent.givenAt ? (
+                  <span className="text-xs text-muted-foreground">Lo dio el {formatDateTime(consent.givenAt, timezone, { preset: "date" })}</span>
+                ) : null}
+                {consent.note ? <span className="text-xs text-muted-foreground">Nota: {consent.note}</span> : null}
+                {consent.evidence ? <EvidenceLines evidence={consent.evidence} /> : null}
+              </li>
+            );
+          })}
         </ul>
       )}
     </ContactSection>

@@ -149,6 +149,9 @@ export function accountNoticeView(notice: WhatsAppAccountNotice): NoticeView {
       return { title: `Plantilla ${quoted || "sin nombre"}: ${status.label.toLowerCase()}`, severity: tone };
     }
     case "template_category_update":
+      if (event.startsWith("UPCOMING_")) {
+        return { title: `Meta cambiará la plantilla ${quoted || "sin nombre"} a ${templateCategoryLabel(event.slice("UPCOMING_".length)).toLowerCase()}`, severity: "warn" };
+      }
       return { title: `Meta ha cambiado la categoría de la plantilla ${quoted || "sin nombre"}`, severity: "info" };
     case "message_template_quality_update":
       return { title: `Cambia la calidad de la plantilla ${quoted || "sin nombre"}`, severity: "info" };

@@ -167,7 +167,7 @@ describe("Guardar una pestaña [AGE-04] [AGE-09] [AGE-12] [AGE-15]", () => {
   it("the hand-off tool stays on whatever the form sends [HER-08] [HER-10]", async () => {
     const agent = await newAgent();
     expect((await saveAgentAction(agent.id, { systemTools: [] })).ok).toBe(true);
-    expect((await row(agent.id)).systemTools).toEqual(["transferir_a_humano"]);
+    expect((await row(agent.id)).systemTools).toEqual(["transferir_a_humano", "dar_de_baja"]);
   });
 
   it("model, fallback of another provider, temperature, reasoning and length [MOD-05] [MOD-07]", async () => {

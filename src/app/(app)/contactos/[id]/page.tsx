@@ -22,6 +22,7 @@ import {
   ConversationsSection,
   IdentitiesSection,
   OptOutNotice,
+  PermissionsSection,
   ReadOnlyCustomFields,
   ReadOnlyDetails,
   ReadOnlyLabels,
@@ -38,8 +39,8 @@ export const metadata: Metadata = { title: "Ficha del contacto" };
 type ContactPageProps = { params: Promise<{ id: string }> };
 
 /**
- * Ficha del contacto ([CTO-02]): data, identities, labels, custom fields, appointments, consents and the conversation
- * history. Editable for whoever may edit it; an Agent only reaches contacts of their channels ([PER-02]). Its bajas
+ * Ficha del contacto ([CTO-02]): data, identities, labels, custom fields, appointments, permissions ([CTO-09]),
+ * consents and the conversation history. Editable for whoever may edit it; an Agent only reaches contacts of their channels ([PER-02]). Its bajas
  * with «Levantar baja» ([CTO-08]) and its possible duplicates ([CTO-04]) for whoever may merge; «Exportar datos» and
  * «Borrar contacto» for whoever may export and erase ([CTO-06], [CTO-07]).
  */
@@ -70,6 +71,7 @@ export default async function ContactPage({ params }: ContactPageProps) {
 
   const canEdit = can(actor, PERMISSIONS.contacts.edit, { channelIds: contact.conversations.map((conversation) => conversation.channel.id) });
   const canMerge = can(actor, PERMISSIONS.contacts.merge);
+  const canConsents = can(actor, PERMISSIONS.contacts.consents, { channelIds: contact.conversations.map((conversation) => conversation.channel.id) });
   const canExport = can(actor, PERMISSIONS.contacts.export);
   const canErase = can(actor, PERMISSIONS.contacts.delete);
   const [profile, labelSuggestions, duplicates] = await Promise.all([
@@ -101,7 +103,7 @@ export default async function ContactPage({ params }: ContactPageProps) {
         }
       />
       <div className="grid gap-6">
-        <OptOutNotice optOuts={activeOptOuts(contact.consents)} timezone={profile.timezone} liftFor={canMerge ? { contactId: contact.id } : undefined} />
+        <OptOutNotice optOuts={activeOptOuts(contact.consentState)} timezone={profile.timezone} liftFor={canMerge ? { contactId: contact.id } : undefined} />
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
           <div className="grid min-w-0 gap-6">
             <ContactSection title="Datos">
@@ -130,6 +132,7 @@ export default async function ContactPage({ params }: ContactPageProps) {
               </ContactSection>
             ) : null}
             <ContactBookingsSection actor={actor} contactId={contact.id} contactName={name} />
+            <PermissionsSection state={contact.consentState} timezone={profile.timezone} editFor={canConsents ? { contactId: contact.id } : undefined} />
             <ConsentsSection consents={contact.consents} timezone={profile.timezone} />
           </div>
         </div>

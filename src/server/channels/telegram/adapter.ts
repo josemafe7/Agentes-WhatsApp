@@ -3,7 +3,10 @@
 // simulated messages ([AJU-13]). The webhook route checks the secret (webhook.ts); handleWebhook only turns an already
 // verified update into this channel's event.
 import "server-only";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { db } from "@/db";
+import { conversations } from "@/db/schema";
 import type { FileStorage } from "@/server/adapters/file-storage";
 import { randomToken } from "@/server/crypto";
 import { DEFAULT_CAPABILITIES } from "../capabilities";
@@ -19,6 +22,18 @@ export type TelegramAdapterDeps = TelegramDeps & { storage?: FileStorage };
 
 /** What validateAndConnect accepts; without a token it checks the one the channel already has (Revalidar). */
 const connectInputSchema = z.object({ botToken: z.string().trim().min(1).max(300).optional() }).strict();
+/** «Forbidden: bot was blocked by the user» (docs/integracion-telegram.md «Errores»). */
+const BLOCKED_CODE = 403;
+
+/** The conversation's customer blocked the bot: kept where a reminder looks before writing ([TG-12]). */
+async function markConversationBlocked(conversationId: string): Promise<void> {
+  const [row] = await db.select({ metadata: conversations.metadata }).from(conversations).where(eq(conversations.id, conversationId));
+  if (!row || row.metadata.telegramBlockedAt) return;
+  await db
+    .update(conversations)
+    .set({ metadata: { ...row.metadata, telegramBlockedAt: new Date().toISOString() }, updatedAt: new Date() })
+    .where(eq(conversations.id, conversationId));
+}
 
 function clientOrSendError(channel: ChannelRecord, deps: TelegramDeps) {
   try {
@@ -65,7 +80,13 @@ export function createTelegramAdapter(deps: TelegramAdapterDeps = {}): ChannelAd
       const client = clientOrSendError(channel, deps);
       const chatId = await loadTelegramChatId(message.conversationId, message.recipient.externalIds);
       if (!chatId) throw new ChannelSendError("El contacto no tiene un chat de Telegram al que escribir.", false);
-      return sendTelegramMessage(client, chatId, message, deps);
+      try {
+        return await sendTelegramMessage(client, chatId, message, deps);
+      } catch (error) {
+        // 403: the customer blocked the bot; nothing more is tried by it until they unblock it ([TG-12]).
+        if (error instanceof ChannelSendError && error.channelCode === BLOCKED_CODE) await markConversationBlocked(message.conversationId);
+        throw error;
+      }
     },
 
     async downloadMedia(channel, ref) {

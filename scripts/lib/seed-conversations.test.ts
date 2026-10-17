@@ -55,7 +55,8 @@ const DEMO_ENV = { DEMO_MODE: "true", NODE_ENV: "development" };
 const NOW = new Date("2026-09-26T10:00:00Z");
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-async function seed(argv: string[] = []) {
+/** These tests check the hair salon's content: they load it by name (the default demo is the physio clinic, [ARR-06]). */
+async function seed(argv: string[] = ["--sector=peluqueria"]) {
   const code = await runSeedCommand(argv, { out: captureOutput(), env: DEMO_ENV, now: NOW });
   expect(code).toBe(0);
 }
@@ -70,7 +71,7 @@ async function demoActor(role: Role): Promise<Actor> {
   return { userId: row.id, role, name: row.name, channelIds: null };
 }
 
-async function channelByType(type: "webchat" | "whatsapp" | "email_gmail") {
+async function channelByType(type: "webchat" | "whatsapp" | "email_gmail" | "instagram") {
   const [row] = await db.select().from(channels).where(eq(channels.type, type));
   return row;
 }
@@ -93,8 +94,8 @@ describe("demo channels and conversations (pnpm seed)", () => {
   });
 
   it("[ARR-06] [ARR-11] [CAN-03] [CAN-07] a real web chat, and a WhatsApp and an email marked «Demo», each with its active agent and the AI on", async () => {
-    const [webchat, whatsapp, email] = await Promise.all([channelByType("webchat"), channelByType("whatsapp"), channelByType("email_gmail")]);
-    expect(await db.select().from(channels)).toHaveLength(3);
+    const [webchat, whatsapp, email, instagram] = await Promise.all([channelByType("webchat"), channelByType("whatsapp"), channelByType("email_gmail"), channelByType("instagram")]);
+    expect(await db.select().from(channels)).toHaveLength(4);
     const agentName = async (id: string | null) => (await db.select({ name: agents.name }).from(agents).where(eq(agents.id, id ?? "")))[0]?.name;
     const reception = getSectorPreset("peluqueria").agentTemplate.name;
 
@@ -103,17 +104,24 @@ describe("demo channels and conversations (pnpm seed)", () => {
     expect(whatsapp).toMatchObject({ isDemo: true, status: "connected", aiEnabled: true, testMode: false, replyMode: "auto", displayPhoneNumber: DEMO_BUSINESSES.peluqueria.contactPhone });
     expect(whatsapp.phoneNumberId).toBeNull();
     expect(email).toMatchObject({ isDemo: true, status: "connected", aiEnabled: true, testMode: false, replyMode: "draft" });
+    // [IG-13] the demo's Instagram account: a name only, never an account id a webhook could match.
+    // Named as its account ([BAN-17]): «Instagram · @peluqueria_aurora.demo» in the inbox.
+    expect(instagram).toMatchObject({ isDemo: true, status: "connected", aiEnabled: true, testMode: false, replyMode: "auto", name: "@peluqueria_aurora.demo" });
+    expect(instagram.config).toEqual({ username: "peluqueria_aurora.demo", accountName: DEMO_BUSINESSES.peluqueria.name });
+    expect(await agentName(instagram.activeAgentId)).toBe(reception);
     expect(await agentName(webchat.activeAgentId)).toBe(reception);
     expect(await agentName(whatsapp.activeAgentId)).toBe(reception);
     expect(await agentName(email.activeAgentId)).toBe("Asistente de correo");
     // Demo WhatsApp and email never call Meta, Google or a mail server ([ARR-11]); the web chat is a real one.
     expect(getChannelAdapter(whatsapp)).toBe(demoAdapter);
     expect(getChannelAdapter(email)).toBe(demoAdapter);
+    expect(getChannelAdapter(instagram)).toBe(demoAdapter);
     expect(getChannelAdapter(webchat)).toBe(webchatAdapter);
-    for (const channel of [webchat, whatsapp, email]) expect(channel.secretsEnc).toBeNull();
+    for (const channel of [webchat, whatsapp, email, instagram]) expect(channel.secretsEnc).toBeNull();
 
     const listed = await listChannels(await demoActor("owner"));
     expect(listed.map((channel) => [channel.name, channel.isDemo, channel.activeAgent?.name])).toEqual([
+      ["@peluqueria_aurora.demo", true, reception],
       ["Chat de la web", false, reception],
       ["Correo", true, "Asistente de correo"],
       ["WhatsApp", true, reception],
@@ -248,7 +256,7 @@ describe("demo channels and conversations (pnpm seed)", () => {
     expect(NOW.getTime() - (booking.lastInboundAt?.getTime() ?? 0)).toBeLessThan(DAY_MS);
   });
 
-  it("[CAN-13] [CTO-02] [CTO-03] [CUM-13] contacts have their identities per channel (never the phone as WhatsApp key), labels and consents", async () => {
+  it("[CAN-13] [CTO-02] [CTO-03] [CUM-13] [ARR-25] [ENV-14] contacts have their identities per channel (never the phone as WhatsApp key), labels and consents, and are flagged as the demo's", async () => {
     const owner = await demoActor("owner");
     const laura = await getContact(owner, (await conversationOf("Laura Gil")).contactId ?? "");
     expect(laura).toMatchObject({ phone: "34600000201", labels: ["cliente habitual"] });
@@ -262,22 +270,32 @@ describe("demo channels and conversations (pnpm seed)", () => {
     expect(new Set(identities.map((identity) => `${identity.channelType}:${identity.externalId}`)).size).toBe(identities.length);
     const visitors = await db.select().from(contactIdentities).where(eq(contactIdentities.channelType, "webchat"));
     expect(visitors).toHaveLength(2);
-    const legal = await db.select().from(consents);
-    expect(legal.map((consent) => [consent.type, consent.source, consent.channelType])).toEqual([
+    const all = await db.select().from(consents);
+    expect(all.filter((consent) => consent.type === "legal_acceptance").map((consent) => [consent.type, consent.source, consent.channelType])).toEqual([
       ["legal_acceptance", "widget", "webchat"],
       ["legal_acceptance", "widget", "webchat"],
     ]);
+    // [ARR-25] With and without permissions: every WhatsApp customer has «Avisos de sus citas» but the last, who wrote
+    // «BAJA»; the first two also «Novedades y publicidad».
+    const whatsappContacts = new Set(identities.filter((identity) => identity.channelType === "whatsapp").map((identity) => identity.contactId));
+    const ofType = (type: string) => new Set(all.filter((consent) => consent.type === type).map((consent) => consent.contactId));
+    expect(ofType("opt_out").size).toBe(1);
+    expect(ofType("reminders_granted").size).toBe(whatsappContacts.size - 1);
+    expect(ofType("marketing_granted").size).toBe(2);
+    for (const id of [...ofType("reminders_granted"), ...ofType("opt_out")]) expect(whatsappContacts.has(id)).toBe(true);
+    expect(all.find((consent) => consent.type === "opt_out")).toMatchObject({ source: "keyword", channelKind: "whatsapp" });
+    expect((await db.select({ isDemo: contacts.isDemo }).from(contacts)).every((contact) => contact.isDemo)).toBe(true);
   });
 
   it("[BAN-01] [BAN-03] [BAN-05] [BAN-12] [MED-08] the inbox reads them: unread counts, the urgent hand-off, authors and media with permission", async () => {
     const owner = await demoActor("owner");
     const agentUser = await demoActor("agent");
     const viewer = await demoActor("viewer");
-    expect(await getInboxCounts(owner)).toEqual({ unreadConversations: 4, pendingHuman: 1, mine: 0 });
-    expect(await getInboxCounts(agentUser)).toMatchObject({ unreadConversations: 4, pendingHuman: 1, mine: 1 });
+    expect(await getInboxCounts(owner)).toEqual({ unreadConversations: 5, pendingHuman: 1, mine: 0 });
+    expect(await getInboxCounts(agentUser)).toMatchObject({ unreadConversations: 5, pendingHuman: 1, mine: 1 });
 
     const page = await listConversations(owner, {});
-    expect(page.items).toHaveLength(7);
+    expect(page.items).toHaveLength(8);
     const pending = page.items.find((item) => item.status === "pending_human");
     expect(pending).toMatchObject({ urgent: true, aiMode: "human", contact: { name: "Beatriz Molina" } });
     expect(page.items.find((item) => item.contact?.name === null)?.channel.type).toBe("webchat");
@@ -302,6 +320,36 @@ describe("demo channels and conversations (pnpm seed)", () => {
     expect(await canViewMessageMedia(viewer, "demo/imagen-peluqueria.png")).toBe(true);
   });
 
+  it("[IG-13] [BAN-18] the demo Instagram account has a direct message answered by the AI, with its 24 h window open when loaded", async () => {
+    const owner = await demoActor("owner");
+    const conversation = await conversationOf("Celia Navas");
+    const instagram = await channelByType("instagram");
+    expect(conversation).toMatchObject({ channelId: instagram.id, status: "open", unreadCount: 1 });
+    // Its identity is Instagram's id of the customer (digits), never a phone nor the @username ([IG-08]).
+    const identities = await db.select().from(contactIdentities).where(eq(contactIdentities.contactId, conversation.contactId ?? ""));
+    expect(identities.map((identity) => identity.channelType)).toEqual(["instagram"]);
+    expect(identities[0].externalId).toMatch(/^\d{16}$/);
+    expect(identities[0].phone).toBeNull();
+    const { items } = await listMessages(owner, { conversationId: conversation.id });
+    expect(items.map((item) => [item.direction, item.senderType, item.contentType])).toEqual([
+      ["inbound", "contact", "text"],
+      ["outbound", "ai", "text"],
+    ]);
+    expect(items[1].text).toContain(DEMO_BUSINESSES.peluqueria.address);
+    // A reply fits Instagram's 1,000 bytes ([IG-05]).
+    expect(new TextEncoder().encode(items[1].text ?? "").byteLength).toBeLessThanOrEqual(1_000);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    let detail: Awaited<ReturnType<typeof getConversation>>;
+    try {
+      detail = await getConversation(owner, conversation.id);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(detail.channel).toMatchObject({ type: "instagram", name: "@peluqueria_aurora.demo", isDemo: true });
+    expect(detail.window).toMatchObject({ open: true });
+  });
+
   // Last: it adds a message to the demo.
   it("[AJU-12][AJU-13] the simulator writes in the demo WhatsApp as a customer of its own, never into a demo customer's conversation", async () => {
     const owner = await demoActor("owner");
@@ -319,6 +367,18 @@ describe("demo channels and conversations (pnpm seed)", () => {
     const identities = await db.select().from(contactIdentities).where(eq(contactIdentities.contactId, conversation.contactId ?? ""));
     expect(identities).toHaveLength(2);
   });
+
+  // Also last: it adds a message to the demo.
+  it("[IG-13] [AJU-13] the simulator writes in the demo Instagram account as a customer of its own, with an Instagram-like id", async () => {
+    const owner = await demoActor("owner");
+    const instagram = await channelByType("instagram");
+    const result = await simulateInboundMessage(owner, { channelId: instagram.id, contact: { mode: "new", name: "Pablo Ruiz" }, contentType: "text", text: "¿Hacéis precio a estudiantes?" });
+    expect(result).toMatchObject({ channelName: "@peluqueria_aurora.demo", contactName: "Pablo Ruiz", duplicate: false });
+    const identities = await db.select().from(contactIdentities).where(eq(contactIdentities.contactId, result.contactId));
+    expect(identities.map((identity) => [identity.channelType, /^sim:\d{16}$/.test(identity.externalId)])).toEqual([["instagram", true]]);
+    const [conversation] = await db.select().from(conversations).where(eq(conversations.id, result.conversationId));
+    expect(conversation.channelId).toBe(instagram.id);
+  });
 });
 
 describe("loading the demo again", () => {
@@ -335,7 +395,7 @@ describe("loading the demo again", () => {
     expect(await tableCounts()).toEqual(first);
     const secondIds = (await db.select({ id: conversations.id }).from(conversations)).map((row) => row.id);
     expect(secondIds.some((id) => firstIds.includes(id))).toBe(false);
-    expect(first).toMatchObject({ channels: 3, contacts: 7, conversations: 7, handoff_events: 2, internal_notes: 1 });
+    expect(first).toMatchObject({ channels: 4, contacts: 8, conversations: 8, handoff_events: 2, internal_notes: 1 });
   });
 
   it("[ARR-10] another sector gets its own picture, words and business in the conversations", async () => {
@@ -371,7 +431,7 @@ function inputFor(sector: Sector): DemoConversationsInput {
     now: NOW,
     timeZone: "Europe/Madrid",
     aiDisclosureText: demoLegalTexts(business).aiDisclosureText,
-    channelIds: { webchat: crypto.randomUUID(), whatsapp: crypto.randomUUID(), email: crypto.randomUUID() },
+    channelIds: { webchat: crypto.randomUUID(), whatsapp: crypto.randomUUID(), email: crypto.randomUUID(), instagram: crypto.randomUUID() },
     agents: { reception: latest("recepcion"), email: latest("correo") },
     people: { supervisor, agent: { id: crypto.randomUUID(), name: "Pablo Sánchez" } },
     models: { transcription: DEFAULT_MODELS.transcription, imageDescription: DEFAULT_MODELS.imageDescription },
@@ -431,7 +491,7 @@ describe.each(SECTORS)("demo conversations of %s [ARR-10]", (sector) => {
         }
       }
     }
-    expect(rows.conversations).toHaveLength(7);
+    expect(rows.conversations).toHaveLength(8);
     expect(rows.handoffEvents).toHaveLength(2);
   });
 });
@@ -517,11 +577,15 @@ describe("buildDemoChannels", () => {
       ["webchat", "webchat", false, "recepcion"],
       ["whatsapp", "whatsapp", true, "recepcion"],
       ["email", "email_gmail", true, "correo"],
+      ["instagram", "instagram", true, "recepcion"],
     ]);
     expect(plans[0].config).toMatchObject({ voiceEnabled: true, imagesEnabled: true });
     expect(String(plans[0].config.welcomeMessage)).toContain(business.name);
     expect(plans[1].whatsapp?.displayPhoneNumber).toBe(business.contactPhone);
     expect(plans[2].config).toEqual({ emailAddress: business.contactEmail });
+    // [IG-13] an Instagram user name that cannot be a real account: letters, digits, «_» and «.demo».
+    expect(String(plans[3].config.username)).toMatch(/^[a-z0-9_]+\.demo$/);
+    expect(plans[3].config).not.toHaveProperty("accountId");
     // No real numbers or ids that a webhook could match ([ARR-11]).
     expect(JSON.stringify(plans)).not.toMatch(/phoneNumberId|wabaId/);
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agendaHref, bookingFilters, hasActiveFilters, matchesViewFilters, parseAgendaQuery, type AgendaQuery } from "./search-params";
+import { agendaHref, bookingFilters, hasActiveFilters, matchesViewFilters, occupyingFilters, parseAgendaQuery, type AgendaQuery } from "./search-params";
 
 const LAURA = "0b6f2c3e-1111-4c1c-9a55-6a4f0f0b3a2d";
 const MARTA = "0b6f2c3e-2222-4c1c-9a55-6a4f0f0b3a2d";
@@ -90,6 +90,18 @@ describe("Agenda: view, day and filters in the URL [AGD-16]", () => {
       includeTest: false,
     });
     expect(bookingFilters(base, { from: "2026-09-28", to: "2026-09-28" })).toEqual({ from: "2026-09-28", to: "2026-09-28", includeCancelled: false, includeTest: true });
+  });
+
+  it("[AGD-29] asks apart for the bookings that take their slot only when the filters hide some of them", () => {
+    const week = { from: "2026-09-28", to: "2026-10-04" };
+    // The professional's filter hides no slot of the professionals shown.
+    expect(occupyingFilters(base, week)).toBeNull();
+    expect(occupyingFilters(parseAgendaQuery({ recurso: LAURA, canceladas: "1" }), week)).toBeNull();
+    const occupying = { ...week, statuses: ["pending", "confirmed"], includeTest: true };
+    expect(occupyingFilters(parseAgendaQuery({ servicio: CUT }), week)).toEqual(occupying);
+    expect(occupyingFilters(parseAgendaQuery({ estado: "pendiente" }), week)).toEqual(occupying);
+    expect(occupyingFilters(parseAgendaQuery({ origen: "persona" }), week)).toEqual(occupying);
+    expect(occupyingFilters(parseAgendaQuery({ pruebas: "sin", recurso: LAURA }), week)).toEqual({ ...occupying, resourceIds: [LAURA] });
   });
 
   it("filters by origin and «solo pruebas» on what the data layer returns [PRU-04]", () => {

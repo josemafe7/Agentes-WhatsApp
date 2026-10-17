@@ -266,6 +266,21 @@ describe("last messages [MOT-07] [MED-04] [MED-07]", () => {
   });
 });
 
+describe("a tap on a reminder's button [AGD-32]", () => {
+  it("«Necesito cambiarla» asks the agent to offer other slots or cancelling that booking, confirming first; «Confirmo» says it is confirmed; another button, what it says", () => {
+    const history: PromptHistoryMessage[] = [
+      { role: "contact", text: "Necesito cambiarla", contentType: "interactive", reminderReply: { action: "change", bookingId: "b-1" } },
+      { role: "contact", text: "Confirmo", contentType: "interactive", reminderReply: { action: "confirm", bookingId: "b-2" } },
+      { role: "contact", text: "Ver horarios", contentType: "interactive" },
+    ];
+    expect(buildPrompt(input({ history })).messages.slice(1)).toEqual([
+      { role: "user", content: "[Ha pulsado «Necesito cambiarla» en el recordatorio de su cita (cita_id b-1): ofrécele otros huecos o cancelarla, y confírmalo con él antes de cambiar nada]" },
+      { role: "user", content: "[Ha confirmado su cita (cita_id b-2) con el botón del recordatorio]" },
+      { role: "user", content: "[Ha pulsado el botón «Ver horarios»]" },
+    ]);
+  });
+});
+
 describe("an internal agent has its own platform rules [INT-08] [INT-02] [MOT-06]", () => {
   const team = (overrides: Partial<BuildPromptInput> = {}) => buildPrompt(input({ audience: "team", ...overrides }));
 

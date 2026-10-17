@@ -9,7 +9,7 @@
 // ([AGD-24]) and the AI is never called.
 import { and, asc, eq } from "drizzle-orm";
 import type { Transaction } from "@/db";
-import { agents, aiRuns, bookings, closures, contacts, messages, notifications, reminderSettings, resourceTimeOff, whatsappTemplates } from "@/db/schema";
+import { agents, aiRuns, bookings, closures, consents, contactIdentities, contacts, messages, notifications, reminderSettings, resourceTimeOff, whatsappTemplates } from "@/db/schema";
 import type { BookingStatus, Role, Sector, TimeOffKind } from "@/lib/enums";
 import type { ClosureRange } from "@/lib/opening-hours";
 import type { PresetService, SectorPreset } from "@/lib/sectors";
@@ -29,9 +29,9 @@ import {
   type LocalDate,
   localToInstant,
   recordBookingEvent,
-  REMINDER_FIELDS,
 } from "@/server/booking";
 import { addDays, weekdayOf } from "@/server/booking/time";
+import type { ReminderRule } from "@/lib/reminder-rules";
 import type { DemoBusiness } from "../businesses";
 import type { SeedStep } from "../types";
 import { DEMO_USERS } from "../users";
@@ -782,6 +782,33 @@ function chunks<T>(items: readonly T[], size: number): T[][] {
 
 const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
+/**
+ * Contacts with and without permissions, and one opted out ([ARR-25], [CTO-09]): the WhatsApp customers of the demo
+ * gave «Avisos de sus citas» in person, except the last one, who opted out of WhatsApp («BAJA»); the first two also gave
+ * «Novedades y publicidad»; the email and web chat customers gave nothing, so their reminders go by email.
+ */
+async function seedDemoConsents(tx: Transaction, now: Date): Promise<void> {
+  const whatsapp = await tx
+    .selectDistinct({ contactId: contactIdentities.contactId, createdAt: contacts.createdAt })
+    .from(contactIdentities)
+    .innerJoin(contacts, eq(contacts.id, contactIdentities.contactId))
+    .where(eq(contactIdentities.channelType, "whatsapp"))
+    .orderBy(asc(contacts.createdAt), asc(contactIdentities.contactId));
+  if (whatsapp.length === 0) return;
+  const optedOut = whatsapp.length > 2 ? whatsapp[whatsapp.length - 1].contactId : null;
+  const at = (days: number) => new Date(now.getTime() - days * 24 * 60 * 60 * 1_000);
+  const rows: (typeof consents.$inferInsert)[] = [];
+  whatsapp.forEach(({ contactId }, index) => {
+    if (contactId === optedOut) {
+      rows.push({ contactId, channelKind: "whatsapp", channelType: "whatsapp", type: "opt_out", source: "keyword", method: "conversation", actorType: "contact", note: "BAJA", createdAt: at(3), updatedAt: at(3) });
+      return;
+    }
+    rows.push({ contactId, type: "reminders_granted", source: "person", method: "in_person", actorType: "user", recordedByName: "Recepción", createdAt: at(20 - index), updatedAt: at(20 - index) });
+    if (index < 2) rows.push({ contactId, type: "marketing_granted", source: "person", method: "written", actorType: "user", recordedByName: "Recepción", note: "Firmó el formulario de alta", createdAt: at(19 - index), updatedAt: at(19 - index) });
+  });
+  await tx.insert(consents).values(rows);
+}
+
 export const bookingsStep: SeedStep = {
   name: "citas",
   prepare: async (ctx) => async (tx: Transaction) => {
@@ -877,7 +904,7 @@ export const bookingsStep: SeedStep = {
         conversationId: booking.conversationKey ? idOf(conversationIds, booking.conversationKey, "la conversación") : null,
         notes: booking.notes,
         createdByUserId: creator.type === "user" ? creator.userId : null,
-        createdByName: creator.type === "system" ? null : creator.name,
+        createdByName: creator.type === "user" || creator.type === "ai" ? creator.name : null,
         isTest: booking.isTest,
         cancelledAt: booking.cancelledAt,
         cancelReason: booking.cancelReason,
@@ -937,28 +964,30 @@ export const bookingsStep: SeedStep = {
     });
     if (noticeRows.length > 0) await tx.insert(notifications).values(noticeRows);
 
-    // The reminder, prepared with the demo number's approved utility template but off ([AGD-24]): turning it on in
-    // Agenda › Configuración is enough. Off, it schedules nothing.
+    // The reminders, on ([ARR-25], [AGD-24]): the day before at 10:00 by WhatsApp (with the demo number's «Recordatorio de
+    // cita») or else by email, and 2 hours before by WhatsApp. The demo's contacts have them only through the demo
+    // number and the local outbox ([ENV-14]).
     const whatsappId = idOf(channelIds, "whatsapp", "el canal");
-    const templates = await tx.select().from(whatsappTemplates).where(eq(whatsappTemplates.channelId, whatsappId)).orderBy(asc(whatsappTemplates.name));
-    const fieldFor = (variable: string) => REMINDER_FIELDS.find((field) => field.placeholder === variable)?.key;
-    const template = templates.find(
-      (candidate) => candidate.status === "APPROVED" && candidate.category === "UTILITY" && candidate.variables.length > 0 && candidate.variables.every((variable) => fieldFor(variable) !== undefined),
-    );
+    const [template] = await tx
+      .select()
+      .from(whatsappTemplates)
+      .where(and(eq(whatsappTemplates.channelId, whatsappId), eq(whatsappTemplates.name, "recordatorio_cita")))
+      .orderBy(asc(whatsappTemplates.name));
     if (template) {
-      const templateVariables: Record<string, string> = {};
-      for (const variable of template.variables) templateVariables[variable] = fieldFor(variable) ?? "";
-      await tx.insert(reminderSettings).values({
-        enabled: false,
-        leadMinutes: 24 * 60,
-        channel: "whatsapp_template",
-        whatsappChannelId: whatsappId,
+      const whatsapp = {
+        channelId: whatsappId,
         templateName: template.name,
         templateLanguage: template.language,
-        templateVariables,
-        createdAt: ctx.now,
-        updatedAt: ctx.now,
-      });
+        variables: template.variableBindings,
+        confirmButton: "Confirmo",
+        changeButton: "Necesito cambiarla",
+      };
+      const rules: ReminderRule[] = [
+        { id: "dia-antes", lead: { kind: "days", days: 1, at: "10:00" }, routes: ["whatsapp", "email"], whatsapp, telegram: null, email: { subject: "", body: "" } },
+        { id: "dos-horas", lead: { kind: "hours", minutes: 120 }, routes: ["whatsapp"], whatsapp, telegram: null, email: null },
+      ];
+      await tx.insert(reminderSettings).values({ enabled: true, rules, createdAt: ctx.now, updatedAt: ctx.now });
     }
+    await seedDemoConsents(tx, ctx.now);
   },
 };

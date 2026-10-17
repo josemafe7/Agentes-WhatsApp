@@ -5,9 +5,9 @@
 // brings, [TG-06]): raw update saved, event ingested (a repeated message is ignored), the file's download queued. It
 // answers at once and NEVER calls the AI ([CAN-10]); the route kicks the queue afterwards.
 import "server-only";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { channels } from "@/db/schema";
+import { channels, contactIdentities, conversations } from "@/db/schema";
 import { idSchema } from "@/lib/validation";
 import type { JobQueue } from "@/server/adapters/job-queue";
 import { timingSafeEqualStr } from "@/server/crypto";
@@ -16,7 +16,7 @@ import { storableJson } from "@/server/storable-text";
 import type { ChannelRecord } from "../types";
 import { readTelegramSecrets } from "./config";
 import { normalizeTelegramUpdate } from "./normalize";
-import { enqueueTelegramMediaDownload } from "./schedule";
+import { enqueueTelegramCallbackAnswer, enqueueTelegramMediaDownload } from "./schedule";
 
 export const TELEGRAM_SECRET_HEADER = "x-telegram-bot-api-secret-token";
 export const TELEGRAM_WEBHOOK_SOURCE = "telegram";
@@ -38,9 +38,11 @@ export type TelegramUpdateOutcome = {
  */
 export async function ingestTelegramUpdate(channel: ChannelRecord, body: unknown, options: { now?: Date; queue?: JobQueue } = {}): Promise<TelegramUpdateOutcome> {
   const now = options.now ?? new Date();
-  const update = normalizeTelegramUpdate(body);
+  const update = normalizeTelegramUpdate(body, now);
   if (!update) return { updateId: null, replyRunAt: null, queuedNow: false };
-  if (!update.event) return { updateId: update.updateId, replyRunAt: null, queuedNow: false };
+  if (update.blocked) await markTelegramBlocked(channel, update.blocked.userId, update.blocked.blocked, now);
+  const answer = update.callbackQueryId ? await enqueueTelegramCallbackAnswer({ channelId: channel.id, callbackQueryId: update.callbackQueryId }, { queue: options.queue, now }) : null;
+  if (!update.event) return { updateId: update.updateId, replyRunAt: answer?.runAt ?? null, queuedNow: Boolean(answer) };
   const result = await ingestEvents(channel, [update.event], { raw: { source: TELEGRAM_WEBHOOK_SOURCE, payload: body, receivedAt: now }, now, queue: options.queue });
   const stored = result.messages[0];
   let queuedNow = false;
@@ -49,6 +51,28 @@ export async function ingestTelegramUpdate(channel: ChannelRecord, body: unknown
     queuedNow = true;
   }
   return { updateId: update.updateId, replyRunAt: result.replyRunAt, queuedNow };
+}
+
+/**
+ * The customer blocked or unblocked the bot ([TG-12]): kept on their conversation with this bot, which is where a
+ * reminder looks before writing. Unknown customers are not created.
+ */
+export async function markTelegramBlocked(channel: ChannelRecord, userId: string, blocked: boolean, now: Date): Promise<void> {
+  const [identity] = await db
+    .select({ contactId: contactIdentities.contactId })
+    .from(contactIdentities)
+    .where(and(eq(contactIdentities.channelType, "telegram"), eq(contactIdentities.externalId, userId)));
+  if (!identity) return;
+  const rows = await db
+    .select({ id: conversations.id, metadata: conversations.metadata })
+    .from(conversations)
+    .where(and(eq(conversations.channelId, channel.id), eq(conversations.contactId, identity.contactId)));
+  for (const row of rows) {
+    const metadata = { ...row.metadata };
+    if (blocked) metadata.telegramBlockedAt = now.toISOString();
+    else delete metadata.telegramBlockedAt;
+    await db.update(conversations).set({ metadata, updatedAt: now }).where(eq(conversations.id, row.id));
+  }
 }
 
 export type TelegramWebhookResult = { status: 200 | 400 | 401 } & Pick<TelegramUpdateOutcome, "replyRunAt" | "queuedNow">;

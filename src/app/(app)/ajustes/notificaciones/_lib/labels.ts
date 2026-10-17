@@ -30,4 +30,12 @@ export const EVENT_LABELS: Record<NotificationEvent, { label: string; descriptio
     label: "Cita pendiente de confirmar",
     description: "Se pide una cita de un servicio que requiere confirmación manual. Los agentes solo reciben las de sus canales.",
   },
+  whatsapp_template: {
+    label: "Plantilla de WhatsApp rechazada o cambiada de categoría",
+    description: "Meta rechaza una plantilla, la aprueba en otra categoría o anuncia que se la cambia.",
+  },
+  campaign_paused: {
+    label: "Envío parado",
+    description: "Un envío se para solo: Meta pausa su plantilla o restringe el número, un canal se desconecta, el correo del sistema rechaza los correos o fallan demasiados.",
+  },
 };

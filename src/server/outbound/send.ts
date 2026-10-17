@@ -4,7 +4,8 @@
 // ([AJU-13]). A customer who opted out of the channel ([CUM-03], [CUM-04]) only gets what a person writes (the inbox
 // warns them): the AI, an AI draft, reminders, templates and the platform's notices stay as not sent, with the reason.
 // The opt-out that counts is the one of whoever the message reaches: in email, the sender of the newest email of the
-// thread. System code: callers check permissions.
+// thread. The moment a message goes to «en cola» is stamped (statusUpdatedAt): Instagram may send back its echo before
+// it answers the send, and that moment tells it is the app's own ([IG-06]). System code: callers check permissions.
 import "server-only";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
@@ -12,10 +13,12 @@ import { channels, contactIdentities, contacts, conversations, messages, type Me
 import type { MessageContentType, MessageStatus } from "@/lib/enums";
 import { isEmailChannelType } from "@/server/channels/email/config";
 import { replyRecipientContactId } from "@/server/channels/email/reply-context";
+import { absorbOwnEcho } from "@/server/channels/phone-echo";
 import { getSendAdapter } from "@/server/channels/registry";
 import { ChannelSendError, type ChannelRecord, type OutboundRecipient } from "@/server/channels/types";
 import { isOptedOut, OPTED_OUT_MESSAGE_ERROR, OptedOutError } from "@/server/compliance/opt-out";
 import { newestInbound } from "@/server/engine/pending";
+import { scheduleReplyToUnanswered } from "@/server/engine/schedule";
 import { ConflictError, NotFoundError } from "@/server/errors";
 import { messageSearchText } from "@/server/inbound/message-search";
 import { publishConversationEvent } from "@/server/realtime/events";
@@ -123,16 +126,25 @@ async function deliver(target: Target, row: typeof messages.$inferSelect, simula
   const now = new Date();
   const status: MessageStatus = outcome.ok ? outcome.result.status : "failed";
   const error = outcome.ok ? null : outcome.error;
-  await db
-    .update(messages)
-    .set({
-      status,
-      error,
-      ...(outcome.ok ? { externalId: outcome.result.externalId, sentAt: outcome.result.sentAt ?? now } : {}),
-      statusUpdatedAt: now,
-      updatedAt: now,
-    })
-    .where(eq(messages.id, row.id));
+  const clash = await db.transaction(async (tx) => {
+    const externalId = outcome.ok ? outcome.result.externalId : null;
+    // Its echo may have been taken for the phone's before this answer (phone-echo.ts): that row goes. A delivered
+    // message is never left «en cola» because its id is somehow taken.
+    const ownEcho = externalId ? await absorbOwnEcho(tx, target.channel.id, externalId, row.id) : "free";
+    await tx
+      .update(messages)
+      .set({
+        status,
+        error,
+        ...(outcome.ok ? { externalId: ownEcho === "taken" ? null : externalId, sentAt: outcome.result.sentAt ?? now } : {}),
+        statusUpdatedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(messages.id, row.id));
+    return ownEcho;
+  });
+  // That echo cancelled the AI's pending reply to the customer: with the pause undone, it is scheduled again.
+  if (clash === "absorbed") await scheduleReplyToUnanswered(row.conversationId);
   await publishConversationEvent(
     { type: "message.status", conversationId: row.conversationId, channelId: target.channel.id, messageId: row.id, status },
     { channelType: target.channel.type },
@@ -166,7 +178,8 @@ export async function sendOutbound(input: SendOutboundInput): Promise<SendOutbou
         searchText: messageSearchText(input.text),
         media: input.media ?? null,
         status: input.draft ? "draft" : optedOut ? "failed" : "queued",
-        ...(optedOut ? { error: OPTED_OUT_MESSAGE_ERROR, statusUpdatedAt: now } : {}),
+        // «En cola» by the clock (`now` may be when the turn began): it is handed to the channel right after.
+        ...(optedOut ? { error: OPTED_OUT_MESSAGE_ERROR, statusUpdatedAt: now } : input.draft ? {} : { statusUpdatedAt: new Date() }),
         simulated,
         metadata: input.metadata ?? {},
         createdAt: now,

@@ -27,9 +27,11 @@ const EXPECTED: Record<Action, [Expect, Expect, Expect, Expect, Expect]> = {
   // Contactos
   [P.contacts.view]: [Y, Y, Y, OWN, Y],
   [P.contacts.edit]: [Y, Y, Y, OWN, N], // crear y editar datos, etiquetas y campos
-  [P.contacts.merge]: [Y, Y, Y, N, N], // fusionar duplicados y quitar una baja
+  [P.contacts.merge]: [Y, Y, Y, N, N], // fusionar duplicados y quitar una baja (de todo o de novedades y publicidad)
+  [P.contacts.consents]: [Y, Y, Y, OWN, N], // marcar permisos y dar de baja cuando el cliente lo pide
   [P.contacts.export]: [Y, Y, N, N, N], // exportar y borrar datos
   [P.contacts.delete]: [Y, Y, N, N, N],
+  [P.contacts.import]: [Y, Y, N, N, N], // importar desde Excel o CSV
   // Agenda
   [P.agenda.view]: [Y, Y, Y, Y, Y], // ver citas y disponibilidad
   [P.agenda.bookings]: [Y, Y, Y, Y, N], // crear, editar, mover y cancelar citas
@@ -53,10 +55,12 @@ const EXPECTED: Record<Action, [Expect, Expect, Expect, Expect, Expect]> = {
   [P.channels.view]: [Y, Y, N, N, Y], // ver lista, estado y panel, sin credenciales
   [P.channels.manage]: [Y, Y, N, N, N], // crear, conectar, configurar, desconectar, borrar; agente activo e IA
   // Informes
+  [P.campaigns.view]: [Y, Y, Y, N, Y], // ver los envíos y sus resultados
+  [P.campaigns.manage]: [Y, Y, N, N, N], // crear, programar, cambiar, pausar, reanudar y cancelar
   [P.reports.view]: [Y, Y, Y, N, Y],
   [P.reports.export]: [Y, Y, N, N, N], // descargar cada tabla en CSV ([INF-09])
   // Ajustes
-  [P.settings.business]: [Y, Y, N, N, N], // Negocio, Horario, Privacidad y legal, Notificaciones y Tarifas
+  [P.settings.business]: [Y, Y, N, N, N], // Negocio, Horario, Privacidad y legal, Notificaciones, Tarifas y Envíos
   [P.settings.integrations]: [Y, Y, N, N, N], // IA (claves y modelos) y Correo del sistema
   [P.settings.users]: [Y, NOT_OWNER, N, N, N], // invitar, roles, canales, desactivar, borrar y exigir 2FA
   [P.settings.transferOwnership]: [Y, N, N, N, N],

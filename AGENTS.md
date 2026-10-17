@@ -148,7 +148,7 @@ Estos comandos los prepara la fase 0. Si alguno cambia, actualiza esta sección.
 - `pnpm test:e2e`: pruebas de Playwright. Compila y arranca la app en su propio puerto, con su propia base
   (`data/e2e-pglite`) y los servicios externos simulados.
 - `pnpm build`: compila la app como en producción.
-- `pnpm seed [--sector=…]`: carga la demo (peluquería si no se indica sector) y los usuarios de prueba.
+- `pnpm seed [--sector=…]`: carga la demo (fisioterapia si no se indica sector) y los usuarios de prueba.
   Nunca donde hay datos reales: se niega.
 - `pnpm seed:embeddings`: recalcula los embeddings de la demo guardados en el repositorio. Gasta IA.
 - `pnpm db:reset`: borra todo y deja la demo recién cargada. `pnpm db:fresh`: borra todo y deja una

@@ -32,7 +32,7 @@ describe("the settings index", () => {
     expect(lists).toEqual([
       ["/ajustes/negocio", "/ajustes/usuarios", "/ajustes/horario"],
       ["/ajustes/ia", "/ajustes/correo", "/ajustes/whatsapp"],
-      ["/ajustes/privacidad", "/ajustes/notificaciones", "/ajustes/recordatorios"],
+      ["/ajustes/privacidad", "/ajustes/notificaciones", "/ajustes/recordatorios", "/ajustes/envios"],
       ["/ajustes/actividad", "/ajustes/diagnostico"],
       ["/perfil", "/ajustes/acerca"],
     ]);

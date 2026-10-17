@@ -1,6 +1,7 @@
-// Days of each Agenda view, their names in Spanish and the opening hours drawn on them ([AGD-05], [AGD-16],
-// [AGD-28]). Days are business-local "YYYY-MM-DD" strings; the arithmetic is the agenda's own (src/server/booking/
-// time.ts, pure). Used by the page on the server: client components receive the result.
+// Days of each Agenda view, their names in Spanish, the opening hours drawn on them and the arithmetic of stretches
+// of the day ([AGD-05], [AGD-16], [AGD-28], [AGD-29], [AGD-31]). Days are business-local "YYYY-MM-DD" strings; the
+// arithmetic is the agenda's own (src/server/booking/time.ts, pure). Used by the page on the server: client
+// components receive the result.
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { addDays, instantToLocal, weekdayOf } from "@/server/booking/time";
@@ -102,21 +103,44 @@ export function closureOf(date: string, closures: readonly Closure[]): { reason:
   return closure ? { reason: closure.reason } : null;
 }
 
+/** Stretches joined where they overlap or touch, in order. */
+export function mergeRanges(ranges: readonly MinuteRange[]): MinuteRange[] {
+  const sorted = ranges.filter((range) => range.endMin > range.startMin).sort((a, b) => a.startMin - b.startMin);
+  const merged: MinuteRange[] = [];
+  for (const range of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && range.startMin <= last.endMin) last.endMin = Math.max(last.endMin, range.endMin);
+    else merged.push({ startMin: range.startMin, endMin: range.endMin });
+  }
+  return merged;
+}
+
+/** The minutes of `from` that are not in `taken` ([AGD-29], [AGD-31]). */
+export function subtractRanges(from: readonly MinuteRange[], taken: readonly MinuteRange[]): MinuteRange[] {
+  const holes = mergeRanges(taken);
+  const result: MinuteRange[] = [];
+  for (const range of mergeRanges(from)) {
+    let cursor = range.startMin;
+    for (const hole of holes) {
+      if (hole.endMin <= cursor || hole.startMin >= range.endMin) continue;
+      if (hole.startMin > cursor) result.push({ startMin: cursor, endMin: hole.startMin });
+      cursor = Math.max(cursor, hole.endMin);
+    }
+    if (cursor < range.endMin) result.push({ startMin: cursor, endMin: range.endMin });
+  }
+  return result;
+}
+
+/** Total minutes of some stretches that do not overlap. */
+export function rangesMinutes(ranges: readonly MinuteRange[]): number {
+  return ranges.reduce((sum, range) => sum + Math.max(0, range.endMin - range.startMin), 0);
+}
+
 /** Open ranges of the day in local minutes, joined and in order; none on closed days and holidays. */
 export function openRanges(date: string, hours: readonly WeeklyHours[], closures: readonly Closure[]): MinuteRange[] {
   if (closureOf(date, closures)) return [];
   const weekday = weekdayOf(date);
-  const ranges = hours
-    .filter((range) => range.weekday === weekday && range.endMin > range.startMin)
-    .map((range) => ({ startMin: range.startMin, endMin: range.endMin }))
-    .sort((a, b) => a.startMin - b.startMin);
-  const merged: MinuteRange[] = [];
-  for (const range of ranges) {
-    const last = merged[merged.length - 1];
-    if (last && range.startMin <= last.endMin) last.endMin = Math.max(last.endMin, range.endMin);
-    else merged.push({ ...range });
-  }
-  return merged;
+  return mergeRanges(hours.filter((range) => range.weekday === weekday).map((range) => ({ startMin: range.startMin, endMin: range.endMin })));
 }
 
 /** The minutes open in both lists (a resource works only inside the business's hours, [AGD-05]). */

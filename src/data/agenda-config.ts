@@ -1,23 +1,19 @@
-// Agenda configuration ([AGD-01]–[AGD-04], [AGD-06], [AGD-08], [AGD-20], [AGD-24]): words, mode and slot step;
-// services and the resources that do them; resources with their weekly schedule; and booking reminders. Everyone who
+// Agenda configuration ([AGD-01]–[AGD-04], [AGD-06], [AGD-08], [AGD-20]): words, mode and slot step; services and the
+// resources that do them; resources with their weekly schedule. The reminders are in reminder-settings.ts. Everyone who
 // sees the agenda reads it (the calendar needs it); only owner and admin change it ([PER-01], «Agenda: configurar…»).
 // Services and resources are deactivated, never deleted: bookings keep pointing at them ([AGD-03]).
 import "server-only";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { businessSettings, channels, reminderSettings, resources, resourceSchedules, serviceResources, services, whatsappTemplates } from "@/db/schema";
+import { businessSettings, resources, resourceSchedules, serviceResources, services } from "@/db/schema";
 import type { Terminology } from "@/db/schema";
-import { AGENDA_MODES, REMINDER_CHANNELS, RESOURCE_COLORS, RESOURCE_TYPES, type AgendaMode, type ReminderChannel, type ResourceColor, type ResourceType } from "@/lib/enums";
+import { AGENDA_MODES, RESOURCE_COLORS, RESOURCE_TYPES, type AgendaMode, type ResourceColor, type ResourceType } from "@/lib/enums";
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
 import { SLOT_INTERVALS, terminologySchema } from "@/lib/sectors/schema";
 import { idSchema, optionalText } from "@/lib/validation";
-import { isOfficialWhatsApp } from "@/lib/whatsapp-via";
 import { loadAgendaSettings, loadServiceResourceIds, serviceColumns, type ServiceRow } from "@/server/booking/load";
-import { isReminderFieldKey, REMINDER_FIELDS } from "@/server/booking/reminder-fields";
-import { syncBookingReminderJob } from "@/server/booking/reminders";
 import { NotFoundError, parseInput, ValidationError } from "@/server/errors";
-import { getSmtpConfig } from "./settings";
 import { writeAudit } from "./audit";
 import { minutesToTime, validateWeek, type HoursRange } from "./business-hours";
 import { assertCan } from "./guard";
@@ -26,9 +22,6 @@ const MINUTES_PER_DAY = 1_440;
 const MAX_BUFFER_MIN = 240;
 const MAX_CAPACITY = 500;
 const MAX_ADVANCE_DAYS = 730;
-/** Longest reminder lead: a week. */
-const MAX_LEAD_MIN = 7 * MINUTES_PER_DAY;
-const MIN_LEAD_MIN = 15;
 
 /** Default words when the business has not chosen them ([AGD-01]). */
 export const DEFAULT_TERMINOLOGY: Required<Terminology> = { booking: "cita", bookings: "citas", resource: "profesional", resources: "profesionales", customer: "cliente" };
@@ -307,155 +300,4 @@ export async function setResourceActive(actor: Actor, input: unknown): Promise<v
   const updated = await db.update(resources).set({ active, updatedAt: new Date() }).where(eq(resources.id, id)).returning({ id: resources.id });
   if (updated.length === 0) throw new NotFoundError("No se ha encontrado el recurso.");
   await writeAudit({ actor, action: active ? "agenda.resource_activated" : "agenda.resource_deactivated", targetType: "resource", targetId: id });
-}
-
-// ─── Reminders ([AGD-24], [AGD-25]) ──────────────────────────────────────────────────────────────────────
-
-export type ReminderSettingsView = {
-  enabled: boolean;
-  leadMinutes: number;
-  channel: ReminderChannel;
-  whatsappChannelId: string | null;
-  templateName: string | null;
-  templateLanguage: string | null;
-  /** Template variable → booking field key (REMINDER_FIELDS). */
-  templateVariables: Record<string, string>;
-  emailSubject: string | null;
-  emailBody: string | null;
-};
-
-export type ReminderOptions = {
-  /** Booking data a variable or placeholder can take. */
-  fields: typeof REMINDER_FIELDS;
-  /** WhatsApp numbers with their approved utility templates ([AGD-24]). */
-  whatsapp: { channelId: string; name: string; isDemo: boolean; templates: { name: string; language: string; variables: string[] }[] }[];
-  /** Whether the system mail is configured (email reminders need it, [AJU-06]). */
-  systemMailConfigured: boolean;
-};
-
-const REMINDER_DEFAULTS: ReminderSettingsView = {
-  enabled: false,
-  leadMinutes: MINUTES_PER_DAY,
-  channel: "whatsapp_template",
-  whatsappChannelId: null,
-  templateName: null,
-  templateLanguage: null,
-  templateVariables: {},
-  emailSubject: null,
-  emailBody: null,
-};
-
-const isApprovedUtility = (template: { status: string | null; category: string | null }) =>
-  template.status?.toUpperCase() === "APPROVED" && template.category?.toUpperCase() === "UTILITY";
-
-async function whatsappOptions(): Promise<ReminderOptions["whatsapp"]> {
-  const rows = await db
-    .select({ id: channels.id, name: channels.name, isDemo: channels.isDemo, type: channels.type, connectionMode: channels.connectionMode })
-    .from(channels)
-    .where(eq(channels.type, "whatsapp"))
-    .orderBy(asc(channels.name));
-  // Reminders are templates: a number linked by QR code has none ([WA-55]).
-  const numbers = rows.filter(isOfficialWhatsApp);
-  if (numbers.length === 0) return [];
-  const templates = await db
-    .select({ channelId: whatsappTemplates.channelId, name: whatsappTemplates.name, language: whatsappTemplates.language, variables: whatsappTemplates.variables, status: whatsappTemplates.status, category: whatsappTemplates.category })
-    .from(whatsappTemplates)
-    .where(inArray(whatsappTemplates.channelId, numbers.map((number) => number.id)))
-    .orderBy(asc(whatsappTemplates.name));
-  return numbers.map((number) => ({
-    channelId: number.id,
-    name: number.name,
-    isDemo: number.isDemo,
-    templates: templates.filter((template) => template.channelId === number.id && isApprovedUtility(template)).map(({ name, language, variables }) => ({ name, language, variables })),
-  }));
-}
-
-/** Agenda › Configuración › Recordatorios: the settings (off by default) and what can be chosen. */
-export async function getReminderSettings(actor: Actor): Promise<{ settings: ReminderSettingsView; options: ReminderOptions }> {
-  assertCan(actor, PERMISSIONS.agenda.configure);
-  const [row] = await db.select().from(reminderSettings).limit(1);
-  const settings: ReminderSettingsView = row
-    ? {
-        enabled: row.enabled,
-        leadMinutes: row.leadMinutes,
-        channel: row.channel,
-        whatsappChannelId: row.whatsappChannelId,
-        templateName: row.templateName,
-        templateLanguage: row.templateLanguage,
-        templateVariables: row.templateVariables,
-        emailSubject: row.emailSubject,
-        emailBody: row.emailBody,
-      }
-    : REMINDER_DEFAULTS;
-  return { settings, options: { fields: REMINDER_FIELDS, whatsapp: await whatsappOptions(), systemMailConfigured: (await getSmtpConfig()) !== null } };
-}
-
-const reminderInputSchema = z
-  .object({
-    enabled: z.boolean(),
-    leadMinutes: z.number({ error: "Elige la antelación." }).int().min(MIN_LEAD_MIN, `Al menos ${MIN_LEAD_MIN} minutos.`).max(MAX_LEAD_MIN, "Como mucho una semana."),
-    channel: z.enum(REMINDER_CHANNELS, { error: "Elige cómo se envía." }),
-    whatsappChannelId: idSchema.nullable().optional(),
-    templateName: z.string().trim().max(512).nullable().optional(),
-    templateLanguage: z.string().trim().max(20).nullable().optional(),
-    templateVariables: z.record(z.string().max(60), z.string().max(40)).default({}),
-    emailSubject: optionalText(200),
-    emailBody: optionalText(2_000),
-  })
-  .strict();
-
-async function validateWhatsAppReminder(data: z.output<typeof reminderInputSchema>): Promise<void> {
-  const errors: Record<string, string[]> = {};
-  const [row] = data.whatsappChannelId
-    ? await db
-        .select({ id: channels.id, type: channels.type, connectionMode: channels.connectionMode })
-        .from(channels)
-        .where(and(eq(channels.id, data.whatsappChannelId), eq(channels.type, "whatsapp")))
-    : [];
-  const number = row && isOfficialWhatsApp(row) ? row : undefined;
-  if (!number) errors.whatsappChannelId = ["Elige el número de WhatsApp."];
-  const [template] =
-    number && data.templateName && data.templateLanguage
-      ? await db
-          .select({ variables: whatsappTemplates.variables, status: whatsappTemplates.status, category: whatsappTemplates.category })
-          .from(whatsappTemplates)
-          .where(and(eq(whatsappTemplates.channelId, number.id), eq(whatsappTemplates.name, data.templateName), eq(whatsappTemplates.language, data.templateLanguage)))
-      : [];
-  if (!template || !isApprovedUtility(template)) {
-    errors.templateName = ["Elige una plantilla de utilidad aprobada por Meta."];
-  } else {
-    const missing = template.variables.filter((variable) => !isReminderFieldKey(data.templateVariables[variable] ?? ""));
-    if (missing.length) errors.templateVariables = [`Asigna un dato de la cita a: ${missing.join(", ")}.`];
-  }
-  if (Object.keys(errors).length) throw new ValidationError(undefined, errors);
-}
-
-/**
- * Saves the reminder: by WhatsApp it needs a number, an APPROVED UTILITY template and a booking field for each of its
- * variables; by email, the system mail (the text is optional: a default one is used). Turning it on starts the
- * recurring job; turning it off stops it.
- */
-export async function updateReminderSettings(actor: Actor, input: unknown): Promise<ReminderSettingsView> {
-  assertCan(actor, PERMISSIONS.agenda.configure);
-  const data = parseInput(reminderInputSchema, input);
-  if (Object.values(data.templateVariables).some((key) => !isReminderFieldKey(key))) {
-    throw new ValidationError(undefined, { templateVariables: ["Algún dato asignado no existe."] });
-  }
-  if (data.enabled && data.channel === "whatsapp_template") await validateWhatsAppReminder(data);
-  const values = {
-    enabled: data.enabled,
-    leadMinutes: data.leadMinutes,
-    channel: data.channel,
-    whatsappChannelId: data.whatsappChannelId ?? null,
-    templateName: data.templateName || null,
-    templateLanguage: data.templateLanguage || null,
-    templateVariables: data.templateVariables,
-    emailSubject: data.emailSubject ?? null,
-    emailBody: data.emailBody ?? null,
-    updatedAt: new Date(),
-  };
-  await db.insert(reminderSettings).values(values).onConflictDoUpdate({ target: reminderSettings.singleton, set: values });
-  await syncBookingReminderJob(data.enabled);
-  await writeAudit({ actor, action: "agenda.reminders_updated", targetType: "reminder_settings", metadata: { enabled: data.enabled, channel: data.channel } });
-  return (await getReminderSettings(actor)).settings;
 }

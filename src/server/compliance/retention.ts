@@ -2,7 +2,8 @@
 // webhooks go after their days (7–30); the file of a voice note, some days after its transcript (the transcript stays);
 // any other file of a message, after the attachments' days; conversations quiet for longer than their months are
 // deleted or anonymized as the business chose, and so are the older messages, notes and hand-off details of the ones
-// still alive, and the team's notices of that age. It also clears what is only useful for a while (screen events,
+// still alive, and the team's notices of that age; the result of each contact of an envío, after its months, stays for
+// the totals without who it was ([ENV-12]). It also clears what is only useful for a while (screen events,
 // finished jobs, rate-limit counters). Files go from the storage before their rows, and child rows before their
 // parents: foreign keys are never trusted to cascade. It works in short batches while its job has time and may stop
 // between any two: each batch looks again for what is still expired, so nothing is deleted twice. When a round ends,
@@ -16,6 +17,7 @@ import { db } from "@/db";
 import {
   aiRuns,
   bookings,
+  campaignRecipients,
   conversations,
   DEFAULT_RETENTION,
   handoffEvents,
@@ -23,6 +25,7 @@ import {
   messageRetrievals,
   messages,
   notifications,
+  systemEmails,
   webhookEvents,
   type MessageMedia,
   type RetentionSettings,
@@ -69,6 +72,7 @@ export type RetentionCounts = {
   messagesAnonymized: number;
   notesDeleted: number;
   notificationsDeleted: number;
+  campaignResultsAnonymized: number;
 };
 
 const emptyCounts = (): RetentionCounts => ({
@@ -81,6 +85,7 @@ const emptyCounts = (): RetentionCounts => ({
   messagesAnonymized: 0,
   notesDeleted: 0,
   notificationsDeleted: 0,
+  campaignResultsAnonymized: 0,
 });
 
 export type RetentionDeps = {
@@ -95,7 +100,7 @@ export type RetentionDeps = {
 
 export type RetentionOutcome = { finished: boolean; counts: RetentionCounts };
 
-type Cutoffs = { webhooks: Date; audio: Date; attachments: Date; conversations: Date };
+type Cutoffs = { webhooks: Date; audio: Date; attachments: Date; conversations: Date; campaignResults: Date };
 /** Where the look for voice notes goes on from, within one run (arrival time, then id). */
 type Cursor = { createdAt: Date; id: string };
 type Round = { counts: RetentionCounts; cutoffs: Cutoffs; storage: FileStorage; now: Date; voiceNotesAfter?: Cursor };
@@ -114,6 +119,7 @@ function cutoffsOf(retention: RetentionSettings, now: Date): Cutoffs {
     audio: daysBefore(retention.audioDays),
     attachments: daysBefore(retention.attachmentsDays),
     conversations: subMonths(now, retention.conversationsMonths),
+    campaignResults: subMonths(now, retention.campaignResultsMonths),
   };
 }
 
@@ -151,7 +157,7 @@ async function roundCounts(): Promise<RetentionCounts> {
 
 function stepsFor(mode: RetentionSettings["mode"]): Step[] {
   const conversationSteps = mode === "anonymize" ? [anonymizeOldMessages, anonymizeQuietConversations, anonymizeOldHandoffs] : [deleteQuietConversations, deleteOldMessages, deleteOldHandoffs];
-  return [deleteOldWebhooks, dropVoiceNoteFiles, dropAttachmentFiles, ...conversationSteps, deleteOldNotes, deleteOldNotifications];
+  return [deleteOldWebhooks, dropVoiceNoteFiles, dropAttachmentFiles, ...conversationSteps, deleteOldNotes, deleteOldNotifications, anonymizeOldCampaignResults];
 }
 
 // ─── Raw webhooks and the team's notices ───────────────────────────────────────────────────────────────────
@@ -170,6 +176,33 @@ async function deleteOldNotifications(round: Round): Promise<boolean> {
   await db.delete(notifications).where(inArray(notifications.id, rows.map((row) => row.id)));
   round.counts.notificationsDeleted += rows.length;
   return rows.length === ROW_BATCH;
+}
+
+/**
+ * [CUM-05] The result of each contact of an envío, once done and older than its months: the row stays without them, nor
+ * the message that led to them (its cost stays on the row). The log of its emails goes too (address and subject).
+ */
+async function anonymizeOldCampaignResults(round: Round): Promise<boolean> {
+  const rows = await db
+    .select({ id: campaignRecipients.id })
+    .from(campaignRecipients)
+    .where(and(isNotNull(campaignRecipients.contactId), lt(campaignRecipients.createdAt, round.cutoffs.campaignResults), notInArray(campaignRecipients.status, ["pending", "sending"])))
+    .limit(ROW_BATCH);
+  const emails = await db
+    .select({ id: systemEmails.id })
+    .from(systemEmails)
+    .where(and(eq(systemEmails.kind, "campaign"), lt(systemEmails.createdAt, round.cutoffs.campaignResults)))
+    .limit(ROW_BATCH);
+  if (rows.length === 0 && emails.length === 0) return false;
+  if (rows.length > 0) {
+    await db
+      .update(campaignRecipients)
+      .set({ contactId: null, messageId: null, unsubscribeToken: null, updatedAt: round.now })
+      .where(inArray(campaignRecipients.id, rows.map((row) => row.id)));
+  }
+  if (emails.length > 0) await db.delete(systemEmails).where(inArray(systemEmails.id, emails.map((row) => row.id)));
+  round.counts.campaignResultsAnonymized += rows.length;
+  return rows.length === ROW_BATCH || emails.length === ROW_BATCH;
 }
 
 async function clearShortLivedRows(now: Date, deps: RetentionDeps): Promise<void> {

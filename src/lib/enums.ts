@@ -20,8 +20,20 @@ export const SECTORS = [
 ] as const;
 export type Sector = (typeof SECTORS)[number];
 
-export const CHANNEL_TYPES = ["whatsapp", "email_gmail", "email_outlook", "email_imap", "webchat", "telegram"] as const;
+export const CHANNEL_TYPES = ["whatsapp", "email_gmail", "email_outlook", "email_imap", "webchat", "telegram", "instagram"] as const;
 export type ChannelType = (typeof CHANNEL_TYPES)[number];
+/** What a baja applies to ([CTO-09]): every number, bot or mailbox of that kind. The three email types are «correo». */
+export const CHANNEL_KINDS = ["whatsapp", "email", "webchat", "telegram", "instagram"] as const;
+export type ChannelKind = (typeof CHANNEL_KINDS)[number];
+export const CHANNEL_KIND_OF: Record<ChannelType, ChannelKind> = {
+  whatsapp: "whatsapp",
+  email_gmail: "email",
+  email_outlook: "email",
+  email_imap: "email",
+  webchat: "webchat",
+  telegram: "telegram",
+  instagram: "instagram",
+};
 export const CHANNEL_STATUSES = ["draft", "connecting", "connected", "error", "disabled"] as const;
 export type ChannelStatus = (typeof CHANNEL_STATUSES)[number];
 export const REPLY_MODES = ["auto", "draft"] as const;
@@ -70,8 +82,31 @@ export type HandoffTrigger = (typeof HANDOFF_TRIGGERS)[number];
 export const URGENCIES = ["low", "normal", "high"] as const;
 export type Urgency = (typeof URGENCIES)[number];
 
-export const CONSENT_TYPES = ["legal_acceptance", "opt_out", "opt_in"] as const;
+/**
+ * Consent records ([CUM-13]): acceptance of the web chat's legal texts; a baja of everything on a channel kind
+ * (`opt_out`) and its lifting (`opt_in`); the same for novedades y publicidad only (`marketing_opt_*`, [CTO-10]); the two
+ * permissions given or withdrawn ([CTO-09]); and a note that the customer resumed marketing from WhatsApp, which never
+ * lifts a baja ([WA-62]).
+ */
+export const CONSENT_TYPES = [
+  "legal_acceptance",
+  "opt_out",
+  "opt_in",
+  "marketing_opt_out",
+  "marketing_opt_in",
+  "reminders_granted",
+  "reminders_withdrawn",
+  "marketing_granted",
+  "marketing_withdrawn",
+  "marketing_resumed",
+] as const;
 export type ConsentType = (typeof CONSENT_TYPES)[number];
+/** The two permissions of a contact ([CTO-09]): «Avisos de sus citas» and «Novedades y publicidad». */
+export const CONTACT_PERMISSIONS = ["reminders", "marketing"] as const;
+export type ContactPermission = (typeof CONTACT_PERMISSIONS)[number];
+/** How the customer gave a permission or asked for a baja ([CTO-09], [CTO-10]). */
+export const CONSENT_METHODS = ["in_person", "written", "web", "conversation", "imported", "other"] as const;
+export type ConsentMethod = (typeof CONSENT_METHODS)[number];
 
 export const AGENT_KNOWLEDGE_MODES = ["auto", "always"] as const;
 export type AgentKnowledgeMode = (typeof AGENT_KNOWLEDGE_MODES)[number];
@@ -116,13 +151,35 @@ export const BOOKING_SOURCES = ["ai", "human", "web"] as const;
 export type BookingSource = (typeof BOOKING_SOURCES)[number];
 export const BOOKING_ACTOR_TYPES = ["user", "ai", "contact", "system"] as const;
 export type BookingActorType = (typeof BOOKING_ACTOR_TYPES)[number];
+/** The single channel of the reminder before phase 12; kept to read installations that still have it. */
 export const REMINDER_CHANNELS = ["whatsapp_template", "email"] as const;
 export type ReminderChannel = (typeof REMINDER_CHANNELS)[number];
+/** The channels a reminder can go by, in the order the business marks them ([AGD-24]). */
+export const REMINDER_ROUTES = ["whatsapp", "telegram", "email"] as const;
+export type ReminderRoute = (typeof REMINDER_ROUTES)[number];
+/** What became of a reminder for one time of its booking ([AGD-25]). */
+/** An envío ([ENV-01]): scheduled, going out, paused (by a person or by itself), finished or cancelled. */
+export const CAMPAIGN_STATUSES = ["scheduled", "sending", "paused", "finished", "cancelled"] as const;
+export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
+/** Each contact of an envío ([ENV-12]). */
+export const CAMPAIGN_RECIPIENT_STATUSES = ["pending", "sending", "sent", "delivered", "read", "failed", "not_sent"] as const;
+export type CampaignRecipientStatus = (typeof CAMPAIGN_RECIPIENT_STATUSES)[number];
+
+/** Automatic after a booking ([ENV-15]), or repeated every week or every month ([ENV-16]). */
+export const CAMPAIGN_RULE_KINDS = ["after_booking", "weekly", "monthly"] as const;
+export type CampaignRuleKind = (typeof CAMPAIGN_RULE_KINDS)[number];
+export const CAMPAIGN_RULE_STATUSES = ["active", "paused"] as const;
+export type CampaignRuleStatus = (typeof CAMPAIGN_RULE_STATUSES)[number];
+export const REMINDER_SEND_STATUSES = ["sending", "sent", "failed", "not_sent"] as const;
+export type ReminderSendStatus = (typeof REMINDER_SEND_STATUSES)[number];
+/** What a quick-reply button of a WhatsApp template does ([AGD-32], [WA-62]). */
+export const TEMPLATE_BUTTON_ROLES = ["confirm", "change", "marketing_opt_out"] as const;
+export type TemplateButtonRole = (typeof TEMPLATE_BUTTON_ROLES)[number];
 
 export const OAUTH_PROVIDERS = ["google", "microsoft"] as const;
 export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
 
-export const SYSTEM_EMAIL_KINDS = ["invitation", "password_reset", "notification", "reminder", "test"] as const;
+export const SYSTEM_EMAIL_KINDS = ["invitation", "password_reset", "notification", "reminder", "test", "campaign"] as const;
 export type SystemEmailKind = (typeof SYSTEM_EMAIL_KINDS)[number];
 /** smtp = sent through the configured server; outbox = written to data/outbox (development and demo only). */
 export const SYSTEM_EMAIL_TRANSPORTS = ["smtp", "outbox"] as const;

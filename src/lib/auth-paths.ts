@@ -28,6 +28,8 @@ const PUBLIC_PREFIXES = [
   SETUP_PATH,
   "/legal",
   "/widget-demo",
+  // The baja page of an envío by email: whoever got it has no account ([ENV-06]).
+  "/baja",
 ] as const;
 
 /** Sign-in pages and API routes are never a place to come back to after signing in. */

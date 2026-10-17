@@ -1,10 +1,10 @@
 // Customers, their per-channel identities and consents ([CTO-*], [CUM-03], [CUM-13]).
 // The phone is data, never a key: identities are unique by channel type + external id ([CAN-13]).
 import { index, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
-import { CHANNEL_TYPES, CONSENT_TYPES } from "@/lib/enums";
+import { BOOKING_ACTOR_TYPES, CHANNEL_KINDS, CHANNEL_TYPES, CONSENT_METHODS, CONSENT_TYPES } from "@/lib/enums";
 import { user } from "./auth";
 import { channels } from "./channels";
-import { EMPTY_JSON_ARRAY, EMPTY_ORDERED_JSON_OBJECT, id, json, orderedJson, timestamps } from "./columns";
+import { bool, EMPTY_JSON_ARRAY, EMPTY_ORDERED_JSON_OBJECT, id, json, orderedJson, timestamp, timestamps } from "./columns";
 
 export const contacts = pgTable(
   "contacts",
@@ -23,6 +23,8 @@ export const contacts = pgTable(
      * null until then. A copy of personal data: whoever clears those fields clears it too.
      */
     searchText: text("search_text"),
+    /** Created by the demo: never gets anything through a channel that is not a demo one ([ENV-14]). */
+    isDemo: bool("is_demo").notNull().default(false),
     ...timestamps(),
   },
   (t) => [
@@ -46,6 +48,11 @@ export const contactIdentities = pgTable(
     phone: text("phone"),
     /** Name shown by the channel (WhatsApp profile name, email display name). */
     displayName: text("display_name"),
+    /**
+     * Since when it waits for a person to confirm it: made by the app, not by the contact writing first (a first
+     * WhatsApp to the phone of the contact, [WA-63]; an answer to a reminder of the system mail, [AGD-24]). Null: confirmed.
+     */
+    unconfirmedSince: timestamp("unconfirmed_since"),
     ...timestamps(),
   },
   (t) => [
@@ -65,8 +72,20 @@ export const consents = pgTable(
     channelId: text("channel_id").references(() => channels.id, { onDelete: "set null" }),
     channelType: text("channel_type", { enum: CHANNEL_TYPES }),
     type: text("type", { enum: CONSENT_TYPES }).notNull(),
-    /** Where it came from: keyword («BAJA»), widget, person, import… */
+    /**
+     * The kind a baja or its lifting applies to ([CTO-09]); null on the permissions, which are for the contact, and on
+     * rows written before phase 12, whose kind comes from channel_type.
+     */
+    channelKind: text("channel_kind", { enum: CHANNEL_KINDS }),
+    /** Where it came from: keyword («BAJA»), widget, person, ai, template_button, whatsapp_app… */
     source: text("source").notNull(),
+    /** How the customer gave it or asked for it ([CTO-09]). */
+    method: text("method", { enum: CONSENT_METHODS }),
+    /** When the customer gave it, if not when it was recorded (a permission given earlier, in person). */
+    givenAt: timestamp("given_at"),
+    /** The question and the answer when the AI recorded it in the conversation ([HER-15]). */
+    evidence: json<{ question: string; answer: string }>("evidence"),
+    actorType: text("actor_type", { enum: BOOKING_ACTOR_TYPES }),
     recordedByUserId: text("recorded_by_user_id").references(() => user.id, { onDelete: "set null" }),
     recordedByName: text("recorded_by_name"),
     note: text("note"),

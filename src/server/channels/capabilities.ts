@@ -27,6 +27,8 @@ export const DEFAULT_CAPABILITIES: Record<ChannelType, ChannelCapabilities> = {
   email_imap: EMAIL,
   webchat: NONE,
   telegram: { ...NONE, audio: true, images: true, typing: true },
+  // [IG-03] [IG-04] Replies are text only, within the 24 h window.
+  instagram: { ...NONE, window24h: true },
 };
 
 /** The web chat offers voice notes and images only when they are switched on ([WEB-07]). */

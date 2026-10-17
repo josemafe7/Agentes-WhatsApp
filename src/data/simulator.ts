@@ -43,7 +43,8 @@ const MAX_TEXT = 4_096;
 const CONTACTS_PER_TYPE = 50;
 /**
  * The simulator's customers have identities of their own ([AJU-13]): this prefix, which no channel ever gives (BSUIDs,
- * phone numbers, email addresses, visitor and Telegram ids never start with it), keeps them apart from real customers.
+ * phone numbers, email addresses, visitor, Telegram and Instagram ids never start with it), keeps them apart from real
+ * customers.
  */
 export const SIMULATED_IDENTITY_PREFIX = "sim:";
 /** Longest identity of a simulated message (the DemoAdapter's limit). */
@@ -58,6 +59,18 @@ const isSimulatedIdentity = (externalId: string) => externalId.startsWith(SIMULA
 export const SIMULATOR_CONTENT_TYPES = ["text", "audio", "image", "document"] as const;
 export type SimulatorContentType = (typeof SIMULATOR_CONTENT_TYPES)[number];
 
+type InboundCapabilities = Pick<ChannelCapabilities, "audio" | "images" | "documents">;
+
+/**
+ * What a customer can send in each channel. It is what the channel takes from a person, except where replies are text
+ * only: an Instagram customer still sends voice notes, images and PDF ([IG-03]).
+ */
+function inboundCapabilitiesOf(channel: ChannelRecord): InboundCapabilities {
+  if (channel.type === "instagram") return { audio: true, images: true, documents: true };
+  const { audio, images, documents } = capabilitiesOf(channel);
+  return { audio, images, documents };
+}
+
 // ─── What the screen offers ─────────────────────────────────────────────────────────────────────────────
 
 export type SimulatorChannel = {
@@ -68,7 +81,7 @@ export type SimulatorChannel = {
   isDemo: boolean;
   activeAgentName: string | null;
   aiEnabled: boolean;
-  capabilities: Pick<ChannelCapabilities, "audio" | "images" | "documents">;
+  capabilities: InboundCapabilities;
 };
 
 export type SimulatorContact = { id: string; name: string | null; externalId: string; phone: string | null; email: string | null };
@@ -114,7 +127,7 @@ export async function loadSimulatorOptions(actor: Actor): Promise<SimulatorOptio
   }
   return {
     channels: rows.map(({ channel, agentName }) => {
-      const capabilities = capabilitiesOf(channel);
+      const capabilities = inboundCapabilitiesOf(channel);
       return {
         id: channel.id,
         name: channel.name,
@@ -199,7 +212,7 @@ const REPLY_SKIP_TEXT: Record<ReplySkipReason, string> = {
   human_mode: "la conversación está en manos de una persona",
   paused: "la IA está en pausa en esta conversación",
   test_mode: "el canal está en modo pruebas y este contacto no está en su lista",
-  window_closed: "la ventana de 24 horas de WhatsApp está cerrada",
+  window_closed: "la ventana de 24 horas para responder está cerrada",
   opted_out: "el contacto se ha dado de baja en este canal",
   off_hours: "el canal no responde fuera de horario",
   ai_not_configured: "falta la clave de OpenRouter (Ajustes › IA)",
@@ -267,6 +280,8 @@ async function resolveSender(channel: ChannelRecord, contact: z.output<typeof si
   // WhatsApp gives a BSUID (country, dot, digits) that is not the phone ([WA-39]); the web chat, a visitor id.
   if (channel.type === "whatsapp") return { id: simulatedIdentity(`ES.${randomDigits(20)}`), name, phone, email, contactId: null };
   if (channel.type === "telegram") return { id: simulatedIdentity(randomDigits(10)), name, phone, email, contactId: null };
+  // Instagram gives its own id of the customer (IGSID, digits), never the @username ([IG-08]).
+  if (channel.type === "instagram") return { id: simulatedIdentity(randomDigits(16)), name, phone, email, contactId: null };
   return { id: simulatedIdentity(crypto.randomUUID()), name, phone, email, contactId: null };
 }
 
@@ -347,7 +362,7 @@ export async function simulateInboundMessage(actor: Actor, input: unknown, optio
   if (!channel) throw new NotFoundError("No se ha encontrado el canal.");
   if (data.contentType !== "text") {
     const needed = NOT_SUPPORTED[data.contentType];
-    if (!capabilitiesOf(channel)[needed.capability]) throw new ValidationError(undefined, { contentType: [needed.message] });
+    if (!inboundCapabilitiesOf(channel)[needed.capability]) throw new ValidationError(undefined, { contentType: [needed.message] });
   }
   const sender = await resolveSender(channel, data.contact);
   const email = channel.type.startsWith("email_");

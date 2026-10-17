@@ -1,6 +1,6 @@
 // Stand-in for every external service during Playwright runs (docs/testing.md): the app's *_BASE_URL
 // variables point at http://127.0.0.1:3101/<service>, so nothing ever reaches Meta, OpenRouter, Google,
-// Microsoft, Mistral, Telegram or YCloud. Plain Node, no dependencies.
+// Microsoft, Mistral, Telegram, YCloud or Instagram. Plain Node, no dependencies.
 //
 // Test API:
 //   GET  /health                   → { ok: true }
@@ -13,6 +13,7 @@
 import { createServer } from "node:http";
 import { gmailRoutes, googleOAuthRoutes } from "./routes/google.mjs";
 import { httpToolRoutes } from "./routes/http-tools.mjs";
+import { instagramRoutes } from "./routes/instagram.mjs";
 import { metaRoutes } from "./routes/meta.mjs";
 import { microsoftGraphRoutes, microsoftLoginRoutes } from "./routes/microsoft.mjs";
 import { openrouterRoutes } from "./routes/openrouter.mjs";
@@ -41,6 +42,7 @@ const DEFAULT_ROUTES = /** @type {Record<string, MockRoute[]>} */ ({
   mistral: [],
   telegram: telegramRoutes,
   ycloud: ycloudRoutes,
+  instagram: instagramRoutes,
   // The shop API the custom HTTP tools of the specs call ([HER-11]).
   "http-tools": httpToolRoutes,
 });

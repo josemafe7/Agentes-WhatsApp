@@ -34,6 +34,8 @@ export type RecurringInput = {
   intervalMs: number;
   payload?: unknown;
   firstRunAt?: Date;
+  /** A pending one due later runs at this moment instead (an envío «Ahora» does not wait for the next minute). */
+  bringForwardTo?: Date;
 };
 export type EnqueueResult = { id: string; created: boolean; runAt: Date };
 /** What happened to a failed job: retried later, failed for good, re-scheduled (recurring), replaced by a newer
@@ -153,10 +155,14 @@ export class PgJobQueue implements JobQueue {
     const dedupeKey = `recurring:${input.key}`;
     return this.db.transaction(async (tx) => {
       const [active] = await tx
-        .select({ id: jobs.id, runAt: jobs.runAt })
+        .select({ id: jobs.id, runAt: jobs.runAt, status: jobs.status })
         .from(jobs)
         .where(and(eq(jobs.dedupeKey, dedupeKey), inArray(jobs.status, ["pending", "running"])))
         .limit(1);
+      if (active && input.bringForwardTo && active.status === "pending" && active.runAt.getTime() > input.bringForwardTo.getTime()) {
+        await tx.update(jobs).set({ runAt: input.bringForwardTo, updatedAt: this.now() }).where(and(eq(jobs.id, active.id), eq(jobs.status, "pending")));
+        return { id: active.id, created: false, runAt: input.bringForwardTo };
+      }
       if (active) return { id: active.id, created: false, runAt: active.runAt };
       const now = this.now();
       const id = crypto.randomUUID();

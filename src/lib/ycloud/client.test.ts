@@ -54,7 +54,16 @@ describe("YCloud API client (docs/integracion-ycloud.md)", () => {
     const endpoint = await api.createWebhookEndpoint({ url: "https://agentes.example.com/api/webhooks/ycloud/abc", description: "DominIA Agentes" });
     expect(endpoint).toMatchObject({ id: YC_TEST.endpointId, secret: YC_TEST.webhookSecret });
     expect(calls[0].body).toEqual({ url: "https://agentes.example.com/api/webhooks/ycloud/abc", enabledEvents: [...YCLOUD_WEBHOOK_EVENTS], status: "active", description: "DominIA Agentes" });
-    expect(YCLOUD_WEBHOOK_EVENTS).toEqual(["whatsapp.inbound_message.received", "whatsapp.message.updated", "whatsapp.smb.message.echoes", "whatsapp.template.reviewed"]);
+    expect(YCLOUD_WEBHOOK_EVENTS).toEqual([
+      "whatsapp.inbound_message.received",
+      "whatsapp.message.updated",
+      "whatsapp.smb.message.echoes",
+      "whatsapp.template.reviewed",
+      // [YC-11]: the template's category and quality, and the marketing bajas given from WhatsApp.
+      "whatsapp.template.category_updated",
+      "whatsapp.template.quality_updated",
+      "whatsapp.user.preferences",
+    ]);
     await api.deleteWebhookEndpoint(endpoint.id);
     expect(await failure(() => api.getWebhookEndpoint(endpoint.id))).toMatchObject({ httpStatus: 404, retryable: false });
   });

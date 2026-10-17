@@ -8,6 +8,8 @@
 import "server-only";
 import { z } from "zod";
 import { contactInputSchema } from "@/data/contacts";
+import { loadBusinessSettings } from "@/data/settings";
+import { hasPermission } from "@/lib/consents";
 import { bookingWord, createBooking, loadAgendaSettings, parseLocalDateTime, SlotUnavailableError } from "@/server/booking";
 import {
   AGENT_TOOL_TEXT,
@@ -20,7 +22,26 @@ import {
   slotForAgent,
   writeContactData,
 } from "@/server/booking/agent-tools";
+import { loadReminderConfig } from "@/server/booking/reminder-config";
+import { loadConsentState } from "@/server/compliance/consent-state";
 import { defineTool } from "./registry";
+import type { ToolContext } from "./types";
+
+/**
+ * [HER-15] «¿Quieres que <negocio> te avise por WhatsApp antes de tus citas?»: by WhatsApp or Telegram, when the
+ * reminders are on with one of those channels and the customer does not have «Avisos de sus citas» yet.
+ */
+async function remindersQuestion(context: ToolContext, contactId: string | null): Promise<string | null> {
+  if (context.channelKind !== "whatsapp" && context.channelKind !== "telegram") return null;
+  const config = await loadReminderConfig();
+  const routes = new Set(config.enabled ? config.rules.flatMap((rule) => rule.routes) : []);
+  const channels = (["whatsapp", "telegram"] as const).filter((route) => routes.has(route));
+  if (channels.length === 0) return null;
+  if (contactId && hasPermission(await loadConsentState(contactId), "reminders")) return null;
+  const business = await loadBusinessSettings();
+  const names = channels.map((route) => (route === "whatsapp" ? "WhatsApp" : "Telegram")).join(" o ");
+  return `¿Quieres que ${business.name} te avise por ${names} antes de tus citas?`;
+}
 
 const START_HINT = "Fecha y hora «AAAA-MM-DDTHH:mm» de uno de los huecos de consultar_disponibilidad.";
 
@@ -71,6 +92,7 @@ export const crearCita = defineTool({
       if (live && context.contactId) {
         await writeContactData(context.contactId, { name: contact.data.name, phone: contact.data.phone, email: contact.data.email }, { onlyEmpty: true, now: context.now });
       }
+      const question = await remindersQuestion(context, live ? context.contactId : null);
       return {
         result: {
           ok: true,
@@ -78,6 +100,13 @@ export const crearCita = defineTool({
           ...(view.isTest ? { prueba: true } : {}),
           confirmar_al_cliente: confirmationForCustomer(view, settings.timezone, bookingWord(settings.terminology), "created"),
           indicacion: AGENT_TOOL_TEXT.confirm,
+          ...(question
+            ? {
+                preguntar_permiso_avisos: question,
+                indicacion_permiso:
+                  "Termina tu confirmación con esta pregunta. Si responde con un sí claro, usa anotar_permiso_avisos con acepta=true; si dice que no, con false y no insistas; si no está claro, vuelve a preguntárselo.",
+              }
+            : {}),
         },
       };
     } catch (error) {

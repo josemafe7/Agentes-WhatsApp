@@ -114,4 +114,23 @@ describe("erasing a contact clears what names them outside their conversations [
     expect((await db.select().from(webhookEvents)).map((row) => row.id)).toEqual(expect.arrayContaining([another.id]));
     expect((await db.select().from(webhookEvents)).map((row) => row.id)).not.toContain(theirs.id);
   });
+
+  it("the raw webhooks of Instagram that name their Instagram id go too; another customer's stay [IG-03] [CTO-07]", async () => {
+    const channel = await createChannel({ type: "instagram", name: "Instagram" });
+    const { contact } = await createContactWithIdentity("instagram", { name: "Lucía Ramos", externalId: "1100000000000003" });
+    await createConversation(channel.id, contact.id);
+    const event = (from: string) => ({
+      source: "instagram",
+      channelId: channel.id,
+      signatureValid: true,
+      receivedAt: new Date(),
+      payload: { object: "instagram", entry: [{ id: "17840000000000001", time: 1, messaging: [{ sender: { id: from }, recipient: { id: "17840000000000001" }, timestamp: 1, message: { mid: `m-${from}`, text: "Hola" } }] }] },
+    });
+    const [theirs] = await db.insert(webhookEvents).values(event("1100000000000003")).returning();
+    const [another] = await db.insert(webhookEvents).values(event("1100000000000004")).returning();
+    await eraseContactData(contact.id, { audit: { actor: owner.actor, action: "contact.erased", targetType: "contact", targetId: contact.id }, storage: memoryFileStorage().storage, outboxDir });
+    const left = (await db.select().from(webhookEvents)).map((row) => row.id);
+    expect(left).toContain(another.id);
+    expect(left).not.toContain(theirs.id);
+  });
 });

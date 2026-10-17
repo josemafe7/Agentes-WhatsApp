@@ -3,6 +3,9 @@
 // AI is told to offer a person ([COR-25], [HER-04], [PER-08]); the opt-out that counts is the one of whoever the reply
 // goes to ([CUM-03]); and the daily caps are checked again right before sending ([COR-17]). Real ingest pipeline, a
 // fake OpenRouter and an email adapter that only records what would leave.
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureSettingsRows } from "@/data/settings";
@@ -23,10 +26,12 @@ import {
   messages,
   notifications,
   realtimeEvents,
+  systemEmails,
 } from "@/db/schema";
 import { imapAdapter } from "@/server/channels/email/adapter";
 import { CAP_REASON_SENDER } from "@/server/channels/email/caps";
 import { ingestInboundEmail } from "@/server/channels/email/ingest";
+import { sendSystemEmail } from "@/server/mailer";
 import { parseRawEmail } from "@/server/channels/email/parse";
 import { buildRawEmail, verifiedEmail } from "@/server/channels/email/test-helpers";
 import { registerChannelAdapter } from "@/server/channels/registry";
@@ -91,7 +96,7 @@ async function optOut(address: string) {
 }
 
 beforeEach(async () => {
-  for (const table of [notifications, handoffEvents, aiRuns, messages, conversations, consents, contactIdentities, contacts, jobs, realtimeEvents, appKv, auditLog]) await db.delete(table);
+  for (const table of [notifications, handoffEvents, aiRuns, messages, conversations, consents, contactIdentities, contacts, jobs, realtimeEvents, appKv, auditLog, systemEmails]) await db.delete(table);
   await db.update(channels).set({ activeAgentId: null });
   await db.delete(channels);
   await db.delete(agents);
@@ -110,6 +115,28 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllEnvs();
   registerChannelAdapter(imapAdapter);
+});
+
+describe("[AGD-24] [WA-63] an answer to a reminder of the system mail", () => {
+  it("goes to the contact; with the address «sin confirmar», the AI deals only with that booking and saves nothing", async () => {
+    const [contact] = await db.insert(contacts).values({ name: "Ana", email: "ana@cliente.test" }).returning();
+    const outboxDir = fs.mkdtempSync(path.join(os.tmpdir(), "dominia-reminder-answer-"));
+    try {
+      await sendSystemEmail({ kind: "reminder", to: "ana@cliente.test", subject: "Tu cita", text: "Te esperamos.", recipient: { contactId: contact.id, bookingId: "11111111-1111-4111-8111-111111111111" } }, { outboxDir, smtp: null });
+    } finally {
+      fs.rmSync(outboxDir, { recursive: true, force: true });
+    }
+    const [sent] = await db.select().from(systemEmails);
+    const conversationId = await receive(await verifiedEmail({ to: OWN, inReplyTo: sent.messageId ?? "", references: [sent.messageId ?? ""], text: "No puedo ir, ¿la cambiamos?" }), "hilo-recordatorio");
+    const [conversation] = await db.select().from(conversations).where(eq(conversations.id, conversationId));
+    expect(conversation.contactId).toBe(contact.id);
+    await runReply(conversationId);
+    const [call] = chatCalls();
+    const offered = toolsOffered(call);
+    expect(offered).toEqual(expect.arrayContaining(["ver_citas_del_cliente", "reprogramar_cita", "cancelar_cita"]));
+    for (const tool of ["guardar_datos_contacto", "crear_cita"]) expect(offered).not.toContain(tool);
+    expect(systemPrompt(call)).toContain("cita_id 11111111-1111-4111-8111-111111111111");
+  });
 });
 
 describe("[COR-25] a sender the receiving server did not vouch for", () => {

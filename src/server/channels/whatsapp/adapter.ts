@@ -14,6 +14,7 @@ import { checkWhatsAppHealth } from "./health";
 import { downloadWhatsAppMedia } from "./media";
 import { normalizeWhatsAppWebhook } from "./normalize";
 import { unsubscribeWabaIfUnused } from "./numbers";
+import { firstContactDestination } from "./first-contact";
 import { chooseDestination, loadDestination, sendWithRetries } from "./send";
 
 export type WhatsAppAdapterDeps = WhatsAppDeps & { storage?: FileStorage };
@@ -96,7 +97,9 @@ export function createWhatsAppAdapter(deps: WhatsAppAdapterDeps = {}): ChannelAd
       const phoneNumberId = phoneNumberIdOf(channel);
       const client = clientOrSendError(channel, deps);
       const destination =
-        (await loadDestination(message.conversationId)) ?? chooseDestination(message.recipient.externalIds.map((externalId) => ({ externalId, phone: null })));
+        (await loadDestination(message.conversationId)) ??
+        firstContactDestination(message.metadata) ??
+        chooseDestination(message.recipient.externalIds.map((externalId) => ({ externalId, phone: null })));
       if (!destination) throw new ChannelSendError("El contacto no tiene un identificador de WhatsApp al que escribir.", false);
       try {
         return await sendWithRetries(client, phoneNumberId, destination, message, deps);

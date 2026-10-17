@@ -70,8 +70,10 @@ function contentOf(change: AccountChange): NoticeContent | null {
       const name = text(data.message_template_name);
       const language = text(data.message_template_language);
       const reason = text(data.reason);
+      // The day-before notice of a change of category carries `correct_category` ([WA-60]).
+      const upcoming = text(data.correct_category);
       return {
-        event: text(data.event) ?? text(data.new_category) ?? text(record(data.new_quality_score).score),
+        event: upcoming ? `UPCOMING_${upcoming}` : (text(data.event) ?? text(data.new_category) ?? text(record(data.new_quality_score).score)),
         subject: name ? (language ? `${name} (${language})` : name) : null,
         metaText: reason && reason !== "NONE" ? reason : null,
       };

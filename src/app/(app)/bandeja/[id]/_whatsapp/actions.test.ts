@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@/db";
-import { messages, whatsappTemplates } from "@/db/schema";
+import { consents, messages, whatsappTemplates } from "@/db/schema";
 import type { Actor } from "@/lib/permissions";
 import { registerChannelAdapter } from "@/server/channels/registry";
 import { createWhatsAppAdapter, whatsappAdapter } from "@/server/channels/whatsapp/adapter";
@@ -62,6 +62,8 @@ beforeEach(async () => {
   state.refreshes = 0;
   // A customer whose last message was 30 h ago: only a template can reach them.
   const { contact } = await createContactWithIdentity("whatsapp", { phone: WA_TEST.customer.waId });
+  // With «Avisos de sus citas», which a utility template needs ([WA-61]).
+  await db.insert(consents).values({ contactId: contact.id, type: "reminders_granted", source: "person", method: "in_person" });
   const conversation = await createConversation(channelId, contact.id, { lastInboundAt: new Date(Date.now() - 30 * 3_600_000) });
   input = { conversationId: conversation.id, templateId, values: VALUES };
   const fake = fakeMetaFetch(connectedNumberRoutes({ [`POST /${WA_TEST.phoneNumberId}/messages`]: () => metaJson(sendMessageResponse(`wamid.ACTION_${crypto.randomUUID()}`)) }));

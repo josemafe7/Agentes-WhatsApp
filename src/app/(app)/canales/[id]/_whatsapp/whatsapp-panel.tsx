@@ -6,11 +6,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import type { ChannelDetail } from "@/data/channels";
 import { listWhatsAppAccountNotices } from "@/data/whatsapp-account-alerts";
+import { getBusinessProfile } from "@/data/settings";
 import { getWhatsAppPanel, type WhatsAppPanel as PanelData } from "@/data/whatsapp-panel";
 import { listWhatsAppTemplates } from "@/data/whatsapp-templates";
 import { formatDateTime } from "@/lib/format";
 import { DEFAULT_GRAPH_API_VERSION } from "@/lib/meta/versions";
 import type { Actor } from "@/lib/permissions";
+import { getSectorPreset } from "@/lib/sectors";
 import { MetaLimits } from "../../nuevo/whatsapp/_components/meta-limits";
 import { META_BILLING_HUB_URL } from "../../nuevo/whatsapp/_lib/help";
 import { wizardHref } from "../../nuevo/whatsapp/_lib/steps";
@@ -149,10 +151,11 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
  * [PER-07]). Each action checks the permission again on the server ([SEG-04]).
  */
 export async function WhatsAppPanel({ actor, channel, canManage, timezone }: WhatsAppPanelProps) {
-  const [panel, templates, notices] = await Promise.all([
+  const [panel, templates, notices, business] = await Promise.all([
     getWhatsAppPanel(actor, channel.id),
     listWhatsAppTemplates(actor, channel.id),
     listWhatsAppAccountNotices(actor, channel.id),
+    getBusinessProfile(actor),
   ]);
   const now = new Date();
   const isDemo = channel.isDemo;
@@ -260,7 +263,15 @@ export async function WhatsAppPanel({ actor, channel, canManage, timezone }: Wha
         )}
       </section>
 
-      <TemplatesSection channelId={panel.id} templates={templates} canSync={metaActions} timezone={timezone} />
+      <TemplatesSection
+        channelId={panel.id}
+        templates={templates}
+        canSync={metaActions}
+        canCreate={canManage && (isDemo || panel.hasCredentials)}
+        timezone={timezone}
+        healthData={business.sector ? getSectorPreset(business.sector).healthData : false}
+        businessName={business.name}
+      />
       <NoticesSection notices={notices} timezone={timezone} />
       <MetaLimits folded />
     </>

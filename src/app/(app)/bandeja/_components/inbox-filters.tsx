@@ -10,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { ChannelType } from "@/lib/enums";
 import { labelSchema, MAX_LABELS } from "@/lib/validation";
+import { channelMarkText } from "../_lib/channel-mark";
 import { activeFilterCount, clearFilters, type InboxAssignee, type InboxMode, type InboxQuery, type InboxStatus } from "../_lib/filters";
 import { STATUS_META } from "../_lib/presentation";
 
@@ -27,7 +28,9 @@ type InboxFiltersProps = { query: InboxQuery; channels: InboxChannel[]; onChange
 export function InboxFilters({ query, channels, onChange }: InboxFiltersProps) {
   const count = activeFilterCount(query);
   const set = (patch: Partial<InboxQuery>) => onChange({ ...query, ...patch });
-  const channelName = channels.find((channel) => channel.id === query.channelId)?.name ?? "Canal";
+  // Named as each conversation names it, «Instagram · @peluqueria» ([BAN-17]).
+  const chosen = channels.find((channel) => channel.id === query.channelId);
+  const channelName = chosen ? channelMarkText(chosen.type, chosen.name) : "Canal";
 
   return (
     <div className="flex flex-col gap-2">
@@ -113,7 +116,7 @@ function FiltersPopover({ query, channels, count, set }: FiltersPopoverProps) {
           label="Canal"
           value={query.channelId ?? ANY}
           anyLabel="Todos los canales"
-          options={channels.map((channel) => ({ value: channel.id, label: channel.name }))}
+          options={channels.map((channel) => ({ value: channel.id, label: channelMarkText(channel.type, channel.name) }))}
           onChange={(value) => set({ channelId: value })}
         />
         <FilterSelect

@@ -66,6 +66,7 @@ export default async function PrivacySettingsPage() {
           retentionAudioDays: String(legal.retention.audioDays),
           retentionAttachmentsDays: String(legal.retention.attachmentsDays),
           retentionWebhookDays: String(legal.retention.webhookDays),
+          retentionCampaignResultsMonths: String(legal.retention.campaignResultsMonths),
           retentionMode: legal.retention.mode,
         }}
         defaults={legal.defaults}

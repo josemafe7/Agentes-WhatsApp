@@ -1,6 +1,6 @@
 # DominIA Agentes
 
-Plataforma de agentes IA de atención al cliente (WhatsApp, correo, chat web y Telegram) y de agentes internos para el
+Plataforma de agentes IA de atención al cliente (WhatsApp, correo, chat web, Telegram e Instagram) y de agentes internos para el
 equipo, que se instala una vez por negocio y se configura sin tocar código. Cada instalación es de un solo negocio,
 con su propia base de datos y sus propias claves.
 
@@ -27,6 +27,49 @@ para tu equipo: responden con los documentos de la empresa (en bases de conocimi
 clientes nunca puede leer) a las personas a las que des acceso, desde el apartado «Asistentes». Lo que cada persona
 pregunta solo lo ve ella. Está probado con la IA simulada; falta probarlo con una clave real y tus documentos.
 
+**Fase 11 (2026-10-16):** la demo es ahora una clínica de fisioterapia, «Fisioterapia Movimiento» (los demás sectores
+se cargan con `pnpm seed --sector=…`; la peluquería, con `pnpm seed --sector=peluqueria`), y el calendario se lee
+mejor con muchas citas. En la semana, cada cita lleva su hora, su nombre y su servicio, acortados en palabra entera;
+si coinciden más de tres a la vez, un «+N» abre la lista de las demás; lo libre se distingue de lo ocupado, y el
+cierre de mediodía se pliega en una franja. En el mes, cada día dice cuántas citas tiene y lo lleno que está.
+
+**Fase 12 (2026-10-16):** permisos, plantillas desde la app y recordatorios con confirmación. Cada cliente tiene dos
+permisos, «Avisos de sus citas» y «Novedades y publicidad», con cómo y cuándo los dio, y sus bajas por canal (de todo o
+solo de publicidad). Las plantillas de WhatsApp se crean desde el panel del número, con los modelos «Recordatorio de
+cita» y «Novedades y publicidad». Una cita puede tener hasta tres recordatorios, cada uno por WhatsApp, Telegram o
+correo en el orden que elijas, y el cliente los contesta con «Confirmo» (la cita queda «Confirmada por el cliente») o
+«Necesito cambiarla» (la IA le ofrece otros huecos). La IA pregunta al reservar si puede avisar y da de baja a quien
+lo pide con sus palabras. Está probado con Meta, YCloud, Telegram y la IA simulados; falta probarlo con un número y
+un bot de verdad.
+
+**Fase 13 (2026-10-16):** importar contactos. En Contactos › Importar, el propietario o un administrador trae sus
+clientes de un Excel o un CSV (hay una plantilla para descargar): la app enseña antes lo que va a pasar, fila a fila,
+salta los que ya existen sin cambiarlos y guarda los permisos que marque el archivo, después de que confirmes que los
+clientes los dieron. A un contacto importado, el primer recordatorio por WhatsApp le llega a su teléfono; su WhatsApp
+queda «sin confirmar» hasta que alguien del equipo lo confirma desde la conversación, y mientras la IA solo atiende la
+cita del recordatorio. Si contesta a un recordatorio que le llegó por el correo del sistema, su respuesta llega a su
+conversación. Probado con Meta y el correo simulados.
+
+**Fase 14 (2026-10-16):** envíos programados. Desde Contactos, el propietario o un administrador manda novedades y
+publicidad a los contactos marcados (o a todos los de una etiqueta o un canal) por WhatsApp, Telegram o correo: antes
+de programarlo ve cuántos lo recibirán, quién no y por qué (sin el permiso «Novedades y publicidad», de baja, envío
+reciente…) y el coste estimado. Sale a su hora, dentro de las horas de envío de Ajustes › Envíos y a un ritmo que
+respeta el límite de Meta sin quitar sitio a los recordatorios; se para solo si algo va mal y se reanuda a mano. Cada
+mensaje deja darse de baja (el botón de la plantilla, «No quiero publicidad» en Telegram o «Darme de baja» en el
+correo, que funciona sin iniciar sesión). Probado con Meta, Telegram y el correo simulados; el correo de un envío
+necesita la app publicada con HTTPS.
+
+**Fase 15 (2026-10-16):** envíos automáticos y repetidos. Uno sale solo unos días después de cada cita (por ejemplo,
+para preguntar qué tal fue), una vez por cita y solo a quien no tiene otra cita después; otro sale cada semana o cada
+mes a los contactos que tienen una etiqueta en ese momento. Siguen las mismas reglas que cualquier envío, y cada vez
+que salen es un envío más en la lista, con sus resultados. Probado con la hora fijada, también en el cambio de hora.
+
+**Fase 16 (2026-10-16):** Instagram. Un agente responde a los mensajes directos de la cuenta profesional de Instagram
+del negocio, y el equipo también puede responder desde la bandeja, donde cada conversación dice ahora a simple vista
+por qué canal llegó («Instagram · @cuenta», «WhatsApp · Recepción»). Se conecta como WhatsApp con Meta: una app de
+Meta del negocio, su token y su clave. Probado con Instagram simulado; falta probarlo con una cuenta real (la guía dice
+cómo, empezando por escribir desde una cuenta que no tenga nada que ver con la app de Meta).
+
 ## Requisitos
 
 - **Node.js 24 LTS** (`node -v` debe mostrar `v24.…`).
@@ -50,7 +93,7 @@ Abre <http://localhost:3000> y entra con uno de los usuarios de prueba.
 
 La primera vez, `pnpm dev` prepara la instalación antes de arrancar: crea `.env.local` con secretos al azar
 (clave de cifrado, secreto de las sesiones y secreto del cron) y la demo activada, crea la base integrada en
-`data/pglite`, aplica las migraciones y carga la demo de una peluquería. Las siguientes veces arranca directamente. Mientras está en
+`data/pglite`, aplica las migraciones y carga la demo de una clínica de fisioterapia. Las siguientes veces arranca directamente. Mientras está en
 marcha, lanza el trabajo en segundo plano cada 15 segundos.
 
 ¿Otro puerto? `pnpm dev -p 3200` (o `PORT=3200 pnpm dev`): las direcciones locales de la app se ajustan solas.
@@ -100,7 +143,7 @@ verdad (gasta céntimos):
 3. **Ajustes › IA:** pega la clave, pulsa «Probar clave» (debe decir que es válida y enseñar el límite de
    gasto) y «Guardar cambios». La clave se ve solo como `••••` y sus 4 últimos caracteres, y el aviso «Añade
    tu clave de OpenRouter» desaparece.
-4. **Agentes › Asistente de citas › Modelo:** abre «Modelo principal». Debe salir la lista real con
+4. **Agentes › Recepción de fisioterapia › Modelo:** abre «Modelo principal». Debe salir la lista real con
    «Recomendados» primero, el precio de entrada y de salida por millón de tokens en US$, el contexto y los
    iconos de imagen, PDF y audio, y abajo «Lista de tu cuenta de OpenRouter». Prueba «Actualizar lista» y el
    buscador.
@@ -129,10 +172,12 @@ los mensajes llegan a la bandeja y esperan a una persona.
    varios mensajes seguidos, recibes una sola respuesta. Puedes mandar fotos y notas de voz (la demo las tiene
    activadas; las notas de voz se transcriben con la clave). Con varios chats web, la página deja elegir cuál.
 2. **Bandeja** (entra como `propietario@demo.test`): la conversación aparece sola, sin recargar. La demo trae
-   además siete conversaciones de ejemplo: una reserva por WhatsApp, una nota de voz con su transcripción, un
+   además ocho conversaciones de ejemplo: una reserva por WhatsApp, una nota de voz con su transcripción, un
    traspaso urgente pendiente, uno resuelto por una persona con su nota interna, una foto por el chat web,
-   preguntas frecuentes y un hilo de correo con un borrador de la IA. Hay filtros (canal, estado, asignado, IA o
-   persona, sin leer, etiquetas), buscador y el contador de no leídos junto a «Bandeja» en el menú.
+   preguntas frecuentes, un hilo de correo con un borrador de la IA y un mensaje directo de Instagram que contestó la
+   IA. Cada una dice por qué canal llegó: «WhatsApp», «Chat web · Chat de la web», «Correo · Gmail» o
+   «Instagram · @cuenta». Hay filtros (canal, estado, asignado, IA o persona, sin leer, etiquetas), buscador y el
+   contador de no leídos junto a «Bandeja» en el menú.
 3. **Contesta tú desde la bandeja:** la IA de esa conversación se pausa (12 horas por defecto; se cambia en Ajustes ›
    Notificaciones › «Bandeja y traspasos», junto a si los traspasos se asignan por turnos) y la cabecera dice
    «IA en pausa hasta …». Vuelve sola al pasar ese tiempo o al pulsar «Reactivar». El interruptor de IA, la
@@ -156,8 +201,8 @@ los mensajes llegan a la bandeja y esperan a una persona.
    dentro de la app, en `/widget-demo`. El panel de cada canal tiene su configuración: modo de respuesta
    («Automático» o «Borrador para revisar», en el que una persona aprueba, edita o descarta cada respuesta desde la
    bandeja), aviso de IA, fuera de horario, modo pruebas y quién lo atiende.
-7. **Simulador** (**Ajustes › Diagnóstico › Simulador**): manda un mensaje como si fueras un cliente de WhatsApp,
-   del correo o del chat web (texto, audio, imagen o documento, con un ejemplo o un archivo tuyo de hasta 1 MB).
+7. **Simulador** (**Ajustes › Diagnóstico › Simulador**): manda un mensaje como si fueras un cliente de cualquiera de
+   tus canales (texto, audio, imagen o documento, con un ejemplo o un archivo tuyo de hasta 1 MB).
    Entra por el mismo camino que uno real, aparece en la bandeja marcado «Simulado» y la IA responde como lo haría;
    esa respuesta nunca sale de la app. «Ver conversación» la abre.
 8. **Contactos:** listado con buscador y filtros por etiqueta y canal, y la ficha de cada uno con sus datos, sus
@@ -179,7 +224,8 @@ El canal «WhatsApp» de la demo está marcado «Demo»: nunca llama a Meta. Lo 
 2. **Ventana de 24 horas** (Bandeja, una conversación de WhatsApp): encima del cuadro de escribir se lee «Ventana
    abierta hasta … · quedan …». La de Cristina Herrero es de hace dos días: la ventana está cerrada, no se puede
    escribir texto libre y aparece «Elegir plantilla». Elige «recordatorio_cita», rellena sus datos (con la vista previa
-   de cómo queda) y envíala: la IA de esa conversación se pausa, como con cualquier respuesta de una persona.
+   de cómo queda) y envíala: la IA de esa conversación se pausa, como con cualquier respuesta de una persona. Solo sale
+   a quien tiene el permiso que pide la plantilla: si falta, el diálogo lo dice y te deja anotarlo.
 3. **Coste estimado:** bajo cada mensaje enviado por WhatsApp se ve su coste en cuanto Meta (aquí, la demo) dice si se
    cobra: «Gratis · Servicio» para las respuestas dentro de la ventana y «≈ 0,02 US$ estimado · Utilidad» para la plantilla,
    calculado con la tarifa de ejemplo de España.
@@ -187,8 +233,9 @@ El canal «WhatsApp» de la demo está marcado «Demo»: nunca llama a Meta. Lo 
    van marcadas «Ejemplo»: no son precios reales. Aquí también están la dirección de avisos de la instalación y su
    token de verificación, para copiarlos en la app de Meta.
 5. **Canales › WhatsApp:** el panel del número (en la demo, con el aviso de canal de demostración), sus plantillas
-   sincronizadas (dos aprobadas, una pendiente y una rechazada con su motivo), el modo pruebas, los ajustes de envío y
-   los límites de Meta.
+   (las dos de los modelos de la app aprobadas, otra aprobada, una pendiente y una rechazada con su motivo), el modo
+   pruebas, los ajustes de envío y los límites de Meta. «Nueva plantilla» crea una desde un modelo; en la demo queda
+   aprobada al momento, sin llamar a Meta.
 6. **Canales › Añadir canal › WhatsApp:** el asistente para conectar un número real, paso a paso (ver «Conectar
    WhatsApp real»). En local puedes validar los datos con Meta, pero sin una dirección pública con HTTPS no llegarán
    mensajes: el propio asistente lo avisa.
@@ -198,22 +245,22 @@ El canal «WhatsApp» de la demo está marcado «Demo»: nunca llama a Meta. Lo 
 ### Conocimiento (fase 4)
 
 La demo trae la base de conocimiento «Información del negocio», ya procesada: los servicios con sus precios (un
-documento en Markdown), las normas de citas y cómo llegar (un PDF de dos páginas) y las preguntas frecuentes del
-sector. Los tres agentes de la demo la usan en modo «Automático», con la herramienta «Buscar en el conocimiento».
+documento en Markdown), qué hacer antes de la sesión y cómo llegar (un PDF de dos páginas) y las preguntas frecuentes
+del sector. Los tres agentes de la demo la usan en modo «Automático», con la herramienta «Buscar en el conocimiento».
 
 1. **Conocimiento** (entra como `propietario@demo.test`): la tarjeta de la base con sus documentos, fragmentos, estado,
    modelo de embeddings y los agentes que la usan. Sin clave de OpenRouter se lee «Sin clave, la búsqueda va solo por
    texto» y los documentos están «Listo (solo texto)»: se encuentran por palabras desde el primer momento.
-2. **Probar búsqueda** (pestaña de la base): escribe «autobus» o «cuanto cuesta un corte». Salen los fragmentos
+2. **Probar búsqueda** (pestaña de la base): escribe «autobus» o «cuanto cuesta la puncion seca». Salen los fragmentos
    numerados con su título, sección, página y puntuación, sin gastar en el modelo de chat; no distingue mayúsculas ni
-   tildes y encuentra otras formas de la misma palabra («cortes» o «cortar» encuentran «corte»). Con algo que no está
+   tildes y encuentra otras formas de la misma palabra («sesiones» encuentra «sesión»). Con algo que no está
    en la base sale «Nada relevante».
 3. **Añadir contenido:** sube un PDF, Word, Excel, CSV, TXT o Markdown (hasta 25 MB; 4 MB con la app en Vercel), una
    página web (con su mapa del sitio, hasta 50 páginas, y lectura periódica si quieres) o una pregunta frecuente. Cada
    documento pasa por «En cola → Extrayendo → Troceando → Embeddings → Listo» en segundo plano, y el mismo archivo dos
    veces se rechaza. Pulsa un documento para ver su resumen y sus fragmentos, y si alguna de sus páginas se ha quedado
    sin leer por no tener texto. Un PDF escaneado necesita la clave de Mistral OCR (Ajustes › IA).
-4. **El agente** (Agentes › Asistente de citas › Conocimiento): las bases que usa, «Automático» o «Buscar siempre» y,
+4. **El agente** (Agentes › Recepción de fisioterapia › Conocimiento): las bases que usa, «Automático» o «Buscar siempre» y,
    al final, sus archivos de contexto (texto que va entero en cada mensaje, con tope de 30.000 tokens y «Pasar a una
    base de conocimiento»). En **Probar**, pregunta «¿Cómo llego en autobús?»: con la clave, responde con el dato del PDF y
    dice de dónde lo saca; «Ver detalles» enseña los fragmentos que leyó. Si preguntas algo que no está, dice que no lo
@@ -230,15 +277,20 @@ sector. Los tres agentes de la demo la usan en modo «Automático», con la herr
 
 ### Agenda (fase 5)
 
-La demo trae la agenda de la peluquería en marcha: tres profesionales (Lucía, Andrés y Marta) con su horario semanal,
-los servicios del sector con su duración, márgenes y precio orientativo, y unas doscientas citas colocadas respecto al
-día en que se carga la demo (de dos semanas atrás a dos semanas adelante), en todos los estados, hechas por la IA, por
-personas y desde «Probar agente», más unas vacaciones y un hueco bloqueado. La guía completa es
-[`docs/guia-agenda.md`](docs/guia-agenda.md), también en **Ayuda › La agenda**.
+La demo trae la agenda de la clínica de fisioterapia en marcha: dos fisioterapeutas (Álvaro Díaz y Nuria Campos) con su
+horario semanal (de lunes a viernes, de 8:00 a 14:00 y de 15:30 a 21:00), los servicios del sector con su duración,
+márgenes y precio orientativo, y unas doscientas citas colocadas respecto al día en que se carga la demo (de dos
+semanas atrás a dos semanas adelante), en todos los estados, hechas por la IA, por personas y desde «Probar agente»,
+más unas vacaciones y un hueco bloqueado. Con `pnpm seed --sector=peluqueria` la misma agenda es la de una peluquería.
+La guía completa es [`docs/guia-agenda.md`](docs/guia-agenda.md), también en **Ayuda › La agenda**.
 
 1. **Agenda** (entra como `propietario@demo.test`): vistas **Día**, **Semana**, **Mes** y **Recursos** (una columna por
    profesional), con el horario, los festivos, las ausencias y los bloqueos, y filtros por profesional, servicio,
-   estado, origen (IA, persona o web) y citas de prueba. Todas las horas son las del negocio (`Europe/Madrid`).
+   estado, origen (IA, persona o web) y citas de prueba. Todas las horas son las del negocio (`Europe/Madrid`). En la
+   **Semana**, cada cita lleva su hora, su nombre y su servicio (acortados en palabra entera si no caben; enteros al
+   pasar el ratón), lo libre se ve en blanco y lo ocupado un poco más oscuro, y el cierre de mediodía (de 14:00 a
+   15:30) se pliega en una franja; si coinciden más de tres citas a la vez (pruébalo con el restaurante), se ven tres
+   y un «+N» con las demás. En el **Mes**, cada día dice cuántas citas tiene y lo lleno que está, y pulsándolo se abre.
 2. **La ficha de una cita** (púlsala): estado, servicio, profesional, cliente, origen, quién la creó, recordatorio,
    notas e historial de cambios. Las que hizo la IA enlazan a su conversación y a su contacto. Desde ahí se confirma,
    se cambia, se marca completada o no presentado y se cancela (con motivo y, si quieres, «Avisar al cliente por su
@@ -252,24 +304,29 @@ personas y desde «Probar agente», más unas vacaciones y un hueco bloqueado. L
    General (modo por recurso o por aforo, intervalo de los huecos y las palabras: Cita o Reserva, Profesional o Mesa…),
    Servicios y Recursos (horario semanal con varios tramos por día y ausencias). El supervisor solo entra en las
    ausencias.
-6. **El agente reserva** (con la clave de OpenRouter): en `/widget-demo` escribe, por ejemplo, «Quiero cortarme el pelo
-   el jueves por la tarde». El «Asistente de citas» (con las herramientas de la agenda encendidas en Agentes ›
-   Herramientas) consulta los huecos, ofrece 2 o 3 concretos, espera a que elijas y confirma en una sola respuesta.
-   La cita aparece en la Agenda con origen «IA · Chat de la web», enlazada a la conversación. «Tratamiento de
-   keratina» necesita confirmación del equipo: queda «Pendiente», el agente lo dice y la campana avisa «Cita pendiente de
-   confirmar». La conversación de WhatsApp de Laura Gil tiene la cita que la IA le reservó.
+6. **El agente reserva** (con la clave de OpenRouter): en `/widget-demo` escribe, por ejemplo, «Quiero una sesión de
+   fisioterapia el jueves por la tarde». La «Recepción de fisioterapia» (con las herramientas de la agenda encendidas en
+   Agentes › Herramientas) consulta los huecos, ofrece 2 o 3 concretos, espera a que elijas y confirma en una sola
+   respuesta. La cita aparece en la Agenda con origen «IA · Chat de la web», enlazada a la conversación. Un servicio
+   marcado «Requiere confirmación manual» (Agenda › Configuración › Servicios) deja la cita «Pendiente», el agente lo
+   dice y la campana avisa «Cita pendiente de confirmar»; en la demo hay una «Primera valoración» pendiente de
+   confirmar la hora. La conversación de WhatsApp de Laura Gil tiene la sesión que la IA le reservó.
 7. **Probar agente:** una cita pedida en la pestaña Probar se crea marcada «Prueba» y sin cliente. Se borran todas con
    «Borrar citas de prueba» (en Probar) o «Citas de prueba (N)» › «Borrar todas» (en la Agenda).
 8. **Contactos y bandeja:** la lista de Contactos enseña la próxima cita de cada uno; la ficha de un contacto, sus citas
    próximas y pasadas con «Nueva cita»; y en la bandeja, el panel del contacto enseña sus próximas citas y «Nueva cita»,
    que la deja unida a esa conversación.
-9. **Recordatorios** (**Ajustes › Recordatorios**, propietario y administrador): desactivados por defecto. La demo trae
-   preparada la plantilla aprobada «recordatorio_cita» del WhatsApp de demo con sus variables asignadas; también se
-   pueden enviar por email (por el buzón conectado del negocio, en el hilo del cliente, si ya le escribió; si no, con el
-   correo del sistema, y las respuestas van al buzón conectado o, sin ninguno, al email de contacto del negocio). Cada
-   cita recibe uno solo, nunca si está cancelada o el cliente se ha dado de baja, y se
-   recalcula si la cita se mueve. En la demo, los de email se guardan en `data/outbox/` y los de WhatsApp salen por el
-   canal de demo, que nunca llama a Meta. Por WhatsApp, cada recordatorio se cobra (plantilla de utilidad).
+9. **Recordatorios** (**Ajustes › Recordatorios**, propietario y administrador): desactivados por defecto en una
+   instalación nueva; la demo los trae encendidos: el día antes a las 10:00 por WhatsApp (o, si no puede, por correo) y
+   2 horas antes por WhatsApp, con la plantilla «recordatorio_cita» del WhatsApp de demo. Hasta tres por cita, cada uno
+   con su antelación y sus canales en orden (WhatsApp, Telegram o correo). Por WhatsApp y Telegram solo salen a quien
+   tiene el permiso «Avisos de sus citas» (en la demo, los clientes de WhatsApp menos uno, dado de baja). Cada
+   recordatorio sale una vez por cada hora de la cita, nunca si está cancelada o el cliente se ha dado de baja, y se
+   recalcula si la cita se mueve. En la demo, los de correo se guardan en `data/outbox/` y los de WhatsApp salen por el
+   canal de demo, que nunca llama a Meta: se ven en la conversación de cada cliente y en la ficha de la cita
+   («Recordatorios»). Por WhatsApp, cada recordatorio se cobra (plantilla de utilidad).
+   Para ver los botones: en el **Simulador**, escribe como un cliente de WhatsApp de la demo y reserva con la IA; en la
+   confirmación te preguntará si puede avisarte, y con «Sí» queda anotado en su ficha («Permisos»).
 10. **Restaurante (agenda por aforo):** `pnpm seed --sector=restaurante` carga un restaurante con Comedor (40 plazas) y
     Terraza (24): cada reserva de mesa dura 90 minutos y la vista de Recursos enseña la ocupación de cada franja
     («22/24»). Un grupo que ya no cabe no tiene huecos.
@@ -282,7 +339,7 @@ El canal «Correo» de la demo está marcado «Demo»: nunca llama a Google, a M
 recibe llega por el simulador y lo que «envía» solo se guarda. Como todo buzón nuevo, responde con borradores para
 revisar. La guía completa es [`docs/guia-correo.md`](docs/guia-correo.md), también en **Ayuda › Conectar el correo**.
 
-1. **Bandeja:** el hilo de correo de Isabel Prieto («Peinados para cinco personas el sábado») lleva el asunto arriba y
+1. **Bandeja:** el hilo de correo de Isabel Prieto («Fisioterapia para un equipo de pádel») lleva el asunto arriba y
    cada correo en su tarjeta, con remitente, destinatarios y fecha. El último es un borrador de la IA «pendiente de
    revisar» con «Aprobar y enviar», «Editar» y «Descartar»: aprobado, sale en el mismo hilo con la firma y el aviso de
    IA. Si contestas tú desde la bandeja, tu correo lleva la firma del canal y la IA se pausa en esa conversación.
@@ -299,8 +356,10 @@ revisar. La guía completa es [`docs/guia-correo.md`](docs/guia-correo.md), tamb
 
 1. **Bajas:** en el **Simulador**, escribe solo «BAJA» (o «STOP») como un cliente de WhatsApp. Recibe una sola
    confirmación, la IA deja de contestarle en ese canal y no le salen recordatorios ni plantillas; lo que escriba después
-   espera en la bandeja a una persona. En la ficha del contacto, «Consentimientos y bajas» enseña la baja con su fecha y canal, y
-   «Levantar baja» la quita (solo si el cliente lo pide; queda anotado quién, cuándo y por qué).
+   espera en la bandeja a una persona. Lo mismo si escribe con sus palabras «no me mandéis más mensajes» (lo anota la IA;
+   con «no quiero publicidad», solo de novedades y publicidad). En la ficha del contacto, el aviso «Dado de baja» y los
+   consentimientos enseñan la baja con su fecha y canal, y «Levantar baja» la quita (solo si el cliente lo pide; queda
+   anotado quién, cuándo y por qué).
 2. **Contactos:** «Posibles duplicados» (mismo email o teléfono) y «Fusionar» dos contactos eligiendo qué datos se
    quedan; «Exportar» la lista (CSV, con la búsqueda y los filtros) o los seleccionados; y en la ficha, «Exportar datos»
    (todo lo del contacto en un archivo) y «Borrar contacto» escribiendo su nombre (o, desde la lista, «Borrar» varios
@@ -308,7 +367,8 @@ revisar. La guía completa es [`docs/guia-correo.md`](docs/guia-correo.md), tamb
    informes cuadren. La búsqueda de Contactos y de la Bandeja no distingue tildes: «jose» encuentra «José».
 3. **Ajustes › Privacidad y legal:** los textos de `/legal/privacidad`, `/legal/terminos` y
    `/legal/eliminacion-datos`, el aviso de IA por defecto y los plazos de conservación (conversaciones 12 meses, audios
-   30 días tras transcribirlos, adjuntos 90 días y avisos en bruto 14 días), con borrado o anonimización. La limpieza
+   30 días tras transcribirlos, adjuntos 90 días, avisos en bruto 14 días y resultados de los envíos 12 meses), con
+   borrado o anonimización. La limpieza
    corre cada día y deja en el Registro de actividad cuánto borró.
 4. **Informes** (menú): conversaciones por canal, porcentaje resuelto por la IA, traspasos y sus motivos, tiempo hasta
    la primera respuesta de una persona (y cuántos en menos de 3 minutos), citas creadas por la IA y costes de IA y de
@@ -339,7 +399,7 @@ ejemplo con normas del equipo: apertura y cierre, vacaciones, incidencias, compr
    Agentes › «Nuevo agente» › «Interno, para tu equipo»; en su pestaña Conocimiento, activa la base; en **Acceso**,
    elige «Personas concretas» y marca a quien quieras. Solo esa persona (y propietario y administradores) lo verá
    en «Asistentes».
-4. **Lo que no se puede:** abre Agentes › Asistente de citas › Conocimiento: las bases internas no aparecen, porque
+4. **Lo que no se puede:** abre Agentes › Recepción de fisioterapia › Conocimiento: las bases internas no aparecen, porque
    ese agente atiende clientes. Y un agente interno no tiene las pestañas Canales, Herramientas ni Traspaso.
 5. **Quién ve qué:** como `supervisor@demo.test`, ni «Asistente del equipo» sale en Agentes ni «Manual interno» en
    Conocimiento; solo puede usar el asistente desde «Asistentes». Como `lectura@demo.test` no hay «Asistentes».
@@ -349,10 +409,69 @@ ejemplo con normas del equipo: apertura y cierre, vacaciones, incidencias, compr
 Si tu demo se cargó antes de esta fase, no trae el agente interno de ejemplo: `pnpm db:reset` la vuelve a cargar
 (borra lo que hayas cambiado en local). Los pasos 3 a 6 funcionan igual sin recargarla.
 
+### Envíos (fases 14 y 15)
+
+La demo trae un envío ya hecho por el WhatsApp de demo, «Novedades de la temporada», y otro programado para dentro de
+tres días, «Bonos de este mes». La guía completa es [`docs/guia-envios.md`](docs/guia-envios.md), también en
+**Ayuda › Envíos**.
+
+1. **Envíos** (menú, entra como `propietario@demo.test`): la lista con el estado de cada uno, cuándo sale, por qué
+   canales, a cuántos contactos y cómo va, y arriba las normas en pocas líneas. Abre «Novedades de la temporada»: los
+   dos clientes con el permiso «Novedades y publicidad» lo recibieron (uno lo leyó) y los demás no, cada uno con su
+   motivo (sin permiso o de baja).
+2. **Programar uno:** en **Contactos**, marca varios contactos y pulsa «Programar envío» (o «Envío a todos» / «Envío a
+   los del filtro» arriba). Ponle nombre, marca WhatsApp, elige el número de demo y la plantilla
+   «novedades_y_publicidad», y pulsa «Revisar destinatarios»: cuántos lo recibirán por cada canal, quién no y por qué,
+   el coste estimado y, si hay que repartirlo, cuándo terminará. Después, «Programar envío». En local el correo no se
+   ofrece (su enlace de baja necesita la dirección pública con HTTPS).
+3. **Cómo sale:** solo entre las horas de **Ajustes › Envíos** (de 9:00 a 21:00 por defecto), 30 por minuto por
+   WhatsApp, 20 por Telegram y los correos que digan los topes; un mismo contacto, como mucho uno cada 7 días. En la
+   demo, lo que «sale» por el WhatsApp de demo solo se guarda: se ve en la conversación de cada cliente, con el nombre
+   del envío, y en sus resultados (enviado, entregado, leído).
+4. **Pausar, reanudar, cambiar, cancelar:** un envío programado se cambia o se cancela hasta que empieza; en marcha,
+   se pausa, se reanuda o se cancela lo que falta. Si algo va mal (Meta pausa la plantilla, un canal se desconecta,
+   fallan muchos mensajes), se para solo, dice por qué y avisa al propietario y a los administradores («Envío parado»).
+5. **Darse de baja:** con el botón de la plantilla de WhatsApp, «No quiero publicidad» en Telegram o «Darme de baja» al
+   pie del correo, el cliente deja de recibir publicidad por ese canal (los recordatorios de sus citas siguen) y queda
+   en sus consentimientos.
+6. **Quién ve qué:** el supervisor y «Solo lectura» ven los envíos y sus resultados sin programarlos; el rol Agente no
+   ve Envíos.
+
+7. **Automáticos y repetidos** (fase 15): en **Envíos › Automáticos y repetidos** está «¿Qué tal tu cita?», activo:
+   dos días después de cada cita, a las 11:00, pregunta al cliente qué tal le fue, solo si no tiene otra cita después.
+   Con «Nuevo automático o repetido» se crea otro: tras la cita, cada semana o cada mes (si el mes no tiene ese día,
+   el último), a los contactos de una etiqueta en ese momento. Se pausa, se activa, se cambia o se borra desde su
+   página, que dice cuándo sale la próxima vez y los envíos que ha hecho.
+
+Si tu demo se cargó antes de esta fase, no trae los envíos de ejemplo: `pnpm db:reset` la vuelve a cargar (borra lo
+que hayas cambiado en local). Los pasos 2 a 7 funcionan igual sin recargarla.
+
+### Instagram (fase 16)
+
+La cuenta de Instagram de la demo, «@fisioterapia_movimiento.demo» (en otro sector, el nombre del negocio seguido de
+«.demo»), está marcada «Demo»: nunca llama a Instagram. Lo que recibe llega por el simulador y lo que «envía» solo se
+guarda. La guía completa es [`docs/guia-instagram.md`](docs/guia-instagram.md), también en **Ayuda › Guía de
+Instagram**.
+
+1. **Bandeja:** el mensaje directo de Instagram (un cliente pregunta dónde estáis y qué horario tenéis, y la IA le
+   contesta) dice su canal en la lista y en su cabecera: «Instagram · @fisioterapia_movimiento.demo». El filtro
+   «Canal» lo nombra igual.
+2. **Ventana de 24 horas:** encima del cuadro de escribir se lee «Puedes responder hasta … · quedan …». Pasadas 24
+   horas desde el último mensaje del cliente (si cargaste la demo hace más de un día, ya han pasado), no se puede
+   enviar nada hasta que vuelva a escribir y la bandeja lo explica; sí se puede dejar una nota interna.
+3. **Simulador** (**Ajustes › Diagnóstico › Simulador**): elige el canal «@fisioterapia_movimiento.demo · Instagram»
+   y escribe como un cliente nuevo (texto, nota de voz, imagen o PDF). Llega a la bandeja con la ventana abierta y,
+   con la clave de OpenRouter, la IA responde; esa respuesta nunca sale de la app.
+4. **Canales › Añadir canal › Instagram:** el asistente para conectar una cuenta real (ver «Conectar canales
+   reales»).
+
+Si tu demo se cargó antes de esta fase, no trae la cuenta de Instagram: `pnpm db:reset` la vuelve a cargar (borra lo
+que hayas cambiado en local).
+
 ### Lo demás
 
-- **Entrar con cada rol** y ver cómo cambia el menú: Bandeja, Contactos, Agenda, Asistentes (solo si tienes algún
-  agente interno que usar), Agentes, Conocimiento, Canales, Informes y Ajustes. En todas las pantallas aparece el
+- **Entrar con cada rol** y ver cómo cambia el menú: Bandeja, Contactos, Agenda, Envíos, Asistentes (solo si tienes
+  algún agente interno que usar), Agentes, Conocimiento, Canales, Informes y Ajustes. En todas las pantallas aparece el
   aviso «Modo demo».
 - **Ajustes › Negocio:** nombre, datos de contacto, sector, zona horaria, logo y color de la marca, con la
   vista previa en claro y oscuro. El color se aplica a todo el panel.
@@ -365,8 +484,8 @@ Si tu demo se cargó antes de esta fase, no trae el agente interno de ejemplo: `
   `data/outbox/` al cabo de unos segundos (lo envía el trabajo en segundo plano).
 - **Mi cuenta** (menú de tu usuario): nombre, contraseña, verificación en dos pasos con una app de
   autenticación y códigos de recuperación, tus avisos y cerrar sesión aquí o en los demás dispositivos.
-- **Agentes:** la demo trae tres agentes para clientes, creados desde la plantilla de la peluquería: «Asistente de
-  citas» (con dos versiones, para probar a restaurar), «Asistente de correo» y «Asistente fuera de horario», preparado
+- **Agentes:** la demo trae tres agentes para clientes, creados desde la plantilla de la fisioterapia: «Recepción de
+  fisioterapia» (con dos versiones, para probar a restaurar), «Asistente de correo» y «Asistente fuera de horario», preparado
   sin activar; y un agente interno, «Asistente del equipo» (ver «Agentes internos (fase 10)»). Crea uno con «Nuevo agente» (plantilla de tu sector, de otro sector, en blanco o «Generar
   borrador con IA» desde tu web o una descripción) y recorre su editor: General, Instrucciones (con «Vista
   previa del prompt»), Modelo, Conocimiento (ver «Conocimiento (fase 4)»), Herramientas («Pasar a una persona»,
@@ -379,8 +498,8 @@ Si tu demo se cargó antes de esta fase, no trae el agente interno de ejemplo: `
   OpenRouter (ver arriba); sin ella verás el aviso y no se puede enviar. El supervisor también puede probar; «Solo
   lectura» ve los agentes sin cambiar nada y el rol Agente no entra.
 - **Ayuda** (menú de tu usuario, o Ajustes › Acerca de): las guías paso a paso dentro de la app: crear y probar
-  agentes y darles el conocimiento del negocio, la agenda, conectar WhatsApp, conectar el correo, publicar en Vercel y
-  la lista de puesta en marcha.
+  agentes y darles el conocimiento del negocio, la agenda, los envíos, conectar WhatsApp, conectar el correo, publicar
+  en Vercel y la lista de puesta en marcha.
 - **Ajustes › Horario, IA, Correo del sistema, Privacidad y legal y Notificaciones:** horario con varios tramos
   por día y festivos; la clave de OpenRouter, los modelos por defecto (chat, respaldo de otro proveedor,
   transcripción, embeddings y descripción de imágenes) elegidos de la lista con precios, la lista de
@@ -409,11 +528,11 @@ Si tu demo se cargó antes de esta fase, no trae el agente interno de ejemplo: `
 | `pnpm run setup` | Solo la preparación. Siempre con `run`: `pnpm setup` es otra orden de pnpm que cambia el PATH del ordenador. Repetirla no cambia nada. |
 | `pnpm lint` / `pnpm typecheck` | Revisan el código y los tipos. |
 | `pnpm test` | Pruebas de Vitest (cada archivo con su propia base en memoria; nunca toca `data/pglite` ni Supabase). |
-| `pnpm test:e2e` | Pruebas de Playwright: compila la app, la arranca en los puertos 3100 (demo de la peluquería), 3102 (instalación vacía) y 3103 (demo del restaurante, para la agenda por aforo) con sus propias bases (`data/e2e-pglite`, `data/e2e-fresh-pglite` y `data/e2e-restaurante-pglite`) y simula los servicios externos en el 3101. La primera vez: `pnpm exec playwright install chromium`. |
+| `pnpm test:e2e` | Pruebas de Playwright: compila la app, la arranca en los puertos 3100 (demo de la peluquería, cargada con `--sector=peluqueria`: las pruebas se escribieron para ella), 3102 (instalación vacía) y 3103 (demo del restaurante, para la agenda por aforo) con sus propias bases (`data/e2e-pglite`, `data/e2e-fresh-pglite` y `data/e2e-restaurante-pglite`) y simula los servicios externos en el 3101. La primera vez: `pnpm exec playwright install chromium`. |
 | `pnpm build` / `pnpm start` | Compila la app como en producción y la arranca. En tu ordenador vale con `APP_URL=http://localhost:3000` (avisa de que solo funciona ahí) y el asistente pide el código de instalación (`SETUP_TOKEN`); publicada, `APP_URL` tiene que llevar `https://`. |
 | `pnpm db:migrate` | Pone la base de datos al día (migraciones): la integrada, en tu ordenador. Para la de Supabase, con su dirección puesta solo para esa orden, nunca en `.env.local` (`docs/guia-despliegue.md`, apartado 2). |
 | `pnpm db:generate` | Genera una migración nueva a partir del esquema (solo para desarrollar). |
-| `pnpm seed [--sector=…]` | Carga la demo de un sector en lugar de la que haya: `peluqueria` (por defecto), `clinica-dental`, `fisioterapia`, `restaurante`, `taller`, `academia`, `inmobiliaria`, `tienda` u `otro`. Se niega si la base tiene datos de un negocio real, o si `DEMO_MODE` no es `true` (salvo con `--force-demo`). |
+| `pnpm seed [--sector=…]` | Carga la demo de un sector en lugar de la que haya: `fisioterapia` (por defecto), `peluqueria`, `clinica-dental`, `restaurante`, `taller`, `academia`, `inmobiliaria`, `tienda` u `otro`. Se niega si la base tiene datos de un negocio real, o si `DEMO_MODE` no es `true` (salvo con `--force-demo`). |
 | `pnpm seed:embeddings` | Recalcula los embeddings de la demo de los nueve sectores con el modelo por defecto (`openai/text-embedding-3-small`, 1536 dimensiones) y los guarda en `seed/fixtures/embeddings.json`. Necesita `OPENROUTER_API_KEY` en `.env.local` y gasta céntimos de IA; sin la clave se niega y no cambia nada. No toca la base de datos. |
 | `pnpm db:reset [--sector=…]` | Borra todo y deja la demo como recién instalada. Pregunta antes (`--yes` para no preguntar). |
 | `pnpm db:fresh` | Borra todo y deja una instalación vacía con el asistente de arranque. Pregunta antes (`--yes`). |
@@ -461,7 +580,7 @@ Están todas explicadas en `.env.example`. En local no tienes que tocar ninguna:
 | `ALLOW_PRIVATE_MAIL_HOSTS` | Opcional: `true` permite conectar un buzón «Otro (IMAP/SMTP)» a un servidor de correo de la red local (uno propio junto a la app). Sin ella, la app solo se conecta a servidores con dirección pública. |
 | `EMAIL_IMAP_IDLE` | Opcional, solo en un servidor propio con `pnpm worker`: `true` mantiene abierta la conexión IMAP de los buzones que tengan activado «Leer al momento» y lee el correo nuevo en cuanto llega. Sin ella, cada buzón se lee cada minuto. |
 | `ALLOW_LOCAL_HTTP_TOOLS` | Solo para desarrollo y pruebas: `true` deja a las herramientas HTTP llamar a este ordenador o a la red local (con `pnpm dev` ya se permite). La versión compilada no arranca con ella. |
-| `OPENROUTER_BASE_URL`, `META_GRAPH_BASE_URL`, `GOOGLE_OAUTH_BASE_URL`, `GOOGLE_API_BASE_URL`, `MS_LOGIN_BASE_URL`, `MS_GRAPH_BASE_URL`, `MISTRAL_BASE_URL`, `TELEGRAM_API_BASE_URL` y `YCLOUD_API_BASE_URL` | Solo para las pruebas, que apuntan a un simulador. No las cambies: la versión compilada no arranca con ellas. |
+| `OPENROUTER_BASE_URL`, `META_GRAPH_BASE_URL`, `GOOGLE_OAUTH_BASE_URL`, `GOOGLE_API_BASE_URL`, `MS_LOGIN_BASE_URL`, `MS_GRAPH_BASE_URL`, `MISTRAL_BASE_URL`, `TELEGRAM_API_BASE_URL`, `YCLOUD_API_BASE_URL` e `INSTAGRAM_GRAPH_BASE_URL` | Solo para las pruebas, que apuntan a un simulador. No las cambies: la versión compilada no arranca con ellas. |
 | `E2E_ALLOW_BASE_URL_OVERRIDES` | Solo la ponen los servidores de Playwright, para arrancar la versión compilada con el simulador. Nunca en una instalación real. |
 | `REPLY_DEBOUNCE_MS` | Solo para las pruebas: espera fija antes de que la IA responda (en una instalación real, de 4 a 8 s). |
 
@@ -486,6 +605,11 @@ Los secretos van solo en `.env.local`, que nunca se sube a Git.
   Telegram y la app lo configura sola. En tu ordenador funciona en «modo local» (la app pregunta a Telegram por los
   mensajes nuevos cada pocos segundos); al publicarla, «Revalidar» en el panel del canal hace que lleguen al momento.
   Paso a paso, en la [guía de Telegram](docs/guia-telegram.md).
+- **Instagram (fase 16, mensajes directos):** con la app de Meta del negocio y el producto Instagram, genera el token de
+  tu cuenta profesional en su panel y pégalo, con la clave secreta de Instagram, en Canales › Añadir canal ›
+  Instagram. La app comprueba el token, suscribe la cuenta y te da la dirección de avisos y su token de verificación
+  para pegarlos en Meta. Necesita la app publicada con HTTPS para recibir mensajes; responde solo con texto y dentro de
+  las 24 horas desde el último mensaje del cliente. Paso a paso, en la [guía de Instagram](docs/guia-instagram.md).
 - El correo de la propia app (invitaciones y recuperación de contraseña) ya se configura en Ajustes › Correo
   del sistema, con los datos SMTP de tu proveedor.
 
@@ -716,6 +840,9 @@ Guías para el negocio (también dentro de la app, en Ayuda):
   grandes.
 - [La agenda](docs/guia-agenda.md): palabras, modo por recurso o por aforo, servicios, recursos, horarios, ausencias
   y bloqueos, el calendario, qué hace el agente con las citas, las citas de prueba y los recordatorios.
+- [Envíos](docs/guia-envios.md): novedades y publicidad por WhatsApp, Telegram o correo: el permiso de los clientes,
+  importarlos, la plantilla de publicidad, programar un envío, el correo con un servicio de envíos (SPF, DKIM y DMARC),
+  las normas y cómo evitar bloqueos.
 - [Conectar WhatsApp](docs/guia-whatsapp.md): portfolio, app, token, publicación, método de pago, la prueba con
   el número de prueba de Meta y los problemas frecuentes.
 - [Conectar WhatsApp con YCloud](docs/guia-whatsapp-ycloud.md): coexistencia con la app del móvil, el alta del número
@@ -726,6 +853,9 @@ Guías para el negocio (también dentro de la app, en Ayuda):
   365 con su app de Microsoft Entra u otro buzón por IMAP/SMTP; modos de respuesta, filtros y problemas frecuentes.
 - [Conectar Telegram](docs/guia-telegram.md): crear el bot con @BotFather, pegar su token, el modo local, el enlace y
   el código QR para tus clientes y los problemas frecuentes.
+- [Conectar Instagram](docs/guia-instagram.md): la cuenta profesional, la app de Meta con el producto Instagram, el
+  token y la clave, la dirección de avisos, la prueba desde otra cuenta, la ventana de 24 horas y los problemas
+  frecuentes.
 - [Publicar la app en Vercel](docs/guia-despliegue.md): con Supabase para la base de datos, los archivos y el cron,
   paso a paso.
 - [Lista de puesta en marcha](docs/checklist-puesta-en-marcha.md): de `pnpm db:fresh` a la primera conversación de un

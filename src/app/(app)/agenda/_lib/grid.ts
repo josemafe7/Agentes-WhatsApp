@@ -1,7 +1,9 @@
-// Geometry of the Agenda time grid ([AGD-16], [AGD-17], [AGD-28]): where each booking goes on the business-local
-// wall clock, side by side when they overlap, snapping a dragged time to the slot interval, the hint of a place that
-// cannot work and the people per slot of the capacity view. Pure and without server imports: the client grid uses it
-// while dragging. Times are minutes after local midnight; the server re-checks every change.
+// Geometry of the Agenda time grid ([AGD-16], [AGD-17], [AGD-28]–[AGD-30]): where each booking goes on the
+// business-local wall clock, side by side when they overlap (three at most in the week, the rest behind «+N»), the
+// hours the grid covers and the closed stretches folded into a narrow band, how minutes turn into height and back,
+// snapping a dragged time to the slot interval, the hint of a place that cannot work, the people per slot of the
+// capacity view and the rows of a booking shortened at whole words. Pure and without server imports: the client grid
+// uses it while dragging. Times are minutes after local midnight; the server re-checks every change.
 
 export type MinuteRange = { startMin: number; endMin: number };
 
@@ -42,19 +44,18 @@ export function dayMinutes(startLocal: string, endLocal: string, date: string): 
   return { startMin, endMin: Math.min(MINUTES_PER_DAY, wallEnd > startMin ? wallEnd : startMin + Math.max(1, realLength)) };
 }
 
-/**
- * Lanes for overlapping items: each group of items that overlap (directly or through others) shares its width;
- * an item takes the first lane free at its start.
- */
-export function layoutLanes(items: readonly ({ id: string } & MinuteRange)[]): Map<string, { lane: number; lanes: number }> {
+type LaneGroup<T> = { members: { item: T; lane: number }[]; lanes: number };
+
+/** Groups of items that overlap (directly or through others); an item takes the first lane free at its start. */
+function laneGroups<T extends { id: string } & MinuteRange>(items: readonly T[]): LaneGroup<T>[] {
   const sorted = [...items].sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin);
-  const result = new Map<string, { lane: number; lanes: number }>();
-  let group: { id: string; lane: number }[] = [];
+  const groups: LaneGroup<T>[] = [];
+  let members: { item: T; lane: number }[] = [];
   let laneEnds: number[] = [];
   let groupEnd = -1;
   const close = () => {
-    for (const member of group) result.set(member.id, { lane: member.lane, lanes: laneEnds.length });
-    group = [];
+    if (members.length) groups.push({ members, lanes: laneEnds.length });
+    members = [];
     laneEnds = [];
   };
   for (const item of sorted) {
@@ -64,22 +65,137 @@ export function layoutLanes(items: readonly ({ id: string } & MinuteRange)[]): M
       lane = laneEnds.length;
       laneEnds.push(item.endMin);
     } else laneEnds[lane] = item.endMin;
-    group.push({ id: item.id, lane });
+    members.push({ item, lane });
     groupEnd = Math.max(groupEnd, item.endMin);
   }
   close();
+  return groups;
+}
+
+/** Lanes for overlapping items: each group of items that overlap shares its width. */
+export function layoutLanes(items: readonly ({ id: string } & MinuteRange)[]): Map<string, { lane: number; lanes: number }> {
+  const result = new Map<string, { lane: number; lanes: number }>();
+  for (const group of laneGroups(items)) for (const member of group.members) result.set(member.item.id, { lane: member.lane, lanes: group.lanes });
   return result;
 }
 
-/** First and last minute of the grid: the opening hours and the bookings shown, in whole hours plus one around. */
-export function gridBounds(open: readonly MinuteRange[], items: readonly MinuteRange[]): MinuteRange {
-  const ranges = [...(open.length ? open : [DEFAULT_OPEN]), ...items];
-  const first = Math.min(...ranges.map((range) => range.startMin));
-  const last = Math.max(...ranges.map((range) => range.endMin));
+/** Bookings shown side by side in a day of the week before the rest go behind «+N» ([AGD-29]). */
+export const WEEK_MAX_LANES = 3;
+
+export type LaneOverflow = { key: string; startMin: number; endMin: number; ids: string[] };
+export type CappedLane = { lane: number; lanes: number; overflow: boolean };
+
+/**
+ * [AGD-29] Lanes with a cap: an item that would take a lane past `max` is one more booking at once than fit (its lane
+ * is only taken when the ones before are busy at its start), so it goes behind the «+N» of its group, which spans the
+ * hidden ones. The items shown in a group with «+N» leave room for it.
+ */
+export function layoutCappedLanes(items: readonly ({ id: string } & MinuteRange)[], max: number): { lanes: Map<string, CappedLane>; overflow: LaneOverflow[] } {
+  const lanes = new Map<string, CappedLane>();
+  const overflow: LaneOverflow[] = [];
+  for (const group of laneGroups(items)) {
+    const hidden = group.members.filter((member) => member.lane >= max).map((member) => member.item);
+    const shown = Math.min(group.lanes, max);
+    for (const member of group.members) {
+      if (member.lane < max) lanes.set(member.item.id, { lane: member.lane, lanes: shown, overflow: hidden.length > 0 });
+    }
+    if (hidden.length) {
+      overflow.push({
+        key: `${hidden[0].id}:more`,
+        startMin: Math.min(...hidden.map((item) => item.startMin)),
+        endMin: Math.max(...hidden.map((item) => item.endMin)),
+        ids: hidden.map((item) => item.id),
+      });
+    }
+  }
+  return { lanes, overflow };
+}
+
+/**
+ * [AGD-30] First and last minute of the grid: from the first opening to the last closing of the days shown (no
+ * margin), widened only for a booking outside them, so none is hidden. Absences and blocks never widen it.
+ */
+export function gridBounds(open: readonly MinuteRange[], bookings: readonly MinuteRange[]): MinuteRange {
+  const ranges = [...(open.length ? open : [DEFAULT_OPEN]), ...bookings];
   return {
-    startMin: Math.max(0, Math.floor(first / HOUR) * HOUR - HOUR),
-    endMin: Math.min(MINUTES_PER_DAY, Math.ceil(last / HOUR) * HOUR + HOUR),
+    startMin: Math.max(0, Math.min(...ranges.map((range) => range.startMin))),
+    endMin: Math.min(MINUTES_PER_DAY, Math.max(...ranges.map((range) => range.endMin))),
   };
+}
+
+export type GridFold = MinuteRange & { label: string };
+
+/** A closed stretch shorter than this is not worth folding: the band would take about as much room. */
+const MIN_FOLD_MINUTES = 45;
+
+/**
+ * [AGD-30] Stretches folded into a narrow band: inside the grid, closed on every column shown (a day closed all day is
+ * closed then too), at least `MIN_FOLD_MINUTES` long and with no booking, block or absence drawn in them.
+ */
+export function foldedStretches(
+  columns: readonly { open: readonly MinuteRange[] }[],
+  bounds: MinuteRange,
+  bookings: readonly MinuteRange[],
+  timeOff: readonly MinuteRange[],
+): GridFold[] {
+  const open = columns
+    .flatMap((column) => column.open)
+    .map((range) => ({ ...range }))
+    .sort((a, b) => a.startMin - b.startMin);
+  const gaps: MinuteRange[] = [];
+  let cursor = bounds.startMin;
+  for (const range of open) {
+    if (range.startMin > cursor) gaps.push({ startMin: cursor, endMin: Math.min(range.startMin, bounds.endMin) });
+    cursor = Math.max(cursor, range.endMin);
+  }
+  return gaps
+    .filter((gap) => gap.startMin > bounds.startMin && gap.endMin < bounds.endMin && gap.endMin - gap.startMin >= MIN_FOLD_MINUTES)
+    .filter((gap) => ![...bookings, ...timeOff].some((item) => overlaps(item, gap)))
+    .map((gap) => ({ ...gap, label: `Cerrado de ${minutesLabel(gap.startMin)} a ${minutesLabel(gap.endMin)}` }));
+}
+
+export type GridScale = {
+  bounds: MinuteRange;
+  folds: readonly GridFold[];
+  height: number;
+  /** Pixels from the top of the grid of a minute of the day (inside a fold, its band). */
+  toY: (minutes: number) => number;
+  /** The minute at a height: inside a band, the fold's start in its upper half and its end in the lower one. */
+  toMinute: (y: number) => number;
+  /** The fold whose band is at that height, if any. */
+  foldAt: (y: number) => GridFold | null;
+};
+
+/** [AGD-30] Height of the grid with its folds: linear (`pxPerMin`) inside the open parts, `foldPx` per fold. */
+export function gridScale(bounds: MinuteRange, folds: readonly GridFold[], pxPerMin: number, foldPx: number): GridScale {
+  const sorted = [...folds].sort((a, b) => a.startMin - b.startMin);
+  // Each fold with the height where its band starts.
+  const bands = sorted.map((fold, index) => {
+    const before = sorted.slice(0, index).reduce((sum, other) => sum + (other.endMin - other.startMin) * pxPerMin - foldPx, 0);
+    return { fold, top: (fold.startMin - bounds.startMin) * pxPerMin - before };
+  });
+  const removed = sorted.reduce((sum, fold) => sum + (fold.endMin - fold.startMin) * pxPerMin - foldPx, 0);
+  const height = (bounds.endMin - bounds.startMin) * pxPerMin - removed;
+  const toY = (minutes: number) => {
+    const clamped = Math.min(Math.max(minutes, bounds.startMin), bounds.endMin);
+    let y = (clamped - bounds.startMin) * pxPerMin;
+    for (const { fold, top } of bands) {
+      if (clamped >= fold.endMin) y -= (fold.endMin - fold.startMin) * pxPerMin - foldPx;
+      else if (clamped > fold.startMin) return top + ((clamped - fold.startMin) / (fold.endMin - fold.startMin)) * foldPx;
+    }
+    return y;
+  };
+  const foldAt = (y: number) => bands.find(({ top }) => y >= top && y < top + foldPx)?.fold ?? null;
+  const toMinute = (y: number) => {
+    let offset = 0;
+    for (const { fold, top } of bands) {
+      if (y < top) break;
+      if (y < top + foldPx) return y - top < foldPx / 2 ? fold.startMin : fold.endMin;
+      offset += (fold.endMin - fold.startMin) * pxPerMin - foldPx;
+    }
+    return Math.min(bounds.endMin, Math.max(bounds.startMin, bounds.startMin + (y + offset) / pxPerMin));
+  };
+  return { bounds, folds: sorted, height, toY, toMinute, foldAt };
 }
 
 /** The nearest multiple of the slot interval, within the day. */
@@ -125,3 +241,48 @@ export function occupancy(items: readonly (MinuteRange & { people: number })[], 
   }
   return result;
 }
+
+/** `prefix` and as many whole words of `name` as fit, ended in «…» when some are left out; null if not even one. */
+function fitName(prefix: string, name: string, fits: (candidate: string) => boolean): string | null {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (fits(`${prefix}${words.join(" ")}`)) return `${prefix}${words.join(" ")}`;
+  for (let count = words.length - 1; count >= 1; count -= 1) {
+    const candidate = `${prefix}${words.slice(0, count).join(" ")}…`;
+    if (fits(candidate)) return candidate;
+  }
+  return null;
+}
+
+export type BookingCardText = {
+  /** Lines of text the card has room for. */
+  lines: number;
+  fits: (text: string) => boolean;
+  time: string;
+  timeRange: string;
+  who: string;
+  /** Service and professional («Sesión · Álvaro»), or just the service when the column already says who. */
+  service: string;
+  serviceOnly: string;
+};
+
+/**
+ * [AGD-29] The rows of a booking on the grid: its time, the customer's name and the service, and the professional if
+ * it fits. When everything does not fit, the time and the first name, ended in «…» at a whole word (one under the
+ * other if they do not fit side by side); with one short line and no room for both, the first name, since the hour
+ * lines already say the time. Never cut in the middle of a word: what does not fit even as one word is «…» (the
+ * whole text is in the booking's tooltip and card).
+ */
+export function bookingCardRows(card: BookingCardText): string[] {
+  const { lines, fits, time, timeRange, who, service, serviceOnly } = card;
+  const serviceRow = fits(service) ? service : (fitName("", serviceOnly, fits) ?? "…");
+  const name = fitName("", who, fits) ?? "…";
+  if (lines >= 3) return [fits(timeRange) ? timeRange : fits(time) ? time : "…", name, serviceRow];
+  if (lines === 2) {
+    const together = fitName(`${time} `, who, fits);
+    return together ? [together, serviceRow] : [fits(time) ? time : "…", name];
+  }
+  const whole = `${time} ${who} · ${serviceOnly}`;
+  if (fits(whole)) return [whole];
+  return [fitName(`${time} `, who, fits) ?? fitName("", who, fits) ?? (fits(time) ? time : "…")];
+}
+

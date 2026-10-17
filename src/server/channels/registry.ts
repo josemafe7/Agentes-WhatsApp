@@ -1,5 +1,6 @@
 // Adapters by channel type. Each channel phase registers its adapter at import time (WhatsApp in phase 3, email in
-// phase 6, Telegram in phase 9…); demo channels always use the DemoAdapter, which never calls a real service ([ARR-11]).
+// phase 6, Telegram in phase 9, Instagram in phase 16…); demo channels always use the DemoAdapter, which never calls a
+// real service ([ARR-11]).
 // WhatsApp has one adapter per way of connecting the number ([WA-54]): Meta's own API is the registered one, a number
 // connected through YCloud gets YCloud's, and one linked by QR code gets that way's.
 import "server-only";
@@ -9,6 +10,7 @@ import { AppError } from "@/server/errors";
 import { defaultCapabilitiesOf } from "./capabilities";
 import { demoAdapter } from "./demo-adapter";
 import { gmailAdapter, imapAdapter, outlookAdapter } from "./email/adapter";
+import { instagramAdapter } from "./instagram/adapter";
 import { telegramAdapter } from "./telegram/adapter";
 import type { ChannelAdapter, ChannelCapabilities, ChannelRecord } from "./types";
 import { webchatAdapter } from "./webchat-adapter";
@@ -44,11 +46,12 @@ registerChannelAdapter(gmailAdapter);
 registerChannelAdapter(outlookAdapter);
 registerChannelAdapter(imapAdapter);
 registerChannelAdapter(telegramAdapter);
+registerChannelAdapter(instagramAdapter);
 
 /** What tells a channel's adapter apart: its type and, for WhatsApp, the way its number is connected. */
 type AdapterKey = Pick<ChannelRecord, "type" | "isDemo"> & { connectionMode?: string | null };
 
-/** The adapter that talks to this channel. Demo WhatsApp, email and Telegram channels get the DemoAdapter. */
+/** The adapter that talks to this channel. Demo WhatsApp, email, Telegram and Instagram channels get the DemoAdapter. */
 export function getChannelAdapter(channel: AdapterKey): ChannelAdapter {
   if (channel.isDemo && channel.type !== "webchat") return demoAdapter;
   const via = whatsappViaOf(channel);

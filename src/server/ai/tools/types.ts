@@ -19,6 +19,13 @@ export type ToolContext = {
   /** The only contact a tool may read or change ([HER-04]). */
   contactId: string | null;
   channelId: string | null;
+  /** The kind of channel of the conversation (or the one «Probar agente» simulates). */
+  channelKind?: string;
+  /**
+   * The conversation's identity is «sin confirmar» ([WA-63]): the only booking the tools may see or change, the one of
+   * the reminder answered. Undefined: no such limit.
+   */
+  onlyBookingId?: string;
   now: Date;
   timezone: string;
   /** Inside opening hours now (business time zone, closures included): picks the hand-off message ([TRA-03]). */

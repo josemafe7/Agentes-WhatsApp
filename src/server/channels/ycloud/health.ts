@@ -3,6 +3,7 @@
 // amber, red or informative, with a Spanish explanation.
 import "server-only";
 import type { ChannelHealth } from "@/db/schema";
+import { YCLOUD_WEBHOOK_EVENTS } from "@/lib/ycloud/client";
 import { isYCloudApiError } from "@/lib/ycloud/errors";
 import type { YCloudBalance, YCloudPhoneNumber, YCloudWebhookEndpoint } from "@/lib/ycloud/schemas";
 import type { ChannelRecord } from "../types";
@@ -105,6 +106,12 @@ export async function checkYCloudHealth(channel: ChannelRecord, deps: YCloudDeps
     client.getPhoneNumber(channel.wabaId, config.ycloudPhoneNumber),
     endpointId ? client.getWebhookEndpoint(endpointId) : Promise.reject(new Error("sin dirección de avisos")),
   ]);
+  // An endpoint made before an event was added (the template categories and the bajas of publicidad, [YC-11]) gets
+  // the whole list again; a failure here only waits for the next check.
+  if (endpointId && endpoint.status === "fulfilled") {
+    const enabled = new Set(endpoint.value.enabledEvents ?? []);
+    if (YCLOUD_WEBHOOK_EVENTS.some((event) => !enabled.has(event))) await client.updateWebhookEndpointEvents(endpointId).catch(() => null);
+  }
   const webhook = webhookCheck(channel.id, endpointId, endpointId ? endpoint : null);
   const checks = [keyCheck(balance), numberCheck(number), webhook, balanceCheck(balance), lastMessageCheck(channel.lastInboundAt)];
   const failing = checks.find((item) => item.status === "error" && BLOCKING.has(item.key as YCloudHealthKey));

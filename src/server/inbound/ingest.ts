@@ -11,6 +11,8 @@ import { toSingleLine } from "@/lib/format";
 import type { JobQueue } from "@/server/adapters/job-queue";
 import type { AccountEvent, ChannelRecord, InboundMessageEvent, NormalizedEvent } from "@/server/channels/types";
 import { enqueueOptOutConfirmation, recordKeywordOptOut, type KeywordOptOut } from "@/server/compliance/opt-out";
+import { enqueueReminderThanks, recordReminderTap, whatsappReminderTap, type ReminderAction, type ReminderTapOutcome } from "@/server/booking/reminder-buttons";
+import { quotedMessage, recordMarketingOptOutTap, recordTelegramMarketingOptOut, tappedButton, type QuotedMessage, type TappedButton } from "./button-taps";
 import { pendingInbound } from "@/server/engine/pending";
 import { scheduleReply } from "@/server/engine/schedule";
 import { MIN_JOB_BUDGET_MS, tick } from "@/server/jobs/tick";
@@ -108,6 +110,8 @@ async function applyReaction(tx: Executor, channel: ChannelRecord, event: Inboun
 type InboundOutcome = IngestedMessage & {
   schedule: { lastInboundMessageId: string; firstPendingAt: Date } | null;
   optOut: KeywordOptOut | null;
+  /** «Confirmo» on a reminder: its «¡Gracias!» goes through the queue ([AGD-32]). */
+  thanks?: ReminderTapOutcome["thanks"];
   /** A customer's message opened a conversation (new, or a resolved one again): the team may want to hear ([AJU-08]). */
   opened: boolean;
 };
@@ -160,8 +164,8 @@ async function ingestInbound(channel: ChannelRecord, event: InboundMessageEvent,
         // Added in the database: a «read» set by a person outside this transaction is never overwritten.
         unreadCount: sql`${conversations.unreadCount} + 1`,
         // What must not be answered (system notices, unsupported types) never opens nor renews WhatsApp's 24 h window
-        // ([WA-43], docs/integracion-whatsapp-mensajes.md §13).
-        ...(event.noReply ? {} : { lastInboundAt }),
+        // ([WA-43], docs/integracion-whatsapp-mensajes.md §13); a customer's own post shared on Instagram does ([IG-04]).
+        ...(event.noReply && !event.opensWindow ? {} : { lastInboundAt }),
         lastMessageAt: now,
         // A resolved conversation reopens and goes back to the AI for this message ([CAN-12], [TRA-08]).
         ...(reopened ? { status: "open" as const, aiMode: "ai" as const, aiPausedUntil: null, pauseReason: null } : {}),
@@ -179,20 +183,56 @@ async function ingestInbound(channel: ChannelRecord, event: InboundMessageEvent,
       { channelType: channel.type, executor: tx },
     );
 
+    // A button of one of our templates: «No quiero publicidad» opts them out of novedades y publicidad by WhatsApp, with
+    // one confirmation and no AI reply ([WA-62]).
+    const button = event.noReply ? null : tappedButton(event);
+    const quotedId = typeof event.metadata?.quotedExternalId === "string" ? event.metadata.quotedExternalId : null;
+    const quoted = button && quotedId ? await quotedMessage(tx, channel.id, quotedId) : null;
+    const telegramOptOut = event.metadata?.marketingOptOutButton as { recipientId?: unknown } | undefined;
+    const marketingTap =
+      typeof telegramOptOut?.recipientId === "string"
+        ? await recordTelegramMarketingOptOut(tx, { channel, contactId, conversationId: conversation.id, recipientId: telegramOptOut.recipientId, now })
+        : button && quoted
+          ? await recordMarketingOptOutTap(tx, { channel, contactId, conversationId: conversation.id, quoted, button, now })
+          : null;
+    // A reminder's «Confirmo» or «Necesito cambiarla» (WhatsApp, by the template it answers; Telegram, by its code).
+    const reminderButton = marketingTap?.handled ? null : await reminderButtonOf(tx, event, button, quoted);
+    const reminderTap = reminderButton
+      ? await recordReminderTap(tx, { contactId, conversationId: conversation.id, messageId: message.id, ...reminderButton, now })
+      : null;
+    const tap = marketingTap?.handled ? marketingTap : reminderTap?.handled ? { handled: true, optOut: null } : null;
     // «BAJA» or «STOP» opts the sender of this message out of this channel (in an email thread, whoever wrote it, not the
     // thread's first contact); its one confirmation goes through the queue instead of an AI reply ([CUM-03]).
     const subject = typeof event.metadata?.subject === "string" ? event.metadata.subject : null;
-    const optOut = event.noReply
-      ? null
-      : await recordKeywordOptOut(tx, { channel, contactId, conversationId: conversation.id, contentType: event.contentType, text: event.text, subject, now });
+    const optOut =
+      tap?.optOut ??
+      (event.noReply || tap?.handled
+        ? null
+        : await recordKeywordOptOut(tx, { channel, contactId, conversationId: conversation.id, contentType: event.contentType, text: event.text, subject, now }));
     let schedule: InboundOutcome["schedule"] = null;
-    if (!event.noReply && !optOut) {
+    if (!event.noReply && !optOut && !tap?.handled) {
       const [first] = await pendingInbound(conversation.id, tx);
       schedule = { lastInboundMessageId: message.id, firstPendingAt: first?.createdAt ?? now };
     }
     const opened = !event.noReply && (created || reopened);
-    return { messageId: message.id, conversationId: conversation.id, contactId, duplicate: false, reaction: false, schedule, optOut, opened };
+    return { messageId: message.id, conversationId: conversation.id, contactId, duplicate: false, reaction: false, schedule, optOut, opened, thanks: reminderTap?.thanks ?? null };
   });
+}
+
+/** The reminder button a message taps, if it is one: WhatsApp's by the template it answers, Telegram's by its code. */
+async function reminderButtonOf(
+  tx: Executor,
+  event: InboundMessageEvent,
+  button: TappedButton | null,
+  quoted: QuotedMessage | null,
+): Promise<{ sendId: string; action: ReminderAction } | null> {
+  const telegram = event.metadata?.reminderButton;
+  if (typeof telegram === "object" && telegram !== null) {
+    const { sendId, action } = telegram as { sendId?: unknown; action?: unknown };
+    if (typeof sendId === "string" && /^[0-9a-f-]{36}$/.test(sendId) && (action === "confirm" || action === "change")) return { sendId, action };
+    return null;
+  }
+  return button && quoted ? whatsappReminderTap(tx, quoted, button) : null;
 }
 
 /** The contact's name as a notice shows it, also on a locked phone ([PWA-04]): one line and short. */
@@ -247,7 +287,11 @@ export async function ingestEvents(channel: ChannelRecord, events: readonly Norm
     try {
       const event = storableJson(received);
       if (event.kind === "inbound_message") {
-        const { schedule, optOut, opened, ...ingested } = await ingestInbound(channel, event, now);
+        const { schedule, optOut, opened, thanks, ...ingested } = await ingestInbound(channel, event, now);
+        if (thanks) {
+          const job = await enqueueReminderThanks(thanks, { now, queue: options.queue });
+          if (!result.replyRunAt || job.runAt < result.replyRunAt) result.replyRunAt = job.runAt;
+        }
         result.messages.push(ingested);
         if (opened && ingested.conversationId && ingested.contactId) await notifyNewConversation(channel, ingested.conversationId, ingested.contactId, options.queue);
         if (schedule && ingested.conversationId) {

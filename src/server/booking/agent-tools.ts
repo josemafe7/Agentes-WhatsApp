@@ -18,12 +18,16 @@ import { formatLocalMinute } from "./time";
 import type { BookingView } from "./views";
 
 /** The part of a tool's context the booking tools read. */
-export type BookingToolContext = { mode: "test" | "live"; agentId: string; conversationId: string | null; contactId: string | null; channelId: string | null; now: Date };
+export type BookingToolContext = { mode: "test" | "live"; agentId: string; conversationId: string | null; contactId: string | null; channelId: string | null; now: Date; onlyBookingId?: string };
 
-/** Live: the conversation's contact only. «Probar agente»: test bookings only. Null when there is no contact. */
+/**
+ * Live: the conversation's contact only (and only the booking of the reminder answered, when its identity is «sin
+ * confirmar», [WA-63]). «Probar agente»: test bookings only. Null when there is no contact.
+ */
 export function bookingScopeOf(context: BookingToolContext): BookingScope | null {
   if (context.mode === "test") return { testOnly: true };
-  return context.contactId ? { contactId: context.contactId } : null;
+  if (!context.contactId) return null;
+  return context.onlyBookingId ? { contactId: context.contactId, bookingId: context.onlyBookingId } : { contactId: context.contactId };
 }
 
 const DEFAULT_AGENT_NAME = "Agente de IA";

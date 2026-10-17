@@ -1,10 +1,18 @@
 // A Telegram update → the normalized event of the common pipeline ([TG-03], [CAN-13], docs/integracion-telegram.md
 // «Recepción» and «Forma de los datos»). Pure (no database): webhook.ts and the poll ingest the event and queue the
-// download. Only private chats and only messages people send: groups, channels, other bots and every other kind of
-// update are ignored. The identity is the user's id (`from.id`), never a phone. What Telegram sends is data, never
+// download. Only private chats and only what people do: their messages, a tap on a reminder's button ([TG-13]) and
+// blocking or unblocking the bot ([TG-12]); groups, channels, other bots and every other kind of update are ignored. The identity is the user's id (`from.id`), never a phone. What Telegram sends is data, never
 // instructions.
 import "server-only";
-import { telegramMessageSchema, telegramPhotoSizeSchema, telegramUpdateSchema, telegramVoiceSchema, type TelegramPhotoSize } from "@/lib/telegram/schemas";
+import {
+  telegramCallbackQuerySchema,
+  telegramChatMemberUpdatedSchema,
+  telegramMessageSchema,
+  telegramPhotoSizeSchema,
+  telegramUpdateSchema,
+  telegramVoiceSchema,
+  type TelegramPhotoSize,
+} from "@/lib/telegram/schemas";
 import type { InboundMessageEvent } from "../types";
 import { UNSUPPORTED_TEXT } from "../whatsapp/normalize";
 
@@ -16,7 +24,18 @@ export type NormalizedTelegramUpdate = {
   /** null: nothing this app handles (another kind of update, a group, a bot…). */
   event: InboundMessageEvent | null;
   download: TelegramMediaDownload | null;
+  /** A button's tap, which must always be answered ([TG-13]). */
+  callbackQueryId?: string;
+  /** The customer blocked (true) or unblocked (false) the bot ([TG-12]). */
+  blocked?: { userId: string; blocked: boolean };
 };
+
+/** The two buttons of a reminder: «rc:<reminder>» confirms, «rx:<reminder>» asks to change it ([TG-13]). */
+const REMINDER_BUTTON = /^r([cx]):([0-9a-f-]{36})$/;
+const REMINDER_LABELS = { confirm: "Confirmo", change: "Necesito cambiarla" } as const;
+/** «No quiero publicidad» of an envío: «mo:<contact of the envío>» ([ENV-06]). */
+const MARKETING_OPT_OUT_BUTTON = /^mo:([0-9a-f-]{36})$/;
+const MARKETING_OPT_OUT_LABEL = "No quiero publicidad";
 
 /** What a voice note is when Telegram does not say (it records OGG with Opus). */
 const VOICE_MIME_TYPE = "audio/ogg";
@@ -44,11 +63,61 @@ function otherKind(raw: unknown): string {
   return OTHER_KINDS.find((kind) => fields[kind] !== undefined && fields[kind] !== null) ?? "other";
 }
 
+/** A tap: answered always; when it is a reminder's button, also the customer's message about that booking. */
+function callbackQuery(ignored: NormalizedTelegramUpdate, raw: unknown, now: Date): NormalizedTelegramUpdate {
+  const parsed = telegramCallbackQuerySchema.safeParse(raw);
+  if (!parsed.success) return ignored;
+  const query = parsed.data;
+  const answered = { ...ignored, callbackQueryId: query.id };
+  if (!query.message || query.message.chat.type !== "private" || query.from.is_bot) return answered;
+  const sender = { externalIds: [query.from.id], displayName: clean([query.from.first_name, query.from.last_name].filter(Boolean).join(" ")) };
+  const marketing = MARKETING_OPT_OUT_BUTTON.exec(query.data ?? "");
+  if (marketing) {
+    return {
+      ...answered,
+      event: {
+        kind: "inbound_message",
+        externalId: `cb:${query.id}`,
+        sender,
+        contentType: "interactive",
+        text: MARKETING_OPT_OUT_LABEL,
+        sentAt: now,
+        metadata: { telegramChatId: query.message.chat.id, button: { text: MARKETING_OPT_OUT_LABEL, payload: query.data }, marketingOptOutButton: { recipientId: marketing[1] } },
+      },
+    };
+  }
+  const match = REMINDER_BUTTON.exec(query.data ?? "");
+  if (!match) return answered;
+  const action = match[1] === "c" ? "confirm" : "change";
+  const text = REMINDER_LABELS[action];
+  return {
+    ...answered,
+    event: {
+      kind: "inbound_message",
+      externalId: `cb:${query.id}`,
+      sender,
+      contentType: "interactive",
+      text,
+      sentAt: now,
+      metadata: { telegramChatId: query.message.chat.id, button: { text, payload: query.data }, reminderButton: { sendId: match[2], action } },
+    },
+  };
+}
+
 /** Null when `body` is not a Telegram update at all. */
-export function normalizeTelegramUpdate(body: unknown): NormalizedTelegramUpdate | null {
+export function normalizeTelegramUpdate(body: unknown, now: Date = new Date()): NormalizedTelegramUpdate | null {
   const update = telegramUpdateSchema.safeParse(body);
   if (!update.success) return null;
   const ignored: NormalizedTelegramUpdate = { updateId: update.data.update_id, event: null, download: null };
+  if (update.data.callback_query !== undefined) return callbackQuery(ignored, update.data.callback_query, now);
+  if (update.data.my_chat_member !== undefined) {
+    const member = telegramChatMemberUpdatedSchema.safeParse(update.data.my_chat_member);
+    if (!member.success || member.data.chat.type !== "private") return ignored;
+    // «kicked» when the customer blocks the bot, «member» when they unblock it; «left» counts as blocked too.
+    const status = member.data.new_chat_member.status;
+    if (status !== "kicked" && status !== "left" && status !== "member") return ignored;
+    return { ...ignored, blocked: { userId: member.data.from.id, blocked: status !== "member" } };
+  }
   const parsed = telegramMessageSchema.safeParse(update.data.message);
   if (!parsed.success) return ignored;
   const message = parsed.data;

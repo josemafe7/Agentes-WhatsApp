@@ -7,13 +7,16 @@ import {
   BOOKING_SOURCES,
   BOOKING_STATUSES,
   REMINDER_CHANNELS,
+  REMINDER_ROUTES,
+  REMINDER_SEND_STATUSES,
   RESOURCE_COLORS,
   RESOURCE_TYPES,
   TIME_OFF_KINDS,
 } from "@/lib/enums";
 import { user } from "./auth";
 import { channels } from "./channels";
-import { bool, EMPTY_JSON_OBJECT, id, json, timestamp, timestamps } from "./columns";
+import type { ReminderAttempt, ReminderRule } from "@/lib/reminder-rules";
+import { bool, EMPTY_JSON_ARRAY, EMPTY_JSON_OBJECT, id, json, timestamp, timestamps } from "./columns";
 import { contacts } from "./contacts";
 import { conversations } from "./conversations";
 
@@ -135,7 +138,12 @@ export const bookings = pgTable(
     createdByName: text("created_by_name"),
     /** Created from «Probar agente»: labelled «Prueba» and removable in bulk ([PRU-04]). */
     isTest: bool("is_test").notNull().default(false),
+    /** The single reminder before phase 12; now only read, so a booking already reminded is not reminded again. */
     reminderSentAt: timestamp("reminder_sent_at"),
+    /** «Confirmada por el cliente» with the reminder's button; cleared when the time changes ([AGD-33]). */
+    customerConfirmedAt: timestamp("customer_confirmed_at"),
+    /** When its current time was set (null: when it was created), for the reminders already due then ([AGD-25]). */
+    startsAtSetAt: timestamp("starts_at_set_at"),
     cancelledAt: timestamp("cancelled_at"),
     cancelReason: text("cancel_reason"),
     ...timestamps(),
@@ -167,7 +175,11 @@ export const bookingEvents = pgTable(
   (t) => [index("booking_events_booking_id_idx").on(t.bookingId)],
 ).enableRLS();
 
-/** Booking reminder, off by default ([AGD-24], [AGD-25]). Single row. */
+/**
+ * Booking reminders, off by default ([AGD-24], [AGD-25]). Single row: the switch, the reminders (`rules`, up to three)
+ * and the «¡Gracias!» of the «Confirmo» button ([AGD-32]). The columns from lead_minutes to email_body are the single
+ * reminder before phase 12, only read while `rules` is empty.
+ */
 export const reminderSettings = pgTable(
   "reminder_settings",
   {
@@ -184,7 +196,39 @@ export const reminderSettings = pgTable(
     templateVariables: json<Record<string, string>>("template_variables").notNull().default(EMPTY_JSON_OBJECT),
     emailSubject: text("email_subject"),
     emailBody: text("email_body"),
+    rules: json<ReminderRule[]>("rules").notNull().default(EMPTY_JSON_ARRAY),
+    /** Null: «¡Gracias! Te esperamos.» */
+    thanksText: text("thanks_text"),
     ...timestamps(),
   },
   () => [check("reminder_settings_singleton_ck", sql`singleton = 1`)],
+).enableRLS();
+
+/**
+ * Each reminder of a booking for one time of it ([AGD-25]): unique by booking, reminder and time, so it goes once for
+ * each time the booking has, and the row is also the claim of the round that sends it. `messageId` is the message it
+ * went as (to match its buttons and a later failure, [AGD-32]); a plain id, since erasing a contact deletes messages.
+ */
+export const bookingReminderSends = pgTable(
+  "booking_reminder_sends",
+  {
+    id: id(),
+    bookingId: text("booking_id")
+      .notNull()
+      .references(() => bookings.id),
+    ruleId: text("rule_id").notNull(),
+    startsAt: timestamp("starts_at").notNull(),
+    dueAt: timestamp("due_at").notNull(),
+    status: text("status", { enum: REMINDER_SEND_STATUSES }).notNull(),
+    channel: text("channel", { enum: REMINDER_ROUTES }),
+    messageId: text("message_id"),
+    attempts: json<ReminderAttempt[]>("attempts").notNull().default(EMPTY_JSON_ARRAY),
+    reason: text("reason"),
+    sentAt: timestamp("sent_at"),
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex("booking_reminder_sends_booking_rule_time_uq").on(t.bookingId, t.ruleId, t.startsAt),
+    index("booking_reminder_sends_message_idx").on(t.messageId),
+  ],
 ).enableRLS();

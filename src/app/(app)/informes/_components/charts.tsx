@@ -50,6 +50,7 @@ const channelConfig = {
   email: { label: "Correo", color: "var(--channel-email)" },
   web: { label: "Chat web", color: "var(--channel-web)" },
   telegram: { label: "Telegram", color: "var(--channel-telegram)" },
+  instagram: { label: "Instagram", color: "var(--channel-instagram)" },
 } satisfies ChartConfig;
 
 /** [INF-02] Conversations of each channel, in the channel's colour. */

@@ -2,18 +2,19 @@ import type { Metadata } from "next";
 import { noPermissionDescription } from "@/components/app-shell/navigation";
 import { NoPermission } from "@/components/no-permission";
 import { PageHeader } from "@/components/page-header";
-import { getAgendaSettings, getReminderSettings } from "@/data/agenda-config";
+import { getAgendaSettings } from "@/data/agenda-config";
+import { getReminderSettings } from "@/data/reminder-settings";
 import { can, PERMISSIONS } from "@/lib/permissions";
 import { TERMINOLOGY_OPTIONS } from "@/lib/sectors/schema";
-import { defaultReminderEmail } from "@/server/booking/reminder-fields";
 import { requirePageActor } from "@/server/session";
 import { ReminderSettingsForm } from "./_components/reminder-settings-form";
 
 export const metadata: Metadata = { title: "Recordatorios" };
 
 /**
- * Ajustes › Recordatorios ([AGD-24], [AGD-25]): a reminder before each booking, off by default, by WhatsApp with an
- * approved utility template (its variables mapped to booking data) or by email with an editable text. Owner and admin.
+ * Ajustes › Recordatorios ([AGD-24], [AGD-25], [AGD-32]): up to three reminders before each booking, off by default,
+ * each by its channels in order (WhatsApp with an approved utility template, Telegram, email) with its message, and the
+ * «¡Gracias!» of «Confirmo». Owner and admin.
  */
 export default async function ReminderSettingsPage() {
   const actor = await requirePageActor({ next: "/ajustes/recordatorios" });
@@ -26,9 +27,9 @@ export default async function ReminderSettingsPage() {
     <>
       <PageHeader
         title="Recordatorios"
-        description={`Un aviso a cada ${words.customer} antes de su ${words.booking}, una sola vez. Nunca a las ${words.bookings} canceladas ni a quien se ha dado de baja.`}
+        description={`Hasta tres avisos a cada ${words.customer} antes de su ${words.booking}. Nunca a las ${words.bookings} canceladas ni por un canal del que se ha dado de baja.`}
       />
-      <ReminderSettingsForm settings={settings} options={options} defaultEmail={defaultReminderEmail(words.booking)} words={{ booking: words.booking, customers }} />
+      <ReminderSettingsForm settings={settings} options={options} words={{ booking: words.booking, bookings: words.bookings, customers }} />
     </>
   );
 }

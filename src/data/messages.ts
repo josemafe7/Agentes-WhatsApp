@@ -7,7 +7,7 @@ import { z } from "zod";
 import { loadBusinessSettings } from "@/data/settings";
 import { db } from "@/db";
 import { aiRuns, channels, conversations, messageRetrievals, messages, type MessageError, type MessageReaction } from "@/db/schema";
-import type { MessageContentType, MessageDirection, MessageStatus, SenderType } from "@/lib/enums";
+import type { ChannelType, MessageContentType, MessageDirection, MessageStatus, SenderType } from "@/lib/enums";
 import { whatsappWindowState } from "@/lib/meta/window";
 import { can, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
@@ -46,6 +46,8 @@ export type MessageItem = {
   media: { url: string | null; mimeType: string | null; size: number | null; fileName: string | null; downloadStatus: string | null } | null;
   /** The daily clean-up removed its file ([CUM-05]); a voice note keeps its transcript. */
   mediaRemoved: boolean;
+  /** The customer deleted it in the channel: the inbox shows «El cliente borró este mensaje» ([IG-07]). */
+  deletedByContact: boolean;
   status: MessageStatus;
   error: MessageError | null;
   reactions: MessageReaction[];
@@ -54,6 +56,10 @@ export type MessageItem = {
   aiRunId: string | null;
   /** WhatsApp: Meta's pricing of the sent message and its estimated cost in USD ([WA-47]); null until it arrives. */
   pricing?: { type: string | null; category: string | null; costEstimate: number | null } | null;
+  /** The envío this message belongs to, by its name, so a reply is known to answer it ([ENV-12]). */
+  campaignName?: string | null;
+  /** The envío an email answers, by its name: its email went by the system mail, outside the conversation ([ENV-12]). */
+  answersCampaign?: string | null;
   createdAt: Date;
   sentAt: Date | null;
 };
@@ -81,6 +87,11 @@ export async function listMessages(actor: Actor, input: unknown): Promise<{ item
   return { items, hasMore: rows.length > data.limit };
 }
 
+function campaignNameOf(metadata: Record<string, unknown>, key: "campaign" | "answersCampaign" = "campaign"): string | null {
+  const campaign = metadata[key];
+  return typeof campaign === "object" && campaign !== null && typeof (campaign as { name?: unknown }).name === "string" ? (campaign as { name: string }).name : null;
+}
+
 function toItem(row: typeof messages.$inferSelect): MessageItem {
   const media = row.media;
   return {
@@ -102,12 +113,15 @@ function toItem(row: typeof messages.$inferSelect): MessageItem {
         }
       : null,
     mediaRemoved: !media && typeof row.metadata.mediaDeletedAt === "string",
+    deletedByContact: Boolean(row.metadata.deletedByContact),
     status: row.status,
     error: row.error,
     reactions: row.reactions,
     simulated: row.simulated,
     aiRunId: typeof row.metadata.aiRunId === "string" ? row.metadata.aiRunId : null,
     pricing: row.pricingType || row.pricingCategory ? { type: row.pricingType, category: row.pricingCategory, costEstimate: row.costEstimate } : null,
+    campaignName: campaignNameOf(row.metadata),
+    answersCampaign: campaignNameOf(row.metadata, "answersCampaign"),
     createdAt: row.createdAt,
     sentAt: row.sentAt,
   };
@@ -120,15 +134,37 @@ export const sendHumanMessageSchema = z
   })
   .strict();
 
+/** Why nothing but a template goes in WhatsApp, and nothing at all in Instagram, once its 24 h window is closed. */
+const WINDOW_CLOSED_MESSAGES: Partial<Record<ChannelType, string>> = {
+  instagram: "Han pasado más de 24 horas desde el último mensaje del cliente: Instagram no deja responder hasta que vuelva a escribir.",
+};
+const WINDOW_CLOSED_TEMPLATE_MESSAGE = "Han pasado más de 24 horas desde el último mensaje del cliente: solo puedes enviar una plantilla aprobada.";
+
 /**
- * A disabled channel sends nothing ([CAN-16]); outside WhatsApp's 24 h window only a template goes ([BAN-08]). The window
- * counts from the customer's last message, and a 131047 from Meta closes it until the customer writes again ([WA-43]).
+ * A disabled channel sends nothing ([CAN-16]); outside WhatsApp's 24 h window only a template goes ([BAN-08]), and
+ * outside Instagram's nothing goes until the customer writes again ([IG-04], [BAN-18]). The window counts from the
+ * customer's last message, and Meta saying it is closed (131047, or Instagram's 10/2534022) closes it until the
+ * customer writes again ([WA-43]).
  */
-async function assertCanSendNow(conversation: { channelId: string; lastInboundAt: Date | null; metadata: Record<string, unknown> }, now: Date): Promise<void> {
+async function assertCanSendNow(
+  conversation: { channelId: string; lastInboundAt: Date | null; metadata: Record<string, unknown> },
+  now: Date,
+  options: { template?: boolean } = {},
+): Promise<void> {
   const [channel] = await db.select().from(channels).where(eq(channels.id, conversation.channelId));
   if (!channel || channel.status === "disabled") throw new ConflictError("El canal está desactivado: no se pueden enviar mensajes.");
-  if (defaultCapabilitiesOf(channel).window24h && !whatsappWindowState(conversation.lastInboundAt, now, conversation.metadata).open) {
-    throw new ConflictError("Han pasado más de 24 horas desde el último mensaje del cliente: solo puedes enviar una plantilla aprobada.");
+  if (!options.template && defaultCapabilitiesOf(channel).window24h && !whatsappWindowState(conversation.lastInboundAt, now, conversation.metadata).open) {
+    throw new ConflictError(WINDOW_CLOSED_MESSAGES[channel.type] ?? WINDOW_CLOSED_TEMPLATE_MESSAGE);
+  }
+}
+
+/** [IG-05] Instagram takes 1,000 bytes a message: a person's reply is never cut, so a longer one is refused and said why. */
+const INSTAGRAM_MAX_BYTES = 1_000;
+
+async function assertFitsChannel(channelId: string, text: string): Promise<void> {
+  const [channel] = await db.select({ type: channels.type }).from(channels).where(eq(channels.id, channelId));
+  if (channel?.type === "instagram" && new TextEncoder().encode(text).byteLength > INSTAGRAM_MAX_BYTES) {
+    throw new ValidationError(undefined, { text: ["Instagram admite como mucho 1.000 bytes por mensaje (unos 900 caracteres; una letra con tilde cuenta 2 y un emoji 4): acórtalo."] });
   }
 }
 
@@ -143,6 +179,7 @@ export async function sendHumanMessage(actor: Actor, input: unknown): Promise<Se
   const conversation = await loadConversationFor(actor, PERMISSIONS.inbox.reply, data.conversationId);
   const now = new Date();
   await assertCanSendNow(conversation, now);
+  await assertFitsChannel(conversation.channelId, data.text);
 
   const sent = await sendOutbound({ conversationId: conversation.id, sender: { type: "human", userId: actor.userId, name: actor.name }, text: data.text, now });
   const aiPausedUntil = await afterHumanReply(actor, conversation, sent.messageId, now);
@@ -235,18 +272,20 @@ export async function sendHumanAttachment(
   return { messageId: sent.messageId, status: sent.status, error: sent.error, aiPausedUntil };
 }
 
-/** «Reintentar» on a failed message of the business ([BAN-13]). */
+/**
+ * «Reintentar» on a failed message of the business ([BAN-13]): it goes now, so it follows the rules of sending now. Out
+ * of the 24 h window only a WhatsApp template goes again ([BAN-08], [IG-04]).
+ */
 export async function retryFailedMessage(actor: Actor, messageId: string): Promise<Pick<SendOutboundResult, "messageId" | "status" | "error">> {
   assertMessageId(messageId);
   const [row] = await db
-    .select({ id: messages.id, conversationId: messages.conversationId, status: messages.status, direction: messages.direction })
+    .select({ id: messages.id, conversationId: messages.conversationId, status: messages.status, direction: messages.direction, contentType: messages.contentType })
     .from(messages)
     .where(eq(messages.id, messageId));
   if (!row) throw new AuthError("forbidden");
   const conversation = await loadConversationFor(actor, PERMISSIONS.inbox.reply, row.conversationId);
   if (row.direction !== "outbound" || row.status !== "failed") throw new ConflictError("Solo se reintentan los mensajes que no se pudieron enviar.");
-  const [channel] = await db.select({ status: channels.status }).from(channels).where(eq(channels.id, conversation.channelId));
-  if (!channel || channel.status === "disabled") throw new ConflictError("El canal está desactivado: no se pueden enviar mensajes.");
+  await assertCanSendNow(conversation, new Date(), { template: row.contentType === "template" });
   const sent = await resendOutbound(row.id);
   return { messageId: sent.messageId, status: sent.status, error: sent.error };
 }
@@ -283,13 +322,17 @@ export async function approveDraft(actor: Actor, input: unknown): Promise<Pick<S
   const { draft, conversation } = await loadDraftFor(actor, data.messageId);
   const now = new Date();
   await assertCanSendNow(conversation, now);
-  const sent = await sendDraft(draft.id, { text: data.text, approvedBy: { userId: actor.userId, name: actor.name }, now });
+  // A changed draft is a person's reply: on Instagram it is refused if too long, never cut. The AI's own words go like
+  // any reply of the AI, cut to fit when sent ([IG-05]).
+  const edited = data.text !== undefined && data.text !== draft.text?.trim();
+  if (edited) await assertFitsChannel(conversation.channelId, data.text ?? "");
+  const sent = await sendDraft(draft.id, { text: edited ? data.text : undefined, approvedBy: { userId: actor.userId, name: actor.name }, now });
   await writeAudit({
     actor,
     action: "message.draft_approved",
     targetType: "conversation",
     targetId: conversation.id,
-    metadata: { messageId: draft.id, edited: data.text !== undefined && data.text !== draft.text },
+    metadata: { messageId: draft.id, edited },
   });
   return { messageId: sent.messageId, status: sent.status, error: sent.error };
 }

@@ -71,7 +71,7 @@ describe("pnpm db:reset", () => {
     expect(out.lines.join("\n")).toContain("negocio real");
     expect(await db.select().from(user).where(eq(user.email, "dueno@taller.example"))).toHaveLength(0);
     expect(await db.select().from(user)).toHaveLength(DEMO_USERS.length);
-    expect(await getInstallState()).toMatchObject({ kind: "demo", sector: "peluqueria" });
+    expect(await getInstallState()).toMatchObject({ kind: "demo", sector: "fisioterapia" });
   });
 
   it("[ARR-16] --sector chooses the demo that is loaded", async () => {

@@ -4,11 +4,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { noPermissionDescription } from "@/components/app-shell/navigation";
 import { NoPermission } from "@/components/no-permission";
-import { getAgendaSettings, getReminderSettings, listResources, listServices } from "@/data/agenda-config";
+import { getAgendaSettings, listResources, listServices } from "@/data/agenda-config";
+import { getReminderSettings } from "@/data/reminder-settings";
 import { can, PERMISSIONS } from "@/lib/permissions";
 import { SLOT_INTERVALS, TERMINOLOGY_OPTIONS } from "@/lib/sectors/schema";
 import { requirePageActor } from "@/server/session";
-import { reminderSummary } from "../../ajustes/recordatorios/_lib/reminder-form";
+import { remindersSummary } from "@/lib/reminder-rules";
 import { AgendaSettingsForm } from "./_components/agenda-settings-form";
 import { formatMinutes } from "./servicios/_lib/service-form";
 import { AGENDA_CONFIG_PATH, BUSINESS_HOURS_PATH, REMINDERS_PATH, RESOURCES_PATH, SERVICES_PATH } from "./_lib/paths";
@@ -105,7 +106,7 @@ export default async function AgendaConfigPage() {
           title="Horario y festivos"
           description="Los del negocio mandan: nunca hay huecos fuera de ese horario ni en festivos, aunque un recurso tenga horario."
         />
-        <LinkCard icon={BellRing} href={REMINDERS_PATH} title="Recordatorios" description={reminderSummary(reminders.settings)} />
+        <LinkCard icon={BellRing} href={REMINDERS_PATH} title="Recordatorios" description={remindersSummary(reminders.settings)} />
       </section>
     </div>
   );

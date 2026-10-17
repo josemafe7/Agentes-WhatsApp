@@ -56,7 +56,7 @@ describe("pnpm run setup", () => {
     // The comments of .env.example are kept.
     expect(readEnvLocal()).toContain("[SECRETO]");
     expect(fs.existsSync(path.join(rootDir, "data"))).toBe(true);
-    expect(await getInstallState()).toMatchObject({ kind: "demo", sector: "peluqueria" });
+    expect(await getInstallState()).toMatchObject({ kind: "demo", sector: "fisioterapia" });
 
     // Secrets are never printed.
     for (const secret of [values.APP_ENCRYPTION_KEY, values.BETTER_AUTH_SECRET, values.CRON_SECRET]) {

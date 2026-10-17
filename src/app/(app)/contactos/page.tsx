@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, CopyCheck, SearchX, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, CopyCheck, FileUp, SearchX, Send, Users } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { noPermissionDescription } from "@/components/app-shell/navigation";
@@ -16,11 +16,12 @@ import { formatDateTime, formatNumber, formatRelative } from "@/lib/format";
 import { can, channelFilter, PERMISSIONS } from "@/lib/permissions";
 import { ValidationError } from "@/server/errors";
 import { requirePageActor } from "@/server/session";
+import { newCampaignHref } from "../envios/_lib/view";
 import { ContactsFilters } from "./_components/contacts-filters";
 import { ContactsTable, type ContactRow } from "./_components/contacts-table";
 import { ExportContactsButton } from "./_components/export-contacts-button";
 import { NewContactDialog } from "./_components/new-contact-dialog";
-import { CONTACTS_PATH, contactsHref, contactsQueryFromSearchParams, DUPLICATES_PATH } from "./_lib/search-params";
+import { CONTACTS_PATH, contactsHref, contactsQueryFromSearchParams, DUPLICATES_PATH, IMPORT_PATH } from "./_lib/search-params";
 import { contactDisplayName } from "./_lib/view";
 
 export const metadata: Metadata = { title: "Contactos" };
@@ -33,7 +34,8 @@ type ContactsPage = Awaited<ReturnType<typeof listContacts>>;
  * Contactos ([CTO-01]): search, filters by channel and label, the channels of each contact, its last conversation,
  * its next booking (docs/pantallas.md «Contactos») and pages of 25. An Agent only sees the contacts with a
  * conversation in their channels ([PER-02]). Whoever may merge sees «Posibles duplicados» ([CTO-04]) and may pick two
- * to merge them ([CTO-05]); whoever may export gets «Exportar», of the whole list or of a selection ([CTO-06]).
+ * to merge them ([CTO-05]); whoever may export gets «Exportar», of the whole list or of a selection ([CTO-06]); whoever
+ * manages envíos programs one for the contacts marked or all of the filter, label and channel ([ENV-02]).
  */
 export default async function ContactsListPage({ searchParams }: PageProps) {
   const actor = await requirePageActor({ next: CONTACTS_PATH });
@@ -52,7 +54,13 @@ export default async function ContactsListPage({ searchParams }: PageProps) {
   // afterwards, so the button is only for those who see every contact.
   const canCreate = can(actor, PERMISSIONS.contacts.edit) && channelFilter(actor) === null;
   const newContact = canCreate ? <NewContactDialog /> : null;
-  const bulk = { merge: can(actor, PERMISSIONS.contacts.merge), export: can(actor, PERMISSIONS.contacts.export), erase: can(actor, PERMISSIONS.contacts.delete) };
+  const bulk = {
+    merge: can(actor, PERMISSIONS.contacts.merge),
+    export: can(actor, PERMISSIONS.contacts.export),
+    erase: can(actor, PERMISSIONS.contacts.delete),
+    consents: can(actor, PERMISSIONS.contacts.consents),
+    campaign: can(actor, PERMISSIONS.campaigns.manage),
+  };
   // The export takes the whole list with the same search and filters, not only this page.
   const exportFilter = { search: filter.search, label: filter.label, channelId: filter.channelId };
   const headerActions = (
@@ -66,6 +74,23 @@ export default async function ContactsListPage({ searchParams }: PageProps) {
         </Button>
       ) : null}
       {bulk.export ? <ExportContactsButton filter={exportFilter} /> : null}
+      {/* «Todos los del filtro» is label and channel: with a search typed, the marked ones are the way ([ENV-02]). */}
+      {bulk.campaign && !filter.search ? (
+        <Button asChild variant="outline">
+          <Link href={newCampaignHref({ filter: { label: filter.label, channelId: filter.channelId } })}>
+            <Send aria-hidden />
+            {filter.label || filter.channelId ? "Envío a los del filtro" : "Envío a todos"}
+          </Link>
+        </Button>
+      ) : null}
+      {can(actor, PERMISSIONS.contacts.import) ? (
+        <Button asChild variant="outline">
+          <Link href={IMPORT_PATH}>
+            <FileUp aria-hidden />
+            Importar
+          </Link>
+        </Button>
+      ) : null}
       {newContact}
     </>
   );
@@ -129,7 +154,7 @@ export default async function ContactsListPage({ searchParams }: PageProps) {
         </div>
       ) : (
         <>
-          <ContactsTable rows={rows} nextBookingLabel={agenda ? `Próxima ${agenda.terminology.booking}` : null} bulk={bulk.merge || bulk.export ? bulk : null} />
+          <ContactsTable rows={rows} nextBookingLabel={agenda ? `Próxima ${agenda.terminology.booking}` : null} bulk={bulk.merge || bulk.export || bulk.consents || bulk.campaign ? bulk : null} />
           <nav aria-label="Páginas" className="flex flex-wrap items-center justify-between gap-3 text-sm">
             <p className="text-muted-foreground tabular-nums">
               {formatNumber(page.total)} {page.total === 1 ? "contacto" : "contactos"} · Página {page.page} de {page.pageCount}

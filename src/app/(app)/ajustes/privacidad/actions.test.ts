@@ -28,6 +28,7 @@ function legalForm(overrides: Record<string, string> = {}): FormData {
     retentionAudioDays: "30",
     retentionAttachmentsDays: "90",
     retentionWebhookDays: "14",
+    retentionCampaignResultsMonths: "12",
     retentionMode: "delete",
     ...overrides,
   };

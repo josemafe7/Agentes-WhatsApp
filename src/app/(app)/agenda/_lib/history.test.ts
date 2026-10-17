@@ -31,7 +31,23 @@ describe("Agenda: a booking's history in plain Spanish — who, what and when [A
     expect(person).toMatchObject({ who: "Ana", what: "Creada · confirmada", when: "27 sep 2026, 10:05" });
     expect(ai).toMatchObject({ who: "IA · Recepción", what: "Creada · pendiente" });
     expect(customer).toMatchObject({ who: "El cliente", what: "Cancelada" });
-    expect(app).toMatchObject({ who: "La app", what: "Recordatorio enviado" });
+    expect(app).toMatchObject({ who: "La app", what: "Recordatorio enviado por correo" });
+  });
+
+  it("[AGD-25] [AGD-33] says which reminder went and by what channel, why one did not, and the customer's confirmation", () => {
+    const [sent, notSent, confirmed, moved] = historyLines(
+      [
+        item("reminder_sent", { lead: "1 día antes, a las 10:00", channel: "whatsapp" }, { actorType: "system", actorName: null }),
+        item("reminder_not_sent", { lead: "2 horas antes", reason: "Sin permiso de avisos y sin email" }, { actorType: "system", actorName: null }),
+        item("customer_confirmed", { channel: "whatsapp" }, { actorType: "contact", actorName: null }),
+        item("moved", { startsAt: { from: "2026-09-28T08:00:00.000Z", to: "2026-09-28T09:00:00.000Z" }, customerConfirmed: { from: true, to: false } }),
+      ],
+      context,
+    );
+    expect(sent.what).toBe("Recordatorio enviado (1 día antes, a las 10:00) por WhatsApp");
+    expect(notSent.what).toBe("Recordatorio no enviado (2 horas antes): Sin permiso de avisos y sin email");
+    expect(confirmed).toMatchObject({ who: "El cliente", what: "Confirmada por el cliente" });
+    expect(moved.what).toBe("Movida: lun 28 sep, 10:00 → lun 28 sep, 11:00 · Ya no está confirmada por el cliente");
   });
 
   it("describes moves, changes of resource, length, people, fields and status", () => {
@@ -44,7 +60,7 @@ describe("Agenda: a booking's history in plain Spanish — who, what and when [A
         item("updated", { endsAt: { from: "2026-09-28T09:30:00.000Z", to: "2026-09-28T10:00:00.000Z" }, people: { from: 2, to: 4 }, fields: ["notes", "contactName"] }),
         item("status_changed", { status: { from: "pending", to: "confirmed" } }),
         item("notice_sent", { kind: "moved" }, { actorType: "system", actorName: null }),
-        item("reminder_failed", { reason: "opted_out" }, { actorType: "system", actorName: null }),
+        item("reminder_failed", { channel: "email", reason: "Sin email" }, { actorType: "system", actorName: null }),
       ],
       context,
     );
@@ -52,7 +68,7 @@ describe("Agenda: a booking's history in plain Spanish — who, what and when [A
     expect(changed.what).toBe("Ahora termina el lun 28 sep, 12:00 · Personas: 2 → 4 · Cambiadas las notas y el cliente");
     expect(status.what).toBe("Estado: pendiente → confirmada");
     expect(notice.what).toBe("Aviso al cliente: cambio de hora enviado");
-    expect(failed.what).toBe("No se ha podido enviar el recordatorio");
+    expect(failed.what).toBe("No se ha podido enviar el recordatorio por correo: Sin email");
   });
 
   it("never breaks on something it does not know", () => {

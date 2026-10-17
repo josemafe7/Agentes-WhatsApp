@@ -77,6 +77,24 @@ export type TelegramMessage = z.infer<typeof telegramMessageSchema>;
 export const telegramUpdateSchema = z.object({
   update_id: z.number().int(),
   message: z.unknown().optional(),
+  callback_query: z.unknown().optional(),
+  my_chat_member: z.unknown().optional(),
+});
+
+/** A tap on a button of one of the bot's messages (docs/integracion-telegram.md «Botones del recordatorio…»). */
+export const telegramCallbackQuerySchema = z.object({
+  id: text(200).min(1),
+  from: telegramUserSchema,
+  /** The bot's message with the button; `date: 0` when it is no longer accessible. */
+  message: z.object({ message_id: z.number().int(), chat: z.object({ id: telegramId, type: text(40) }) }).nullish(),
+  data: text(64).nullish(),
+});
+
+/** The customer blocks or unblocks the bot (in a private chat this update means only that). */
+export const telegramChatMemberUpdatedSchema = z.object({
+  chat: z.object({ id: telegramId, type: text(40) }),
+  from: telegramUserSchema,
+  new_chat_member: z.object({ status: text(40) }),
 });
 export type TelegramUpdate = z.infer<typeof telegramUpdateSchema>;
 

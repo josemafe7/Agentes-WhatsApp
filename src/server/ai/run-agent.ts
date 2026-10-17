@@ -59,6 +59,8 @@ export type AgentRunConfig = {
   maxOutputTokens: number | null;
   handoff: AgentHandoffConfig;
   systemTools: string[];
+  /** Tools off for this turn even if always on (an email whose sender is not vouched for, [COR-25]). */
+  blockedTools?: string[];
   /** «Automático» (the model searches when needed) or «Buscar siempre» (search before each reply) ([AGE-07]). */
   knowledgeMode?: AgentKnowledgeMode;
 };
@@ -80,6 +82,8 @@ export type RunAgentContext = {
   disclosureAddedByPlatform?: boolean;
   /** Messages of `history` the prompt keeps (default DEFAULT_HISTORY_MESSAGES); the rest is in `summary` ([MOT-13]). */
   maxHistoryMessages?: number;
+  /** An identity «sin confirmar»: the only booking the tools may touch ([WA-63]). */
+  onlyBookingId?: string;
 };
 
 export type RunAgentInput = {
@@ -174,7 +178,8 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
     disclosureAddedByPlatform: context.disclosureAddedByPlatform,
   });
 
-  const tools = audience === "team" ? toolsForInternalAgent() : toolsForAgent(agent.systemTools);
+  const tools =
+    audience === "team" ? toolsForInternalAgent() : toolsForAgent(agent.systemTools, { channelKind: mode === "test" ? input.simulateChannel : context.channelKind, blocked: agent.blockedTools });
   // The custom HTTP tools attached to the agent ([HER-11], [AGE-08]); never in place of a system tool, and never for
   // an internal agent ([INT-07]).
   if (audience === "customers") {
@@ -188,6 +193,8 @@ export async function runAgent(input: RunAgentInput, deps: RunAgentDeps = {}): P
     conversationId: context.conversationId ?? null,
     contactId: context.contactId ?? null,
     channelId: context.channelId ?? null,
+    channelKind: mode === "test" ? input.simulateChannel : context.channelKind,
+    ...(mode === "live" && context.onlyBookingId ? { onlyBookingId: context.onlyBookingId } : {}),
     now,
     timezone: businessData.timezone,
     withinBusinessHours: isWithinOpeningHours(now, businessData.timezone, businessData.hours, businessData.closures),

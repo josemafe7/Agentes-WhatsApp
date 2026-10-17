@@ -111,6 +111,22 @@ describe("contact card [CTO-02] [CTO-03]", () => {
       expect(full.consents).toHaveLength(2);
     }
   });
+
+  it("[CTO-09] the permissions are the contact's: an agent of other channels sees one the AI recorded on WhatsApp, without what was said there", async () => {
+    await db.insert(consents).values({
+      contactId: ana,
+      channelKind: "whatsapp",
+      type: "reminders_granted",
+      source: "ai",
+      method: "conversation",
+      actorType: "ai",
+      evidence: { question: "¿Quieres que te avisemos por WhatsApp antes de tus citas?", answer: "Sí" },
+    });
+    const limited = await getContact(users.agentA.actor, ana);
+    expect(limited.consentState.permissions.reminders).toMatchObject({ type: "reminders_granted", method: "conversation", evidence: null });
+    expect(limited.consents).toEqual([]);
+    expect((await getContact(users.owner.actor, ana)).consentState.permissions.reminders?.evidence).toEqual({ question: "¿Quieres que te avisemos por WhatsApp antes de tus citas?", answer: "Sí" });
+  });
 });
 
 describe("creating and editing contacts [CTO-01]", () => {

@@ -23,12 +23,18 @@ import {
 
 export const DEFAULT_YCLOUD_API_BASE_URL = "https://api.ycloud.com/v2";
 
-/** What the channel's webhook asks YCloud for: messages, statuses, what is sent from the phone (coexistence) and templates. */
+/**
+ * What the channel's webhook asks YCloud for: messages, statuses, what is sent from the phone (coexistence), templates
+ * (review, category and quality) and the marketing bajas the customer gives from WhatsApp ([YC-11]).
+ */
 export const YCLOUD_WEBHOOK_EVENTS = [
   "whatsapp.inbound_message.received",
   "whatsapp.message.updated",
   "whatsapp.smb.message.echoes",
   "whatsapp.template.reviewed",
+  "whatsapp.template.category_updated",
+  "whatsapp.template.quality_updated",
+  "whatsapp.user.preferences",
 ] as const;
 /** A message's text: up to 4,096 characters («Sending»). */
 export const YCLOUD_MAX_TEXT = 4_096;
@@ -61,6 +67,8 @@ export type YCloudClient = {
   getPhoneNumber(wabaId: string, phoneNumber: string, options?: CallOptions): Promise<YCloudPhoneNumber>;
   /** Every template of a WhatsApp Business account, following the pages. */
   listTemplates(wabaId: string, options?: CallOptions): Promise<YCloudTemplate[]>;
+  /** «Nueva plantilla» ([YC-07], docs/integracion-whatsapp-plantillas.md §2). */
+  createTemplate(payload: Record<string, unknown>, options?: CallOptions): Promise<YCloudTemplate>;
   /** Sent to Meta during the call (`sendDirectly`): a refusal of Meta comes back as an error, with Meta's code. */
   sendMessage(payload: Record<string, unknown>, options?: CallOptions): Promise<YCloudMessage>;
   uploadMedia(phoneNumber: string, file: { bytes: Uint8Array; mimeType: string; fileName?: string | null }, options?: CallOptions): Promise<string>;
@@ -70,13 +78,15 @@ export type YCloudClient = {
   sendTyping(messageId: string, options?: CallOptions): Promise<void>;
   createWebhookEndpoint(input: { url: string; description?: string }, options?: CallOptions): Promise<YCloudWebhookEndpoint>;
   getWebhookEndpoint(id: string, options?: CallOptions): Promise<YCloudWebhookEndpoint>;
+  /** Sends the whole list of events again: an endpoint made before a new event was asked for lacks it. */
+  updateWebhookEndpointEvents(id: string, options?: CallOptions): Promise<YCloudWebhookEndpoint>;
   deleteWebhookEndpoint(id: string, options?: CallOptions): Promise<void>;
   /** GET of a media link of YCloud with the key; only YCloud's own host. Stops reading past `maxBytes`. */
   downloadMedia(url: string, options: CallOptions & { maxBytes: number }): Promise<DownloadedYCloudMedia>;
 };
 
 type Body = { json: unknown } | { multipart: FormData } | undefined;
-type ApiRequest = { method: "GET" | "POST" | "DELETE"; path: string; query?: Record<string, string>; body?: Body } & CallOptions;
+type ApiRequest = { method: "GET" | "POST" | "PATCH" | "DELETE"; path: string; query?: Record<string, string>; body?: Body } & CallOptions;
 
 function parseJson(raw: string): unknown {
   if (!raw) return undefined;
@@ -215,6 +225,10 @@ export function createYCloudClient(options: YCloudClientOptions): YCloudClient {
       return list("/whatsapp/templates", ycloudTemplateSchema, { "filter.wabaId": wabaId }, opts);
     },
 
+    async createTemplate(payload, opts) {
+      return parseWith(ycloudTemplateSchema, await call({ method: "POST", path: "/whatsapp/templates", body: { json: payload }, ...opts }));
+    },
+
     async sendMessage(payload, opts) {
       return parseWith(ycloudMessageSchema, await call({ method: "POST", path: "/whatsapp/messages/sendDirectly", body: { json: payload }, ...opts }, SEND_TIMEOUT_MS));
     },
@@ -241,6 +255,11 @@ export function createYCloudClient(options: YCloudClientOptions): YCloudClient {
 
     async getWebhookEndpoint(id, opts) {
       return parseWith(ycloudWebhookEndpointSchema, await call({ method: "GET", path: `/webhookEndpoints/${segment(id)}`, ...opts }));
+    },
+
+    async updateWebhookEndpointEvents(id, opts) {
+      const json = { enabledEvents: [...YCLOUD_WEBHOOK_EVENTS] };
+      return parseWith(ycloudWebhookEndpointSchema, await call({ method: "PATCH", path: `/webhookEndpoints/${segment(id)}`, body: { json }, ...opts }));
     },
 
     async deleteWebhookEndpoint(id, opts) {

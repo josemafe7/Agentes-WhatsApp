@@ -26,8 +26,8 @@ export const SECTOR_PRESETS: Readonly<Record<Sector, SectorPreset>> = {
   otro,
 };
 
-/** The sector used when none is chosen (the demo is a hair salon, [ARR-06]). */
-export const DEFAULT_SECTOR: Sector = "peluqueria";
+/** The sector used when none is chosen: the demo is a physiotherapy clinic ([ARR-06]); `--sector=` loads another. */
+export const DEFAULT_SECTOR: Sector = "fisioterapia";
 
 export function isSector(value: string): value is Sector {
   return (SECTORS as readonly string[]).includes(value);

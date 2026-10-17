@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { consentStateOf, type ConsentRecord } from "@/lib/consents";
+import type { ChannelKind, ConsentType } from "@/lib/enums";
 import { activeOptOuts, contactDisplayName, identityPhone } from "./view";
 
 const at = (iso: string) => new Date(iso);
@@ -17,20 +19,33 @@ describe("Ficha del contacto: how it is shown [CTO-02] [CTO-08]", () => {
     expect(identityPhone(null)).toBeNull();
   });
 
-  it("a baja is visible while it is the latest choice on that channel [CTO-08]", () => {
-    const consents = [
-      { id: "4", type: "opt_out" as const, channelId: "wa", channelName: "WhatsApp Recepción", createdAt: at("2026-09-20T10:00:00Z") },
-      { id: "3", type: "opt_in" as const, channelId: "web", channelName: "Chat de la web", createdAt: at("2026-09-19T10:00:00Z") },
-      { id: "2", type: "legal_acceptance" as const, channelId: "web", channelName: "Chat de la web", createdAt: at("2026-09-18T10:00:00Z") },
-      { id: "1", type: "opt_out" as const, channelId: "web", channelName: "Chat de la web", createdAt: at("2026-09-10T10:00:00Z") },
-    ];
-    expect(activeOptOuts(consents)).toEqual([{ channelId: "wa", channelName: "WhatsApp Recepción", since: at("2026-09-20T10:00:00Z") }]);
+  it("a baja is visible while it is the newest record of its kind, of everything or of novedades y publicidad [CTO-08] [CTO-09]", () => {
+    const record = (id: string, type: ConsentType, kind: ChannelKind, iso: string): ConsentRecord => ({
+      id,
+      type,
+      kind,
+      createdAt: at(iso),
+      givenAt: null,
+      method: null,
+      source: "person",
+      recordedByName: null,
+      note: null,
+      evidence: null,
+    });
+    const state = consentStateOf([
+      record("1", "opt_out", "webchat", "2026-09-10T10:00:00Z"),
+      record("2", "legal_acceptance", "webchat", "2026-09-18T10:00:00Z"),
+      record("3", "opt_in", "webchat", "2026-09-19T10:00:00Z"),
+      record("4", "opt_out", "whatsapp", "2026-09-20T10:00:00Z"),
+      record("5", "marketing_opt_out", "email", "2026-09-21T10:00:00Z"),
+    ]);
+    expect(activeOptOuts(state)).toEqual([
+      { kind: "email", scope: "marketing", since: at("2026-09-21T10:00:00Z") },
+      { kind: "whatsapp", scope: "all", since: at("2026-09-20T10:00:00Z") },
+    ]);
   });
 
-  it("a baja on a channel that no longer exists still shows", () => {
-    expect(activeOptOuts([{ type: "opt_out", channelId: null, channelName: null, createdAt: at("2026-09-20T10:00:00Z") }])).toEqual([
-      { channelId: null, channelName: null, since: at("2026-09-20T10:00:00Z") },
-    ]);
-    expect(activeOptOuts([])).toEqual([]);
+  it("with no baja in force, none shows", () => {
+    expect(activeOptOuts(consentStateOf([]))).toEqual([]);
   });
 });

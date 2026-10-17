@@ -1,22 +1,28 @@
-// What the reminder form sends and how the reminder reads in Spanish ([AGD-24]).
+// What the reminders form offers and sends, and how the reminders read in Spanish ([AGD-24]).
 import { describe, expect, it } from "vitest";
-import { buildReminderPayload, leadLabel, leadOptions, parseTemplateKey, reminderSummary, templateKey } from "./reminder-form";
+import { remindersSummary, type ReminderRule } from "@/lib/reminder-rules";
+import { buildRulesPayload, hoursLeadLabel, leadOptions, moveRoute, newRule, parseTemplateKey, switchLead, templateKey } from "./reminder-form";
+
+const rule = (overrides: Partial<ReminderRule> = {}): ReminderRule => ({ id: "r1", lead: { kind: "hours", minutes: 120 }, routes: ["whatsapp", "email"], whatsapp: null, telegram: null, email: null, ...overrides });
 
 describe("lead time [AGD-24]", () => {
-  it("reads in minutes, hours or a week", () => {
-    expect(leadLabel(30)).toBe("30 minutos antes");
-    expect(leadLabel(60)).toBe("1 hora antes");
-    expect(leadLabel(1_440)).toBe("24 horas antes");
-    expect(leadLabel(10_080)).toBe("1 semana antes");
-    expect(leadLabel(45)).toBe("45 minutos antes");
-    expect(leadLabel(90)).toBe("90 minutos antes");
+  it("reads in minutes, hours or a week, from 15 minutes", () => {
+    expect(hoursLeadLabel(15)).toBe("15 minutos antes");
+    expect(hoursLeadLabel(60)).toBe("1 hora antes");
+    expect(hoursLeadLabel(1_440)).toBe("24 horas antes");
+    expect(hoursLeadLabel(10_080)).toBe("1 semana antes");
+    expect(leadOptions(1_440)[0]).toBe(15);
   });
 
   it("offers the usual choices plus the saved one when it is not among them", () => {
-    expect(leadOptions(1_440)).toContain(1_440);
     const withCustom = leadOptions(45);
     expect(withCustom).toContain(45);
     expect(withCustom).toEqual([...withCustom].sort((a, b) => a - b));
+  });
+
+  it("switches between hours and days with a sensible value", () => {
+    expect(switchLead({ kind: "hours", minutes: 120 }, "days")).toEqual({ kind: "days", days: 1, at: "10:00" });
+    expect(switchLead({ kind: "days", days: 2, at: "09:00" }, "hours")).toEqual({ kind: "hours", minutes: 120 });
   });
 });
 
@@ -27,49 +33,37 @@ describe("template key", () => {
   });
 });
 
-describe("buildReminderPayload [AGD-24]", () => {
-  const form = {
-    enabled: true,
-    leadMinutes: 1_440,
-    channel: "whatsapp_template" as const,
-    whatsappChannelId: "0b6f2c3e-1111-4c1c-9a55-6a4f0f0b3a2d",
-    templateKey: templateKey("recordatorio_cita", "es"),
-    templateVariables: ["1", "2", "3"],
-    mapping: { "1": "contact.name", "2": "booking.date", "3": "", "9": "service.name" },
-    emailSubject: "",
-    emailBody: "",
-  };
-
-  it("sends the template and only the mapped variables of that template", () => {
-    expect(buildReminderPayload(form)).toEqual({
-      enabled: true,
-      leadMinutes: 1_440,
-      channel: "whatsapp_template",
-      whatsappChannelId: form.whatsappChannelId,
-      templateName: "recordatorio_cita",
-      templateLanguage: "es",
-      templateVariables: { "1": "contact.name", "2": "booking.date" },
-      emailSubject: "",
-      emailBody: "",
-    });
+describe("the reminders sent to the server [AGD-24]", () => {
+  it("a new reminder takes a lead the others do not have", () => {
+    const first = newRule([], "a");
+    expect(first.lead).toEqual({ kind: "hours", minutes: 1_440 });
+    expect(newRule([first], "b").lead).toEqual({ kind: "hours", minutes: 120 });
   });
 
-  it("without a number or a template sends nulls", () => {
-    expect(buildReminderPayload({ ...form, whatsappChannelId: "", templateKey: "", templateVariables: [] })).toMatchObject({
-      whatsappChannelId: null,
-      templateName: null,
-      templateLanguage: null,
-      templateVariables: {},
+  it("moves a channel up or down, never past the ends", () => {
+    expect(moveRoute(["whatsapp", "telegram", "email"], "email", -1)).toEqual(["whatsapp", "email", "telegram"]);
+    expect(moveRoute(["whatsapp", "email"], "whatsapp", -1)).toEqual(["whatsapp", "email"]);
+  });
+
+  it("each channel's message only when it is marked, and only the variables of the chosen template", () => {
+    const whatsapp = { channelId: "c", templateName: "t", templateLanguage: "es", variables: { "1": "contact.name", "9": "service.name" }, confirmButton: null, changeButton: null };
+    const [payload] = buildRulesPayload([rule({ routes: ["whatsapp", "email"], whatsapp, telegram: { channelId: "bot", text: "Hola" } })], () => ["1"]);
+    expect(payload).toEqual({
+      id: "r1",
+      lead: { kind: "hours", minutes: 120 },
+      routes: ["whatsapp", "email"],
+      whatsapp: { ...whatsapp, variables: { "1": "contact.name" } },
+      telegram: null,
+      email: { subject: "", body: "" },
     });
   });
 });
 
-describe("reminderSummary", () => {
-  it("says whether reminders are off, or when and how they go", () => {
-    expect(reminderSummary({ enabled: false, leadMinutes: 1_440, channel: "email", templateName: null })).toBe("Desactivados");
-    expect(reminderSummary({ enabled: true, leadMinutes: 1_440, channel: "whatsapp_template", templateName: "recordatorio_cita" })).toBe(
-      "24 horas antes, por WhatsApp con la plantilla «recordatorio_cita»",
+describe("remindersSummary", () => {
+  it("says whether reminders are off, or when and how each one goes", () => {
+    expect(remindersSummary({ enabled: false, rules: [rule()] })).toBe("Desactivados");
+    expect(remindersSummary({ enabled: true, rules: [rule({ lead: { kind: "days", days: 1, at: "10:00" } }), rule({ routes: ["whatsapp"] })] })).toBe(
+      "2 recordatorios: 1 día antes, a las 10:00 (WhatsApp, Correo) · 2 horas antes (WhatsApp)",
     );
-    expect(reminderSummary({ enabled: true, leadMinutes: 120, channel: "email", templateName: null })).toBe("2 horas antes, por email");
   });
 });

@@ -48,7 +48,7 @@ describe("the settings frame", () => {
     expect(frame.groups).toEqual([
       ["/ajustes/negocio", "/ajustes/usuarios", "/ajustes/horario"],
       ["/ajustes/ia", "/ajustes/correo", "/ajustes/whatsapp"],
-      ["/ajustes/privacidad", "/ajustes/notificaciones", "/ajustes/recordatorios"],
+      ["/ajustes/privacidad", "/ajustes/notificaciones", "/ajustes/recordatorios", "/ajustes/envios"],
       ["/ajustes/actividad", "/ajustes/diagnostico"],
       ["/perfil", "/ajustes/acerca"],
     ]);
@@ -62,7 +62,7 @@ describe("the settings frame", () => {
 
   it("«Mi cuenta» keeps the settings menu, marked as the page the person is on, and the way back to Ajustes", () => {
     const frame = frameAt("/perfil", "admin");
-    expect(frame.groups.flat()).toHaveLength(13);
+    expect(frame.groups.flat()).toHaveLength(14);
     expect(frame.current).toEqual(["/perfil"]);
     expect(frame.outside).toEqual(["/ajustes"]);
   });

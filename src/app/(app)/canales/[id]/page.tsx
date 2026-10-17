@@ -11,12 +11,14 @@ import { isEmailChannelType } from "@/server/channels/email/config";
 import { ActiveAgentControl } from "../_components/active-agent-control";
 import { CHANNEL_STATUS_LABELS } from "../_lib/labels";
 import { widgetDemoHref } from "../_lib/webchat";
+import { instagramWizardHref } from "../nuevo/instagram/_lib/steps";
 import { telegramWizardHref } from "../nuevo/telegram/_lib/steps";
 import { wizardHref } from "../nuevo/whatsapp/_lib/steps";
 import { qrWizardHref } from "../nuevo/whatsapp-qr/_lib/steps";
 import { ycloudWizardHref } from "../nuevo/whatsapp-ycloud/_lib/steps";
 import { ChannelDangerZone } from "./_components/channel-danger-zone";
 import { EmailPanel } from "./_email/email-panel";
+import { InstagramPanel } from "./_instagram/instagram-panel";
 import { TelegramPanel } from "./_telegram/telegram-panel";
 import { WhatsAppPanel } from "./_whatsapp/whatsapp-panel";
 import { WhatsAppQrPanel } from "./_whatsapp-qr/whatsapp-qr-panel";
@@ -85,14 +87,16 @@ function summaryLights(channel: ChannelDetail, timezone: string): Light[] {
 }
 
 /**
- * A number or a bot whose credentials were erased is switched on again through its wizard, not with «Activar» ([WA-28],
- * [TG-04], [YC-10], [QR-12]): a WhatsApp number, through the wizard of the way it was connected ([WA-54]).
+ * A number, a bot or an account whose credentials were erased is switched on again through its wizard, not with
+ * «Activar» ([WA-28], [TG-04], [YC-10], [QR-12], [IG-10]): a WhatsApp number, through the wizard of the way it was
+ * connected ([WA-54]).
  */
 function reconnectHref(channel: ChannelDetail): string | null {
   if (channel.isDemo || channel.hasSecrets) return null;
   if (channel.whatsappVia === "ycloud") return ycloudWizardHref(channel.id);
   if (channel.whatsappVia === "qr") return qrWizardHref(channel.id);
   if (channel.whatsappVia === "meta") return wizardHref(channel.id);
+  if (channel.type === "instagram") return instagramWizardHref(channel.id);
   return channel.type === "telegram" ? telegramWizardHref(channel.id) : null;
 }
 
@@ -146,6 +150,7 @@ export default async function ChannelSummaryPage({ params, searchParams }: PageP
         <EmailPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} businessName={profile.name} searchParams={await searchParams} />
       ) : null}
       {channel.type === "telegram" ? <TelegramPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} /> : null}
+      {channel.type === "instagram" ? <InstagramPanel actor={actor} channel={channel} canManage={canManage} timezone={profile.timezone} /> : null}
 
       {channel.type === "webchat" ? (
         <section aria-labelledby="channel-try" className="grid gap-3 rounded-xl border p-4">

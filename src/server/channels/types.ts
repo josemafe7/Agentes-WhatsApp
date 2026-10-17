@@ -39,6 +39,11 @@ export type InboundSender = {
   email?: string | null;
   /** Name the channel shows (WhatsApp profile name, email display name). */
   displayName?: string | null;
+  /**
+   * An answer to an email the system mail sent to this contact ([AGD-24], [AGD-26]): when no identity matches, it goes
+   * to that contact, and its address becomes an identity «sin confirmar» only if the sender is vouched for ([COR-25]).
+   */
+  answersContact?: { contactId: string; withIdentity: boolean };
 };
 
 export type InboundMessageEvent = {
@@ -57,6 +62,11 @@ export type InboundMessageEvent = {
   simulated?: boolean;
   /** Stored but never answered by the AI (identity changes, system notices…, [WA-50]). */
   noReply?: boolean;
+  /**
+   * Not answered, but the customer's own (an Instagram post they shared): it opens the 24 h window all the same
+   * ([IG-04]).
+   */
+  opensWindow?: boolean;
   /**
    * A reaction to another message ([WA-37]): stored on that message (emoji null = removed), never as a new message
    * and never answered.
@@ -78,6 +88,16 @@ export type StatusUpdateEvent = {
   error?: MessageError | null;
   /** Meta pricing: stored from the first status that carries it ([WA-38], [WA-47]). */
   pricing?: { type: string | null; category: string | null } | null;
+  /**
+   * Meta's id of the message when the channel stores its own (YCloud): kept on the message, since a tapped button or a
+   * reaction points to it ([AGD-32], docs/integracion-whatsapp-plantillas.md §5).
+   */
+  wamid?: string | null;
+  /**
+   * Who WhatsApp delivered it to: their wa_id and, when the status names it, their BSUID. A first message to a phone
+   * gives the contact its identity from here ([WA-63]).
+   */
+  recipient?: { waId: string | null; userId: string | null } | null;
 };
 
 /** Account, quality, template or name notices of the channel ([WA-29]); handled by the channel's own phase. */

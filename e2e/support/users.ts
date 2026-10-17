@@ -45,6 +45,7 @@ export const SECTIONS = {
   bandeja: { label: "Bandeja", href: "/bandeja" },
   contactos: { label: "Contactos", href: "/contactos" },
   agenda: { label: "Agenda", href: "/agenda" },
+  envios: { label: "Envíos", href: "/envios" },
   asistentes: { label: "Asistentes", href: "/asistentes" },
   agentes: { label: "Agentes", href: "/agentes" },
   conocimiento: { label: "Conocimiento", href: "/conocimiento" },
@@ -60,12 +61,12 @@ export type SectionKey = keyof typeof SECTIONS;
  * and Acerca de are for every role.
  */
 export const VISIBLE_SECTIONS: Record<RoleKey, readonly SectionKey[]> = {
-  owner: ["bandeja", "contactos", "agenda", "asistentes", "agentes", "conocimiento", "canales", "informes", "ajustes"],
-  admin: ["bandeja", "contactos", "agenda", "asistentes", "agentes", "conocimiento", "canales", "informes", "ajustes"],
-  supervisor: ["bandeja", "contactos", "agenda", "asistentes", "agentes", "conocimiento", "informes", "ajustes"],
+  owner: ["bandeja", "contactos", "agenda", "envios", "asistentes", "agentes", "conocimiento", "canales", "informes", "ajustes"],
+  admin: ["bandeja", "contactos", "agenda", "envios", "asistentes", "agentes", "conocimiento", "canales", "informes", "ajustes"],
+  supervisor: ["bandeja", "contactos", "agenda", "envios", "asistentes", "agentes", "conocimiento", "informes", "ajustes"],
   agent: ["bandeja", "contactos", "agenda", "asistentes", "ajustes"],
   // «Solo lectura» never uses internal agents ([INT-05]).
-  viewer: ["bandeja", "contactos", "agenda", "agentes", "conocimiento", "canales", "informes", "ajustes"],
+  viewer: ["bandeja", "contactos", "agenda", "envios", "agentes", "conocimiento", "canales", "informes", "ajustes"],
 };
 
 /** Settings pages, by the path each one lives at (docs/pantallas.md «Ajustes»). */
@@ -80,6 +81,7 @@ export const SETTINGS_PATHS = {
   actividad: "/ajustes/actividad",
   diagnostico: "/ajustes/diagnostico",
   whatsapp: "/ajustes/whatsapp",
+  envios: "/ajustes/envios",
   acerca: "/ajustes/acerca",
 } as const;
 
@@ -97,6 +99,7 @@ export const FORBIDDEN_PAGES: Record<RoleKey, readonly string[]> = {
     SECTIONS.conocimiento.href,
     SECTIONS.canales.href,
     SECTIONS.informes.href,
+    SECTIONS.envios.href,
     SETTINGS_PATHS.diagnostico,
     SETTINGS_PATHS.whatsapp,
   ],

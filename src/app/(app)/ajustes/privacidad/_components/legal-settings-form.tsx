@@ -11,7 +11,7 @@ import type { ActionResult } from "@/lib/action-result";
 import { saveLegalSettingsAction } from "../actions";
 
 type TextField = "privacyText" | "termsText" | "dataDeletionText" | "aiDisclosureText";
-type NumberField = "retentionConversationsMonths" | "retentionAudioDays" | "retentionAttachmentsDays" | "retentionWebhookDays";
+type NumberField = "retentionConversationsMonths" | "retentionAudioDays" | "retentionAttachmentsDays" | "retentionWebhookDays" | "retentionCampaignResultsMonths";
 type Values = Record<TextField | NumberField, string> & { retentionMode: "delete" | "anonymize" };
 
 type LegalSettingsFormProps = { values: Values; defaults: Record<TextField, string> };
@@ -40,6 +40,14 @@ const RETENTION: { field: NumberField; label: string; unit: string; help: string
     help: "Entre 7 y 30 días; por defecto, 14. Llevan mensajes y datos personales, por eso se borran pronto.",
     min: 7,
     max: 30,
+  },
+  {
+    field: "retentionCampaignResultsMonths",
+    label: "Resultados de los envíos",
+    unit: "meses",
+    help: "Por defecto, 12 meses. Después quedan los totales de cada envío, sin a quién le llegó.",
+    min: 1,
+    max: 120,
   },
 ];
 

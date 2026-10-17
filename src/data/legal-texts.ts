@@ -69,6 +69,7 @@ Solo los proveedores que necesitamos para atenderte, con contrato de encargo del
 - Notas de voz: ${retention.audioDays} días después de transcribirlas.
 - Archivos adjuntos: ${retention.attachmentsDays} días.
 - Registros técnicos de los mensajes recibidos: ${retention.webhookDays} días.
+- Qué novedades y publicidad te enviamos y si te llegaron: ${retention.campaignResultsMonths} meses; después solo quedan los totales, sin tus datos.
 
 Pasado ese tiempo ${afterExpiry}. Las citas se guardan mientras hagan falta para atenderte y para cumplir nuestras obligaciones legales.
 

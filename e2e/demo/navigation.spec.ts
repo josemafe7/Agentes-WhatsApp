@@ -19,6 +19,8 @@ const ADMIN_SETTINGS = [
   SETTINGS_PATHS.diagnostico,
   // Tarifas de WhatsApp ([AJU-09]).
   SETTINGS_PATHS.whatsapp,
+  // Horas y topes de los envíos ([AJU-18]).
+  SETTINGS_PATHS.envios,
 ];
 
 for (const role of ROLE_KEYS) {

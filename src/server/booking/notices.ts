@@ -5,12 +5,13 @@
 // tools give it the text, and nothing is sent apart. A notice never goes to a test conversation, a disabled channel,
 // a customer who opted out there ([CUM-03]) or a closed WhatsApp window (a person may send a template instead).
 import "server-only";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import type { NotificationEvent } from "@/data/notification-settings";
-import { channels, consents, conversations } from "@/db/schema";
+import { channels, conversations } from "@/db/schema";
 import { whatsappWindowState } from "@/lib/meta/window";
 import { isOfficialWhatsApp } from "@/lib/whatsapp-via";
+import { isOptedOut } from "@/server/compliance/opt-out";
 import { notify } from "@/server/notifications/notify";
 import { sendOutbound } from "@/server/outbound/send";
 import { recordBookingEvent } from "./events";
@@ -55,16 +56,6 @@ export type BookingNoticeResult =
   | { sent: true; messageId: string }
   | { sent: false; reason: "no_conversation" | "test" | "channel_disabled" | "opted_out" | "window_closed" | "failed" };
 
-async function optedOut(contactId: string, channelId: string): Promise<boolean> {
-  const [latest] = await db
-    .select({ type: consents.type })
-    .from(consents)
-    .where(and(eq(consents.contactId, contactId), eq(consents.channelId, channelId), inArray(consents.type, ["opt_out", "opt_in"])))
-    .orderBy(desc(consents.createdAt))
-    .limit(1);
-  return latest?.type === "opt_out";
-}
-
 /**
  * Sends the customer, in the booking's conversation, what a person just did with their booking. System code: the
  * data layer calls it after checking the person's permission. Never throws for a notice that cannot go out.
@@ -90,7 +81,7 @@ export async function sendBookingNotice(view: BookingView, kind: BookingNoticeKi
   if (!target || !target.contactId) return { sent: false, reason: "no_conversation" };
   if (target.isTest) return { sent: false, reason: "test" };
   if (target.channelStatus === "disabled") return { sent: false, reason: "channel_disabled" };
-  if (await optedOut(target.contactId, target.channelId)) return { sent: false, reason: "opted_out" };
+  if (await isOptedOut(target.contactId, target.channelId)) return { sent: false, reason: "opted_out" };
   // The 24 h window is the official API's: a number linked by QR code has none ([WA-55]).
   if (isOfficialWhatsApp({ type: target.channelType, connectionMode: target.connectionMode }) && !whatsappWindowState(target.lastInboundAt, now, target.metadata).open) {
     return { sent: false, reason: "window_closed" };

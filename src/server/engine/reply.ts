@@ -12,18 +12,18 @@ import { loadAgentForRun } from "@/data/agents";
 import { recordMessageRetrievals } from "@/data/knowledge-retrievals";
 import { resolveOpenRouterKey } from "@/data/settings";
 import { db } from "@/db";
-import { aiRuns, channels, consents, contactIdentities, contacts, conversations, handoffEvents, messages } from "@/db/schema";
-import type { ChannelType, Urgency } from "@/lib/enums";
+import { aiRuns, channels, contactIdentities, contacts, conversations, handoffEvents, messages } from "@/db/schema";
+import { CHANNEL_KIND_OF, type Urgency } from "@/lib/enums";
 import { isWithinOpeningHours } from "@/lib/opening-hours";
 import { loadPromptBusinessData } from "@/server/ai/context";
 import { AgentRunError, AiNotConfiguredError } from "@/server/ai/errors";
-import type { PromptChannelKind } from "@/server/ai/prompt";
 import { runAgent, type AgentRunConfig, type RunAgentDeps, type RunAgentResult } from "@/server/ai/run-agent";
 import { handoffCustomerMessage } from "@/server/ai/tools/transferir-a-humano";
 import { dailyCapReached, enforceDailyCaps } from "@/server/channels/email/caps";
 import { isEmailChannelType } from "@/server/channels/email/config";
 import { replyRecipientContactId } from "@/server/channels/email/reply-context";
 import { capabilitiesOf, getChannelAdapter } from "@/server/channels/registry";
+import { isOptedOut } from "@/server/compliance/opt-out";
 import type { ChannelRecord } from "@/server/channels/types";
 import { handoffService } from "@/server/handoff/service";
 import type { JobContext } from "@/server/jobs/registry";
@@ -36,6 +36,7 @@ import { safeErrorMessage } from "@/server/redact";
 import { evaluateReplyChecks, testModeIdentifiers, type ReplySkipReason } from "./checks";
 import { withAiDisclosure } from "./disclosure";
 import { isUncheckedEmailTurn, withoutSenderCheckedTools } from "./email-sender";
+import { unconfirmedIdentityTurn, withUnconfirmedIdentityLimits } from "./unconfirmed-identity";
 import { newestInbound, pendingInbound, type PendingInbound } from "./pending";
 import { findPhrase, isUnknownAnswer } from "./rules";
 import { replyDebounceMs, REPLY_MAX_WAIT_MS, type ReplyJobPayload } from "./schedule";
@@ -77,14 +78,6 @@ export type ReplyOutcome =
   | { kind: "failed"; reason: string }
   | { kind: "replied"; messageId: string; status: string };
 
-const CHANNEL_KIND: Record<ChannelType, Exclude<PromptChannelKind, "test">> = {
-  whatsapp: "whatsapp",
-  email_gmail: "email",
-  email_outlook: "email",
-  email_imap: "email",
-  webchat: "webchat",
-  telegram: "telegram",
-};
 
 type Conversation = typeof conversations.$inferSelect;
 
@@ -98,6 +91,8 @@ type Turn = {
   now: Date;
   /** Epoch ms by which transcriptions and image descriptions must end, taken from the job's budget ([MED-01]). */
   mediaDeadlineAt: number;
+  /** The identity is «sin confirmar»: the only booking the tools may touch ([WA-63]). */
+  onlyBookingId?: string;
 };
 
 /** The job handler: takes the conversation's lease, prepares and sends the one reply, and always gives it back. */
@@ -162,7 +157,10 @@ async function runTurn(
   if (isEmailChannelType(channel.type) && (await enforceDailyCaps(channel, conversation.id, { now }))) return { kind: "skipped", reason: "paused" };
   // Email ([COR-25]): a sender nobody vouched for, or not the conversation's contact, gets no tools on its bookings or data.
   const unchecked = await isUncheckedEmailTurn(conversation, channel, pending.map((message) => message.id));
-  const agent = unchecked ? withoutSenderCheckedTools(loaded) : loaded;
+  const checked = unchecked ? withoutSenderCheckedTools(loaded) : loaded;
+  // [WA-63] An identity the app made and nobody confirmed: only the booking of the reminder answered.
+  const unconfirmed = await unconfirmedIdentityTurn(conversation, channel);
+  const agent = unconfirmed ? withUnconfirmedIdentityLimits(checked, unconfirmed.bookingId) : checked;
 
   const turn: Turn = {
     conversation,
@@ -173,6 +171,7 @@ async function runTurn(
     simulated: conversation.metadata.simulated === true || newest.simulated,
     now,
     mediaDeadlineAt: Date.now() + Math.max(context.remainingMs() - MODEL_RESERVE_MS, MIN_MEDIA_MS),
+    ...(unconfirmed?.bookingId ? { onlyBookingId: unconfirmed.bookingId } : {}),
   };
 
   // Hand-off rules on the customer's words, before answering ([TRA-01]).
@@ -262,14 +261,7 @@ async function checkTurn(conversation: Conversation, channel: ChannelRecord, now
           .from(contactIdentities)
           .where(and(eq(contactIdentities.contactId, recipientId), eq(contactIdentities.channelType, channel.type)))
       : Promise.resolve([]),
-    recipientId
-      ? db
-          .select({ type: consents.type })
-          .from(consents)
-          .where(and(eq(consents.contactId, recipientId), eq(consents.channelId, channel.id), inArray(consents.type, ["opt_out", "opt_in"])))
-          .orderBy(desc(consents.createdAt))
-          .limit(1)
-      : Promise.resolve([]),
+    isOptedOut(recipientId, channel.id),
     loadPromptBusinessData(),
   ]);
   const withinBusinessHours = isWithinOpeningHours(now, business.timezone, business.hours, business.closures);
@@ -278,7 +270,7 @@ async function checkTurn(conversation: Conversation, channel: ChannelRecord, now
     conversation,
     window24h: capabilitiesOf(channel).window24h,
     identifiers: testModeIdentifiers(channel.type, identities),
-    optedOut: optOut[0]?.type === "opt_out",
+    optedOut: optOut,
     withinBusinessHours,
     now,
   });
@@ -411,12 +403,13 @@ async function runOnce(turn: Turn, deps: ReplyDeps): Promise<RunAgentResult> {
         conversationId: conversation.id,
         contactId: conversation.contactId,
         channelId: channel.id,
-        channelKind: CHANNEL_KIND[channel.type],
+        channelKind: CHANNEL_KIND_OF[channel.type],
         contact: contact ?? null,
         summary: conversation.summary,
         aiDisclosureText: channel.disclosureMessage,
         disclosureAddedByPlatform: true,
         maxHistoryMessages: REPLY_HISTORY_MESSAGES,
+        ...(turn.onlyBookingId ? { onlyBookingId: turn.onlyBookingId } : {}),
       },
     },
     { ...deps, now: turn.now },

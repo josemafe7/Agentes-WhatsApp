@@ -243,6 +243,7 @@ describe("Ajustes › Privacidad y legal [AJU-07] [CUM-05]", () => {
     retentionAudioDays: 15,
     retentionAttachmentsDays: 60,
     retentionWebhookDays: 10,
+    retentionCampaignResultsMonths: 18,
     retentionMode: "anonymize",
   };
 
@@ -253,6 +254,7 @@ describe("Ajustes › Privacidad y legal [AJU-07] [CUM-05]", () => {
       audioDays: 30,
       attachmentsDays: 90,
       webhookDays: 14,
+      campaignResultsMonths: 12,
       mode: "delete",
     });
     expect(legal.aiDisclosureText).toBeNull();
@@ -268,7 +270,7 @@ describe("Ajustes › Privacidad y legal [AJU-07] [CUM-05]", () => {
       termsText: validLegal.termsText,
       dataDeletionText: validLegal.dataDeletionText,
       aiDisclosureText: validLegal.aiDisclosureText,
-      retention: { conversationsMonths: 6, audioDays: 15, attachmentsDays: 60, webhookDays: 10, mode: "anonymize" },
+      retention: { conversationsMonths: 6, audioDays: 15, attachmentsDays: 60, webhookDays: 10, campaignResultsMonths: 18, mode: "anonymize" },
     });
     expect((await db.select().from(auditLog)).map((entry) => entry.action)).toContain("settings.business_updated");
   });

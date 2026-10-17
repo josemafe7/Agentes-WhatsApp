@@ -3,6 +3,7 @@
 // version) shows as it was written. Identifiers are shortened: on screen they only tell one object from another.
 import { formatFileSize, HANDOFF_TRIGGER_LABELS, STATUS_META, URGENCY_LABELS } from "@/app/(app)/bandeja/_lib/presentation";
 import { BOOKING_STATUS_DISPLAY } from "@/lib/booking-display";
+import { CHANNEL_KIND_LABELS, CONSENT_METHOD_LABELS, PERMISSION_LABELS } from "@/lib/consents";
 import type { Audience, ChannelType, KbSourceType, ReminderChannel, SystemEmailTransport, TeamAccess } from "@/lib/enums";
 import { formatDateTime } from "@/lib/format";
 import { pricingCategoryName } from "@/lib/meta/pricing";
@@ -21,6 +22,7 @@ const DETAIL_LABELS: Record<string, string> = {
   to: "después",
   fields: "campos",
   channels: "canales",
+  contacts: "contactos",
   enabled: "activado",
   ok: "correcto",
   via: "vía",
@@ -102,6 +104,18 @@ const DETAIL_LABELS: Record<string, string> = {
   joinedConversations: "conversaciones unidas",
   identities: "identidades",
   consents: "consentimientos y bajas",
+  // Permissions and bajas ([CTO-09], [CTO-10]): which, how it was given, and how many.
+  permission: "permiso",
+  granted: "dado",
+  how: "cómo",
+  scope: "de qué",
+  channelKind: "canal",
+  channelKinds: "canales",
+  marked: "marcados",
+  already: "ya lo tenían",
+  skipped: "saltados",
+  // What each button of a WhatsApp template does ([AGD-32], [WA-62]).
+  buttons: "botones",
   selected: "solo los seleccionados",
   filtered: "con filtros",
   source: "origen",
@@ -129,6 +143,7 @@ const DETAIL_LABELS: Record<string, string> = {
   messagesAnonymized: "mensajes anonimizados",
   notesDeleted: "notas internas borradas",
   notificationsDeleted: "avisos del equipo borrados",
+  campaignResultsAnonymized: "resultados de envíos anonimizados",
 };
 
 /** Details whose name says something else in one action. */
@@ -140,9 +155,27 @@ const ACTION_DETAIL_LABELS: Record<string, Record<string, string>> = {
   "conversation.status_changed": { status: "estado" },
   "conversation.ai_changed": { mode: "IA" },
   "contacts.exported": { count: "contactos" },
+  "contacts.imported": { fileName: "archivo", imported: "importados", skipped: "saltados por repetidos", errors: "filas con errores" },
+  "campaign.scheduled": { now: "ahora", rule: "automático o repetido", truncated: "más de 20.000 contactos (solo salió a los primeros)" },
+  "campaign.paused": { by: "por" },
+  "campaign_rule.created": { kind: "tipo", active: "activo" },
+  "campaign_rule.updated": { kind: "tipo" },
+  "campaign_rule.activated": { kind: "tipo" },
+  "campaign_rule.paused": { kind: "tipo" },
+  "campaign_rule.deleted": { kind: "tipo" },
+  "campaign_rule.missed": { day: "día" },
+  "campaigns.settings_updated": {
+    sendStart: "desde",
+    sendEnd: "hasta",
+    minDaysBetween: "días entre envíos",
+    systemMailDailyCap: "tope diario del correo",
+    emailPerHour: "correos de envíos por hora",
+    emailPerDay: "correos de envíos al día",
+  },
   "knowledge.all_reindexed": { count: "bases de conocimiento" },
   "ai.tool_calls_skipped": { count: "herramientas pedidas" },
   "channel.templates_synced": { total: "plantillas" },
+  "channel.template_created": { approvedAs: "aprobada como", language: "idioma" },
   "simulator.message_sent": { contentType: "tipo de mensaje" },
 };
 
@@ -152,6 +185,7 @@ const SOURCE_TYPE_NAMES: Record<KbSourceType, string> = { file: "Archivo", url: 
 const REMINDER_CHANNEL_NAMES: Record<ReminderChannel, string> = { whatsapp_template: "WhatsApp", email: "Correo" };
 const MAIL_TRANSPORT_NAMES: Record<SystemEmailTransport, string> = { smtp: "servidor de correo", outbox: "bandeja local" };
 const CHANNEL_TYPE_NAMES: Record<ChannelType, string> = {
+  instagram: "Instagram",
   whatsapp: "WhatsApp",
   email_gmail: "Gmail",
   email_outlook: "Outlook",
@@ -192,6 +226,9 @@ const VALUE_LABELS: Record<string, Record<string, string>> = {
   },
   // The AI of a conversation (on, off, paused) and where a tool ran («Probar agente» or a real conversation).
   mode: { on: "encendida", off: "apagada", pause: "en pausa", test: "prueba", live: "real" },
+  // An automatic or repeated envío ([ENV-15], [ENV-16]); who stopped an envío ([ENV-09]).
+  kind: { after_booking: "tras la cita", weekly: "cada semana", monthly: "cada mes" },
+  by: { system: "la app", person: "una persona" },
   reason: {
     disabled: "usuario desactivado",
     invalid_credentials: "email o contraseña incorrectos",
@@ -202,7 +239,13 @@ const VALUE_LABELS: Record<string, Record<string, string>> = {
     too_many: "demasiadas a la vez",
     handed_off: "la conversación ya la lleva una persona",
   },
-  source: { keyword: "palabra de baja" },
+  source: { keyword: "palabra de baja", person: "una persona", ai: "la IA", template_button: "botón de una plantilla", whatsapp_app: "desde WhatsApp", telegram_button: "botón de Telegram", email_link: "enlace de baja de un correo" },
+  permission: PERMISSION_LABELS,
+  how: CONSENT_METHOD_LABELS,
+  scope: { all: "de todo", marketing: "novedades y publicidad" },
+  channelKind: CHANNEL_KIND_LABELS,
+  channelKinds: CHANNEL_KIND_LABELS,
+  buttons: { confirm: "Confirmo", change: "Necesito cambiarla", marketing_opt_out: "baja de publicidad" },
   events: labelsOf(EVENT_LABELS, (event) => event.label),
   sector: SECTOR_NAMES,
   template: SECTOR_NAMES,
@@ -242,6 +285,7 @@ const VALUE_FORMATS: Record<string, (value: string | number) => string> = {
   lastDay: dayText,
   country: (value) => marketName(String(value)),
   category: (value) => pricingCategoryName(String(value)),
+  approvedAs: (value) => pricingCategoryName(String(value)),
   size: (value) => (typeof value === "number" ? formatFileSize(value) : value),
 };
 

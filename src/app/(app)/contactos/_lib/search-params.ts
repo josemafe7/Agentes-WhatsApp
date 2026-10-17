@@ -53,6 +53,7 @@ export function contactPath(contactId: string): string {
 
 /** «Posibles duplicados» ([CTO-04]). */
 export const DUPLICATES_PATH = `${CONTACTS_PATH}/duplicados`;
+export const IMPORT_PATH = `${CONTACTS_PATH}/importar`;
 const MERGE_PATH = `${CONTACTS_PATH}/fusionar`;
 
 /** «Fusionar» two contacts ([CTO-05]): ?uno=…&otro=… */

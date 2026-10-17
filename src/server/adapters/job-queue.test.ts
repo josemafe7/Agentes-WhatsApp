@@ -218,6 +218,19 @@ describe("recurring jobs", () => {
     expect(job.runAt).toEqual(at(60_000));
   });
 
+  it("a pending recurring job due later can be brought forward, never pushed back nor moved while it runs", async () => {
+    const first = await queue.ensureRecurring({ type: "campaigns.run", key: "campaigns", intervalMs: 60_000, firstRunAt: at(60_000) });
+    const sooner = await queue.ensureRecurring({ type: "campaigns.run", key: "campaigns", intervalMs: 60_000, bringForwardTo: at(0) });
+    expect(sooner).toMatchObject({ id: first.id, created: false, runAt: at(0) });
+    expect((await getJob(first.id)).runAt).toEqual(at(0));
+    // Never later than it was.
+    await queue.ensureRecurring({ type: "campaigns.run", key: "campaigns", intervalMs: 60_000, bringForwardTo: at(30_000) });
+    expect((await getJob(first.id)).runAt).toEqual(at(0));
+    await queue.claim(1, LOCK_MS, "w1");
+    await queue.ensureRecurring({ type: "campaigns.run", key: "campaigns", intervalMs: 60_000, bringForwardTo: at(-1_000) });
+    expect(await getJob(first.id)).toMatchObject({ status: "running" });
+  });
+
   it("a recurring job that keeps failing is re-scheduled instead of dying", async () => {
     const { id } = await queue.ensureRecurring({ type: "health", key: "health", intervalMs: 6 * 3_600_000 });
     await db.update(jobs).set({ maxAttempts: 1 }).where(eq(jobs.id, id));

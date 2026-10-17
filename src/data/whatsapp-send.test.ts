@@ -47,6 +47,7 @@ import {
   type MetaCall,
   type MetaHandler,
 } from "@/test/fixtures/whatsapp/fake-meta";
+import { setConversationContactPermission } from "./consents";
 import { listMessages, sendHumanMessage } from "./messages";
 import { WHATSAPP_LIMITS } from "./whatsapp-limits";
 import { getWhatsAppInboxState, sendHumanTemplateMessage, sendTemplateMessage } from "./whatsapp-send";
@@ -102,14 +103,22 @@ async function addTemplate(overrides: Partial<typeof whatsappTemplates.$inferIns
       status: "APPROVED",
       components: templateComponents,
       variables: ["nombre", "fecha", "hora"],
+      // A marketing template needs a baja button ([ENV-06], [WA-61]).
+      buttonRoles: { "No quiero publicidad": "marketing_opt_out" },
       ...overrides,
     })
     .returning();
   return row;
 }
 
+/** A WhatsApp customer who gave both permissions ([CTO-09], [WA-61]): templates may reach them. */
 async function customer() {
-  return createContactWithIdentity("whatsapp", { name: "Ana Pruebas", externalId: WA_TEST.customer.bsuid, phone: WA_TEST.customer.waId });
+  const created = await createContactWithIdentity("whatsapp", { name: "Ana Pruebas", externalId: WA_TEST.customer.bsuid, phone: WA_TEST.customer.waId });
+  await db.insert(consents).values([
+    { contactId: created.contact.id, type: "reminders_granted", source: "person", method: "in_person" },
+    { contactId: created.contact.id, type: "marketing_granted", source: "person", method: "in_person" },
+  ]);
+  return created;
 }
 
 /** A conversation whose customer last wrote `hours` ago. */
@@ -217,8 +226,48 @@ describe("templates offered by the inbox [BAN-08] [WA-22] [CAN-14]", () => {
     const conversation = await conversationLastWritten(30);
 
     const state = await getWhatsAppInboxState(owner.actor, conversation.id);
-    expect(state?.templates).toEqual([{ id: approved.id, name: "recordatorio_cita", language: "es", category: "UTILITY", components: templateComponents }]);
+    expect(state?.templates).toEqual([{ id: approved.id, name: "recordatorio_cita", language: "es", category: "UTILITY", components: templateComponents, blocked: null }]);
     expect(state?.optedOut).toBe(false);
+  });
+
+  it("[WA-61] says which permission a template needs when the customer lacks it, and refuses to send it until it is recorded", async () => {
+    const template = await addTemplate();
+    const { contact } = await createContactWithIdentity("whatsapp", { name: "Sin permiso", externalId: "US.10000000000000000099", phone: "15550009999" });
+    const conversation = await createConversation(channel.id, contact.id, { lastInboundAt: hoursAgo(30) });
+    const state = await getWhatsAppInboxState(owner.actor, conversation.id);
+    expect(state?.templates[0].blocked).toEqual({ message: "Falta el permiso «Avisos de sus citas» del cliente: anótalo antes, diciendo cómo lo dio.", permission: "reminders" });
+    await expect(sendHumanTemplateMessage(owner.actor, { conversationId: conversation.id, templateId: template.id, values: REMINDER_VALUES })).rejects.toMatchObject({ status: 409 });
+    expect(sentToMeta()).toHaveLength(0);
+
+    await setConversationContactPermission(owner.actor, { conversationId: conversation.id, permission: "reminders", method: "in_person" });
+    expect((await getWhatsAppInboxState(owner.actor, conversation.id))?.templates[0].blocked).toBeNull();
+    expect(await sendHumanTemplateMessage(owner.actor, { conversationId: conversation.id, templateId: template.id, values: REMINDER_VALUES })).toMatchObject({ status: "sent" });
+  });
+
+  it("[WA-61] [ENV-06] a marketing template needs «Novedades y publicidad», no baja of it and a baja button", async () => {
+    const withButton = await addTemplate({ name: "novedades", category: "MARKETING" });
+    const withoutButton = await addTemplate({ name: "sin_boton", category: "MARKETING", buttonRoles: {} });
+    const { contact } = await createContactWithIdentity("whatsapp", { name: "Luis", externalId: "US.10000000000000000098", phone: "15550009998" });
+    const conversation = await createConversation(channel.id, contact.id, { lastInboundAt: hoursAgo(30) });
+    const blocked = async () => Object.fromEntries((await getWhatsAppInboxState(owner.actor, conversation.id))!.templates.map((item) => [item.name, item.blocked?.message ?? null]));
+    expect((await blocked()).novedades).toBe("Falta el permiso «Novedades y publicidad» del cliente: anótalo antes, diciendo cómo lo dio.");
+    await setConversationContactPermission(owner.actor, { conversationId: conversation.id, permission: "marketing", method: "written" });
+    expect(await blocked()).toMatchObject({ novedades: null, sin_boton: "Esta plantilla de marketing no tiene un botón de baja: elige cuál lo es en el panel del número o usa otra." });
+    await db.insert(consents).values({ contactId: contact.id, channelKind: "whatsapp", type: "marketing_opt_out", source: "template_button" });
+    expect((await blocked()).novedades).toBe("Este cliente se ha dado de baja de novedades y publicidad por WhatsApp: no se le pueden enviar plantillas de marketing.");
+    await expect(sendHumanTemplateMessage(owner.actor, { conversationId: conversation.id, templateId: withButton.id, values: REMINDER_VALUES })).rejects.toMatchObject({ status: 409 });
+    void withoutButton;
+  });
+
+  it("[ENV-14] a contact of the demo never gets a template through a real number", async () => {
+    const template = await addTemplate();
+    const { contact } = await customer();
+    await db.update(contacts).set({ isDemo: true }).where(eq(contacts.id, contact.id));
+    await expect(sendTemplateMessage({ channelId: channel.id, contactId: contact.id, templateName: template.name, language: "es", variables: REMINDER_VALUES })).rejects.toMatchObject({
+      status: 409,
+      message: "Es un contacto de la demo o del simulador: no recibe nada por un canal real.",
+    });
+    expect(sentToMeta()).toHaveLength(0);
   });
 
   it("Solo lectura sees the window but gets no templates [PER-03]", async () => {

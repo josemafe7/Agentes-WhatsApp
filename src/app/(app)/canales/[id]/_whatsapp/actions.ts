@@ -6,7 +6,7 @@
 import { revalidatePath } from "next/cache";
 import { disconnectWhatsAppChannel, getWhatsAppPanel, updateWhatsAppSettings, type DisconnectWhatsAppResult } from "@/data/whatsapp-panel";
 import { registerWhatsAppNumber } from "@/data/whatsapp-activation";
-import { syncWhatsAppTemplatesNow } from "@/data/whatsapp-templates";
+import { createWhatsAppTemplate, setTemplateButtonRoles, syncWhatsAppTemplatesNow } from "@/data/whatsapp-templates";
 import {
   changeWhatsAppApiVersion,
   changeWhatsAppAppSecret,
@@ -121,6 +121,36 @@ export async function syncWhatsAppTemplatesAction(channelId: unknown): Promise<A
     const { total, approved } = await syncWhatsAppTemplatesNow(actor, id.data);
     revalidateChannels();
     return ok(undefined, templatesMessage(total, approved));
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+/**
+ * «Nueva plantilla» ([WA-57], [YC-07]): to Meta, or to YCloud which passes it on, «En revisión» until the answer; on a
+ * demo channel, approved at once ([ARR-25]). The same action serves both panels: the data layer picks the provider.
+ */
+export async function createWhatsAppTemplateAction(channelId: unknown, input: unknown): Promise<ActionResult<{ status: string }>> {
+  try {
+    const actor = await requirePermission(PERMISSIONS.channels.manage);
+    const id = idSchema.safeParse(channelId);
+    if (!id.success) return fail(NOT_FOUND);
+    const created = await createWhatsAppTemplate(actor, id.data, input);
+    revalidateChannels();
+    const approved = created.status.toUpperCase() === "APPROVED";
+    return ok({ status: created.status }, approved ? "Plantilla creada y aprobada." : "Plantilla enviada: queda «En revisión» hasta que Meta responda.");
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+/** What each quick-reply button of a template does ([AGD-32], [WA-62]). */
+export async function setTemplateButtonRolesAction(input: unknown): Promise<ActionResult> {
+  try {
+    const actor = await requirePermission(PERMISSIONS.channels.manage);
+    await setTemplateButtonRoles(actor, input);
+    revalidateChannels();
+    return ok(undefined, "Botones guardados.");
   } catch (error) {
     return failure(error);
   }

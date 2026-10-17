@@ -1,18 +1,17 @@
-// Booking reminder form helpers ([AGD-24]): the lead times offered, the template choice and what is sent to the server,
-// which validates it again (approved utility template, a booking field for each variable).
-import type { ReminderChannel } from "@/lib/enums";
+// Helpers of the reminders form ([AGD-24]): the leads offered, a new reminder, the template choice, the channels in
+// order and what is sent to the server, which validates it all again.
+import type { ReminderRoute } from "@/lib/enums";
+import { leadLabel, type ReminderLead, type ReminderRule } from "@/lib/reminder-rules";
 
 const HOUR = 60;
 const WEEK = 7 * 24 * HOUR;
-/** Usual choices, in minutes: from 30 minutes to a week (the server accepts 15 minutes to a week). */
-const LEAD_CHOICES = [30, HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, 24 * HOUR, 48 * HOUR, 72 * HOUR, WEEK];
+/** Usual choices «en horas», in minutes: from 15 minutes to a week ([AGD-24]). */
+export const LEAD_CHOICES = [15, 30, HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, 24 * HOUR, 48 * HOUR, 72 * HOUR, WEEK];
+export const DAY_CHOICES = [1, 2, 3, 4, 5, 6, 7];
 
-/** «30 minutos antes», «1 hora antes», «24 horas antes», «1 semana antes». */
-export function leadLabel(minutes: number): string {
-  if (minutes === WEEK) return "1 semana antes";
-  if (minutes % HOUR !== 0) return `${minutes} minutos antes`;
-  const hours = minutes / HOUR;
-  return hours === 1 ? "1 hora antes" : `${hours} horas antes`;
+/** «30 minutos antes», «2 horas antes», «1 semana antes». */
+export function hoursLeadLabel(minutes: number): string {
+  return leadLabel({ kind: "hours", minutes });
 }
 
 /** The usual choices plus the saved one, in order. */
@@ -33,44 +32,44 @@ export function parseTemplateKey(key: string): { name: string | null; language: 
   return { name: key.slice(0, at), language: key.slice(at + SEPARATOR.length) };
 }
 
-export type ReminderFormValues = {
-  enabled: boolean;
-  leadMinutes: number;
-  channel: ReminderChannel;
-  whatsappChannelId: string;
-  templateKey: string;
-  /** Variables of the chosen template. */
-  templateVariables: readonly string[];
-  /** Variable → booking field key; empty = not chosen yet. */
-  mapping: Readonly<Record<string, string>>;
-  emailSubject: string;
-  emailBody: string;
-};
-
-/** What the server takes: only the chosen variables of this template; empty choices become null. */
-export function buildReminderPayload(values: ReminderFormValues) {
-  const { name, language } = parseTemplateKey(values.templateKey);
-  const templateVariables: Record<string, string> = {};
-  for (const variable of values.templateVariables) {
-    const field = values.mapping[variable];
-    if (field) templateVariables[variable] = field;
-  }
-  return {
-    enabled: values.enabled,
-    leadMinutes: values.leadMinutes,
-    channel: values.channel,
-    whatsappChannelId: values.whatsappChannelId || null,
-    templateName: name,
-    templateLanguage: language,
-    templateVariables,
-    emailSubject: values.emailSubject,
-    emailBody: values.emailBody,
-  };
+/** A new reminder: a lead the others do not have, by WhatsApp then email. */
+export function newRule(existing: readonly ReminderRule[], id: string): ReminderRule {
+  const used = new Set(existing.map((rule) => (rule.lead.kind === "hours" ? rule.lead.minutes : -1)));
+  const minutes = [24 * HOUR, 2 * HOUR, 48 * HOUR, HOUR].find((choice) => !used.has(choice)) ?? 30;
+  return { id, lead: { kind: "hours", minutes }, routes: ["whatsapp", "email"], whatsapp: null, telegram: null, email: null };
 }
 
-/** One line for the agenda configuration: «Desactivados» or «24 horas antes, por email». */
-export function reminderSummary(settings: { enabled: boolean; leadMinutes: number; channel: ReminderChannel; templateName: string | null }): string {
-  if (!settings.enabled) return "Desactivados";
-  const how = settings.channel === "email" ? "por email" : `por WhatsApp con la plantilla «${settings.templateName ?? ""}»`;
-  return `${leadLabel(settings.leadMinutes)}, ${how}`;
+/** The channel moved one place up or down. */
+export function moveRoute(routes: readonly ReminderRoute[], route: ReminderRoute, step: -1 | 1): ReminderRoute[] {
+  const at = routes.indexOf(route);
+  const to = at + step;
+  if (at < 0 || to < 0 || to >= routes.length) return [...routes];
+  const next = [...routes];
+  [next[at], next[to]] = [next[to], next[at]];
+  return next;
+}
+
+/** The lead switched between «en horas» and «en días», keeping a sensible value. */
+export function switchLead(lead: ReminderLead, kind: ReminderLead["kind"]): ReminderLead {
+  if (lead.kind === kind) return lead;
+  return kind === "days" ? { kind: "days", days: 1, at: "10:00" } : { kind: "hours", minutes: 2 * HOUR };
+}
+
+/**
+ * What the server takes: each channel's message only when that channel is marked (the others are left out), and only
+ * the variables of the chosen template.
+ */
+export function buildRulesPayload(rules: readonly ReminderRule[], templateVariables: (rule: ReminderRule) => readonly string[]) {
+  return rules.map((rule) => {
+    const variables: Record<string, string> = {};
+    if (rule.whatsapp) for (const variable of templateVariables(rule)) if (rule.whatsapp.variables[variable]) variables[variable] = rule.whatsapp.variables[variable];
+    return {
+      id: rule.id,
+      lead: rule.lead,
+      routes: rule.routes,
+      whatsapp: rule.routes.includes("whatsapp") && rule.whatsapp ? { ...rule.whatsapp, variables } : null,
+      telegram: rule.routes.includes("telegram") && rule.telegram ? rule.telegram : null,
+      email: rule.routes.includes("email") ? (rule.email ?? { subject: "", body: "" }) : null,
+    };
+  });
 }

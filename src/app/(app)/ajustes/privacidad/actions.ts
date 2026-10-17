@@ -16,6 +16,7 @@ const LEGAL_FIELDS = [
   "retentionAudioDays",
   "retentionAttachmentsDays",
   "retentionWebhookDays",
+  "retentionCampaignResultsMonths",
   "retentionMode",
 ] as const;
 

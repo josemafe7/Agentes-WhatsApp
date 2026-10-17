@@ -28,8 +28,11 @@ export const DEFAULT_TELEGRAM_API_BASE_URL = "https://api.telegram.org";
  * the token only by example, so this is no more than what makes it safe inside a URL path; the real check is getMe.
  */
 export const TELEGRAM_TOKEN_PATTERN = /^\d{1,20}:[A-Za-z0-9_-]{1,200}$/;
-/** The only updates this app wants: every setWebhook and getUpdates says so (docs/integracion-telegram.md «Conectar un bot»). */
-export const TELEGRAM_ALLOWED_UPDATES = ["message"] as const;
+/**
+ * The only updates this app wants: messages, the taps on a reminder's buttons and the customer blocking or unblocking
+ * the bot ([TG-12], [TG-13]). Every setWebhook and getUpdates says so (docs/integracion-telegram.md).
+ */
+export const TELEGRAM_ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"] as const;
 /** A message's text: 1–4,096 characters («Envío»). */
 export const TELEGRAM_MAX_TEXT = 4_096;
 /** A file's caption: 0–1,024 characters. */
@@ -73,7 +76,7 @@ export type DownloadedTelegramFile = { bytes: Uint8Array; contentType: string | 
 export type TelegramClient = {
   getMe(options?: CallOptions): Promise<TelegramBot>;
   getWebhookInfo(options?: CallOptions): Promise<TelegramWebhookInfo>;
-  /** Always with `allowed_updates: ["message"]`: omitting it keeps whatever list the bot had. */
+  /** Always with TELEGRAM_ALLOWED_UPDATES: omitting it keeps whatever list the bot had. */
   setWebhook(input: { url: string; secretToken: string; dropPendingUpdates?: boolean }, options?: CallOptions): Promise<boolean>;
   deleteWebhook(input?: { dropPendingUpdates?: boolean }, options?: CallOptions): Promise<boolean>;
   /** Only works while the bot has no webhook (409 otherwise). `timeoutSec` > 0 = long polling. */
@@ -81,8 +84,10 @@ export type TelegramClient = {
   getFile(fileId: string, options?: CallOptions): Promise<TelegramFile>;
   /** GET of `<base>/file/bot<token>/<file_path>`; stops reading past `maxBytes`. */
   downloadFile(filePath: string, options?: CallOptions & { maxBytes?: number }): Promise<DownloadedTelegramFile>;
-  /** Plain text, without parse_mode (nothing to escape). */
-  sendMessage(input: { chatId: string; text: string }, options?: CallOptions): Promise<TelegramSentMessage>;
+  /** Plain text, without parse_mode (nothing to escape); with buttons, one row of them ([TG-13]). */
+  sendMessage(input: { chatId: string; text: string; buttons?: readonly { text: string; data: string }[] }, options?: CallOptions): Promise<TelegramSentMessage>;
+  /** Answers a button's tap, always: until then the customer sees a progress bar. */
+  answerCallbackQuery(input: { callbackQueryId: string; text?: string }, options?: CallOptions): Promise<boolean>;
   /** The file is uploaded with the call (multipart): ours are private, so there is no URL to give. */
   sendPhoto(input: { chatId: string; file: TelegramUpload; caption?: string | null }, options?: CallOptions): Promise<TelegramSentMessage>;
   /** «escribiendo…» for 5 seconds at most, or until the message arrives. */
@@ -237,8 +242,13 @@ export function createTelegramClient(options: TelegramClientOptions): TelegramCl
     },
 
     async sendMessage(input, opts) {
-      const result = await call({ method: "sendMessage", body: { json: { chat_id: input.chatId, text: input.text } }, ...opts }, SEND_TIMEOUT_MS);
+      const keyboard = input.buttons?.length ? { reply_markup: { inline_keyboard: [input.buttons.map((button) => ({ text: button.text, callback_data: button.data }))] } } : {};
+      const result = await call({ method: "sendMessage", body: { json: { chat_id: input.chatId, text: input.text, ...keyboard } }, ...opts }, SEND_TIMEOUT_MS);
       return parseWith(telegramSentMessageSchema, result);
+    },
+
+    answerCallbackQuery(input, opts) {
+      return truthy({ method: "answerCallbackQuery", body: { json: { callback_query_id: input.callbackQueryId, ...(input.text ? { text: input.text } : {}) } }, ...opts });
     },
 
     async sendPhoto(input, opts) {

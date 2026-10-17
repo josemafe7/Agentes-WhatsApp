@@ -8,7 +8,7 @@
 import "server-only";
 import { and, eq, gt, inArray, lt } from "drizzle-orm";
 import { db, type Executor, type Transaction } from "@/db";
-import { bookingEvents, bookings, contacts, reminderSettings, resources, resourceTimeOff } from "@/db/schema";
+import { bookingEvents, bookings, contacts, resources, resourceTimeOff } from "@/db/schema";
 import type { BookingSource, BookingStatus, TimeOffKind } from "@/lib/enums";
 import { toSingleLine } from "@/lib/format";
 import { AppError, NotFoundError, ValidationError } from "@/server/errors";
@@ -66,7 +66,7 @@ export class BookingRuleError extends AppError {
  * What an agent's tool may touch ([HER-04], [PER-08]): only the bookings of the conversation's contact, or, in
  * «Probar agente», only test bookings. People (data layer) pass no scope.
  */
-export type BookingScope = { contactId: string } | { testOnly: true };
+export type BookingScope = { contactId: string; /** Only this booking of the contact ([WA-63]). */ bookingId?: string } | { testOnly: true };
 
 function assertMinutes(value: number | undefined, label: string): void {
   if (value !== undefined && (!Number.isInteger(value) || value < 1 || value > MINUTES_PER_DAY)) throw new ValidationError(`${label} no válida.`);
@@ -252,7 +252,7 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingV
         conversationId: input.conversationId ?? null,
         notes: cleanText(input.notes, MAX_NOTES),
         createdByUserId: input.actor.type === "user" ? input.actor.userId : null,
-        createdByName: input.actor.type === "system" ? null : input.actor.name,
+        createdByName: input.actor.type === "user" || input.actor.type === "ai" ? input.actor.name : null,
         isTest: input.isTest ?? false,
         createdAt: now,
         updatedAt: now,
@@ -287,13 +287,14 @@ const changeColumns = {
   status: bookings.status,
   isTest: bookings.isTest,
   reminderSentAt: bookings.reminderSentAt,
+  customerConfirmedAt: bookings.customerConfirmedAt,
 };
 type ChangeRow = Pick<typeof bookings.$inferSelect, keyof typeof changeColumns>;
 
 function inScope(row: ChangeRow, scope: BookingScope | undefined): boolean {
   if (!scope) return true;
   if ("testOnly" in scope) return row.isTest;
-  return !row.isTest && row.contactId === scope.contactId;
+  return !row.isTest && row.contactId === scope.contactId && (!scope.bookingId || row.id === scope.bookingId);
 }
 
 /** The booking, or «not found» also when it is outside the scope: an agent never learns that another exists. */
@@ -321,15 +322,10 @@ export type RescheduleBookingInput = {
   now?: Date;
 };
 
-async function reminderLeadMinutes(tx: Executor): Promise<number | null> {
-  const [settings] = await tx.select({ enabled: reminderSettings.enabled, leadMinutes: reminderSettings.leadMinutes }).from(reminderSettings).limit(1);
-  return settings?.enabled ? settings.leadMinutes : null;
-}
-
 /**
  * Moves a booking (start, resource, length or group size) if the new slot is free when saving ([AGD-17],
- * [HER-06]). Only pending and confirmed bookings move. A reminder already sent is sent again at the new time when
- * that moment is still ahead ([AGD-25]).
+ * [HER-06]). Only pending and confirmed bookings move. A new time gets its reminders again, those whose moment is
+ * still ahead ([AGD-25]), and loses «Confirmada por el cliente» ([AGD-33]).
  */
 export async function rescheduleBooking(input: RescheduleBookingInput): Promise<BookingView> {
   return (await rescheduleBookingReporting(input)).booking;
@@ -362,15 +358,16 @@ export async function rescheduleBookingReporting(input: RescheduleBookingInput):
     const check = await checkSlot(tx, settings, service, { ...request, now, excludeBookingId: current.id, ignoreAdvance: !startMoved });
     if (!("resourceId" in check)) return { ok: false, reason: check.reason, request };
     const times = bookingTimes(request.start, service.row, request.durationMin);
-    const lead = await reminderLeadMinutes(tx);
-    // «Si la cita se mueve, se recalcula»: a new reminder only if its new moment is still ahead.
-    const resetReminder = startMoved && current.reminderSentAt !== null && lead !== null && request.start.getTime() - lead * MINUTE_MS > now.getTime();
+    // A new time: its reminders are worked out again from now (each one is per time of the booking), and the
+    // customer's confirmation was for the old one.
+    const timeChange = startMoved ? { startsAtSetAt: now, customerConfirmedAt: null, reminderSentAt: null } : {};
     await tx
       .update(bookings)
-      .set({ ...times, resourceId: check.resourceId, people: request.people, ...(resetReminder ? { reminderSentAt: null } : {}), updatedAt: now })
+      .set({ ...times, resourceId: check.resourceId, people: request.people, ...timeChange, updatedAt: now })
       .where(eq(bookings.id, current.id));
     const changes: Record<string, unknown> = {};
     if (startMoved) changes.startsAt = { from: current.startsAt.toISOString(), to: request.start.toISOString() };
+    if (startMoved && current.customerConfirmedAt) changes.customerConfirmed = { from: true, to: false };
     if (check.resourceId !== current.resourceId) changes.resourceId = { from: current.resourceId, to: check.resourceId };
     if (times.endsAt.getTime() !== current.endsAt.getTime()) changes.endsAt = { from: current.endsAt.toISOString(), to: times.endsAt.toISOString() };
     if (request.people !== current.people) changes.people = { from: current.people, to: request.people };
@@ -526,7 +523,7 @@ export async function addTimeOff(input: AddTimeOffInput): Promise<{ id: string; 
       endsAt: input.endsAt,
       reason: cleanText(input.reason, MAX_NAME),
       createdByUserId: input.actor.type === "user" ? input.actor.userId : null,
-      createdByName: input.actor.type === "system" ? null : input.actor.name,
+      createdByName: input.actor.type === "user" || input.actor.type === "ai" ? input.actor.name : null,
       createdAt: now,
       updatedAt: now,
     })

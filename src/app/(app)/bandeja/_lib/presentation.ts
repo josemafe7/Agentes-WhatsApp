@@ -104,6 +104,9 @@ export const CONTENT_TYPE_LABELS: Record<MessageContentType, string> = {
   system: "Aviso del sistema",
 };
 
+/** What stays of a message the customer deleted in the channel: its content is gone ([IG-07]). */
+export const DELETED_BY_CONTACT_TEXT = "El cliente borró este mensaje";
+
 /** A customer's file the channel could not give us ([WA-41]). */
 export const MEDIA_DOWNLOAD_FAILED_TEXT = "No se pudo descargar el archivo";
 

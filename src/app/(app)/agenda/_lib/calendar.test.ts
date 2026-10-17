@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { closureOf, dayHeading, intersectRanges, monthWeeks, nowLocal, openRanges, periodLabel, stepDate, viewRange } from "./calendar";
+import { closureOf, dayHeading, intersectRanges, mergeRanges, monthWeeks, nowLocal, openRanges, periodLabel, rangesMinutes, stepDate, subtractRanges, viewRange } from "./calendar";
 
 const TZ = "Europe/Madrid";
 // Monday–Friday 09:00–14:00 and 16:00–20:00; Saturday 10:00–14:00; Sunday closed.
@@ -89,5 +89,24 @@ describe("Agenda: a resource's own hours inside the business's [AGD-05]", () => 
     ]);
     expect(intersectRanges(business, [])).toEqual([]);
     expect(intersectRanges([], [{ startMin: 600, endMin: 700 }])).toEqual([]);
+  });
+});
+
+describe("Agenda: adding up and taking away stretches of the day [AGD-29] [AGD-31]", () => {
+  it("joins overlapping or touching stretches, takes some away from others and counts their minutes", () => {
+    expect(mergeRanges([{ startMin: 600, endMin: 660 }, { startMin: 540, endMin: 610 }, { startMin: 660, endMin: 700 }, { startMin: 800, endMin: 820 }])).toEqual([
+      { startMin: 540, endMin: 700 },
+      { startMin: 800, endMin: 820 },
+    ]);
+    const working = [{ startMin: 480, endMin: 840 }, { startMin: 930, endMin: 1260 }];
+    expect(subtractRanges(working, [{ startMin: 600, endMin: 660 }, { startMin: 800, endMin: 1000 }])).toEqual([
+      { startMin: 480, endMin: 600 },
+      { startMin: 660, endMin: 800 },
+      { startMin: 1000, endMin: 1260 },
+    ]);
+    expect(subtractRanges(working, [{ startMin: 0, endMin: 1440 }])).toEqual([]);
+    expect(subtractRanges(working, [])).toEqual(working);
+    expect(rangesMinutes(working)).toBe(360 + 330);
+    expect(rangesMinutes([])).toBe(0);
   });
 });

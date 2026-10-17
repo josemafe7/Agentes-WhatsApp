@@ -243,7 +243,16 @@ export const systemEmails = pgTable(
     /** File name inside data/outbox when saved locally. */
     outboxFile: text("outbox_file"),
     error: text("error"),
+    /**
+     * Of an email to a contact (a reminder, [AGD-24]; an envío, [ENV-04]): its Message-ID, as sent («<…@…>»), and
+     * whose it is, so an answer that reaches a connected mailbox goes to that contact. Null for the others.
+     */
+    messageId: text("message_id"),
+    contactId: text("contact_id"),
+    bookingId: text("booking_id"),
+    /** Of an envío's email: its envío, so the answer says which one it answers ([ENV-12]). */
+    campaignId: text("campaign_id"),
     ...timestamps(),
   },
-  (t) => [index("system_emails_created_at_idx").on(t.createdAt)],
+  (t) => [index("system_emails_created_at_idx").on(t.createdAt), index("system_emails_message_id_idx").on(t.messageId)],
 ).enableRLS();

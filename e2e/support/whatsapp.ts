@@ -387,11 +387,19 @@ export function chooseTemplateButton(page: Page): Locator {
 }
 
 /** Sends an approved template with its variables from «Enviar una plantilla». */
-export async function sendTemplate(page: Page, template: string, values: Record<string, string>): Promise<void> {
+export async function sendTemplate(page: Page, template: string, values: Record<string, string>, options: { recordPermission?: { blocked: string; how: string } } = {}): Promise<void> {
   await chooseTemplateButton(page).click();
   const dialog = page.getByRole("dialog", { name: "Enviar una plantilla" });
   await expect(dialog).toBeVisible();
   await chooseOption(page, dialog.getByRole("combobox", { name: "Plantilla" }), new RegExp(`^${escapeRegExp(template)} · `));
+  if (options.recordPermission) {
+    // [WA-61] Without the customer's permission it does not go: it is recorded first, saying how they gave it.
+    await expect(dialog.getByText(options.recordPermission.blocked)).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Enviar plantilla" })).toBeDisabled();
+    await chooseOption(page, dialog.getByRole("combobox", { name: "Cómo lo dio" }), options.recordPermission.how);
+    await clickAndWaitForPost(page, dialog.getByRole("button", { name: "Anotar permiso" }));
+    await expect(dialog.getByText(options.recordPermission.blocked)).toHaveCount(0, { timeout: 15_000 });
+  }
   for (const [name, value] of Object.entries(values)) {
     await dialog.getByRole("textbox", { name: new RegExp(`^\\{\\{${escapeRegExp(name)}\\}\\}`) }).fill(value);
   }

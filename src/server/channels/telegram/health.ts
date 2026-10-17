@@ -4,6 +4,7 @@
 // delivery (English) follows ours as data.
 import "server-only";
 import type { ChannelHealth } from "@/db/schema";
+import { TELEGRAM_ALLOWED_UPDATES } from "@/lib/telegram/client";
 import type { TelegramBot, TelegramWebhookInfo } from "@/lib/telegram/schemas";
 import { isTelegramApiError } from "@/lib/telegram/errors";
 import type { ChannelRecord } from "../types";
@@ -85,6 +86,14 @@ export async function checkTelegramHealth(channel: ChannelRecord, deps: Telegram
   const client = telegramClientFor(channel, deps, secrets);
   const [me, info] = await Promise.allSettled([client.getMe(), client.getWebhookInfo()]);
   const mode = readTelegramConfig(channel.config).receiveMode ?? telegramReceiveModeFor(channel.id);
+  // A bot connected before the reminders' buttons asks for them now (setWebhook keeps the old list otherwise, [TG-13]);
+  // a failure only waits for the next check.
+  if (mode === "webhook" && info.status === "fulfilled" && info.value.url === telegramWebhookUrl(channel.id)) {
+    const asked = new Set(info.value.allowed_updates ?? []);
+    if (TELEGRAM_ALLOWED_UPDATES.some((update) => !asked.has(update))) {
+      await client.setWebhook({ url: telegramWebhookUrl(channel.id), secretToken: secrets.webhookSecret }).catch(() => false);
+    }
+  }
   const checks = [tokenCheck(me), receivingCheck(mode, info, channel.id, now), lastMessageCheck(channel.lastInboundAt)];
   const failing = checks.find((item) => item.status === "error" && BLOCKING.has(item.key as TelegramHealthKey));
   return {

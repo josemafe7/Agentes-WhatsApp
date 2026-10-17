@@ -45,7 +45,10 @@ type ToolListProps = {
 
 /** The list, one block per theme; also read-only (without onToggle) for supervisor and viewer. */
 export function ToolList({ rows, enabledNames, onToggle }: ToolListProps) {
-  const isOn = (row: ToolRow) => row.availability === "always" || (enabledNames ? enabledNames.includes(row.name) : row.enabled);
+  const enabledNow = (name: string, saved: boolean) => (enabledNames ? enabledNames.includes(name) : saved);
+  const bookingsOn = enabledNow("crear_cita", rows.find((row) => row.name === "crear_cita")?.enabled ?? false);
+  const isOn = (row: ToolRow) =>
+    row.availability === "always" || (row.availability === "with_bookings" ? bookingsOn : enabledNow(row.name, row.enabled));
   return (
     <div className="grid gap-6">
       {groupTools(rows).map((group) => {
@@ -72,6 +75,12 @@ export function ToolList({ rows, enabledNames, onToggle }: ToolListProps) {
                             Siempre activa
                           </Badge>
                         ) : null}
+                        {row.availability === "with_bookings" ? (
+                          <Badge variant="outline" className="h-[22px] gap-1">
+                            <Lock aria-hidden />
+                            Va con «Crear citas»
+                          </Badge>
+                        ) : null}
                         {row.availability === "soon" ? (
                           <Badge variant="secondary" className="h-[22px]">
                             Próximamente
@@ -80,7 +89,7 @@ export function ToolList({ rows, enabledNames, onToggle }: ToolListProps) {
                       </div>
                       <p id={`${id}-help`} className="text-sm text-muted-foreground">
                         {row.description}
-                        {row.availability === "always" ? " Siempre hay una vía a una persona del equipo." : null}
+                        {row.name === "transferir_a_humano" ? " Siempre hay una vía a una persona del equipo." : null}
                       </p>
                     </div>
                     <Switch

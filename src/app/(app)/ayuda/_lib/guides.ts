@@ -14,6 +14,7 @@ export const HELP_GUIDE_GROUPS = [
   { key: "channels", title: "Canales" },
   { key: "agents", title: "Agentes y conocimiento" },
   { key: "agenda", title: "Agenda" },
+  { key: "campaigns", title: "Envíos" },
 ] as const;
 
 export type HelpGuideGroup = (typeof HELP_GUIDE_GROUPS)[number];
@@ -74,6 +75,12 @@ export const HELP_GUIDES: readonly HelpGuide[] = [
     description: "Conectar un bot de Telegram: crearlo con @BotFather, pegar su token, el modo local, el enlace y el código QR para tus clientes y los problemas frecuentes.",
   },
   {
+    slug: "instagram",
+    file: "guia-instagram.md",
+    group: "channels",
+    description: "Conectar los mensajes directos de la cuenta de Instagram del negocio: la cuenta profesional, la app de Meta, el token y la clave, los avisos de Meta, la prueba desde otra cuenta, la ventana de 24 horas y los problemas frecuentes.",
+  },
+  {
     slug: "agentes-y-conocimiento",
     file: "guia-agentes-y-conocimiento.md",
     group: "agents",
@@ -90,6 +97,12 @@ export const HELP_GUIDES: readonly HelpGuide[] = [
     file: "guia-agenda.md",
     group: "agenda",
     description: "Preparar la agenda del negocio: palabras, servicios, recursos, horarios, ausencias, modo por recurso o por aforo, recordatorios y qué hace el agente con las citas.",
+  },
+  {
+    slug: "envios",
+    file: "guia-envios.md",
+    group: "campaigns",
+    description: "Mandar novedades y publicidad por WhatsApp, Telegram o correo: el permiso de los clientes, importarlos, la plantilla de publicidad, programar un envío, el correo con un servicio de envíos (SPF, DKIM y DMARC), las normas y cómo evitar bloqueos.",
   },
 ];
 

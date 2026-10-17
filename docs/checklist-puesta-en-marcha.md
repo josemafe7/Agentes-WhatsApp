@@ -12,6 +12,8 @@ Las guías están en **Ayuda** (en el menú de tu usuario) y, en el repositorio,
   YCloud» (`guia-whatsapp-ycloud.md`) y «Conectar WhatsApp por código QR» (`guia-whatsapp-qr.md`).
 - «Conectar el correo» (`guia-correo.md`).
 - «Conectar Telegram» (`guia-telegram.md`).
+- «Guía de Instagram» (`guia-instagram.md`), para los mensajes directos de la cuenta del negocio.
+- «Envíos: novedades y publicidad a tus clientes» (`guia-envios.md`).
 
 Si trabajas con un agente de código, la skill `nuevo-negocio` recorre esta lista contigo.
 
@@ -182,24 +184,52 @@ Cómo: guía «La agenda: citas, servicios, recursos y recordatorios».
   guía: el número empieza en «Modo pruebas» sin contestar a nadie.
 - [ ] **Correo:** Gmail, Outlook u otro servidor, en «Borrador para revisar» al principio y con «Modo pruebas» con tu
   dirección. Pruébalo escribiendo desde otra dirección.
+- [ ] **Instagram:** con la cuenta profesional y pública del negocio y su app de Meta publicada (Live), en Canales ›
+  Añadir canal › Instagram. Pega en Meta la dirección de avisos (Callback URL) y el token de verificación (Verify
+  token) que te da el asistente, pulsa «Verify and save» y espera a que el paso «Avisos de Meta» se ponga en verde.
+  Pruébalo con un mensaje directo desde otra cuenta de Instagram que no sea la del negocio ni tenga ningún papel en
+  la app de Meta: con una que lo tiene, puede llegar aunque con los clientes no llegue.
 - [ ] En cada canal: agente activo, IA encendida, modo de respuesta, fuera de horario y aviso de IA.
 
 Cómo: guía «Conectar WhatsApp», apartados «Número de prueba de Meta» y «Prueba»; guía «Conectar el correo», apartado
-«Prueba»; guía «Crear agentes y darles el conocimiento del negocio», apartado «5. Ponerlo a responder en un canal».
+«Prueba»; «Guía de Instagram», apartados «Publicar la app», «Avisos de Meta» y «Prueba»; guía «Crear agentes y darles
+el conocimiento del negocio», apartado «5. Ponerlo a responder en un canal».
 
 ## 11. Los recordatorios
 
-- [ ] **Ajustes › Recordatorios** (vienen desactivados): cuándo y por dónde. Por WhatsApp, con una plantilla de
-  utilidad aprobada por Meta (cada recordatorio se cobra). Por email: si el cliente ya escribió a un buzón conectado
-  del negocio, sale por ese buzón en su mismo hilo y su respuesta llega a la Bandeja; si no, sale del correo del
-  sistema y las respuestas van al buzón conectado o, si no hay ninguno, al email de contacto de Ajustes › Negocio.
+- [ ] Si los quieres por WhatsApp: en el panel del número, **«Nueva plantilla» › «Recordatorio de cita»** y espera a
+  que Meta la apruebe (o sincroniza una tuya y elige qué hace cada botón).
+- [ ] **Ajustes › Recordatorios** (vienen desactivados): hasta tres por cita, cada uno con cuándo y por dónde, en
+  orden. Por WhatsApp, con una plantilla de utilidad aprobada por Meta (cada recordatorio se cobra) y solo a quien
+  tiene el permiso «Avisos de sus citas»; por Telegram, a quien ha escrito al bot y tiene el permiso. Por email: si el
+  cliente ya escribió a un buzón conectado del negocio, sale por ese buzón en su mismo hilo y su respuesta llega a la
+  Bandeja; si no, sale del correo del sistema y las respuestas van al buzón conectado o, si no hay ninguno, al email
+  de contacto de Ajustes › Negocio.
+- [ ] **Permisos de tus clientes:** marca «Avisos de sus citas» a quien ya te lo dio (Contactos, seleccionar,
+  «Permisos», diciendo cómo lo dio). A los nuevos se lo pregunta la IA al reservar por WhatsApp o Telegram.
+- [ ] Con la API de Meta conectada antes de la fase 12: añade el campo `user_preferences` a los avisos de la app de
+  Meta (guía «Conectar WhatsApp», apartado «Webhook»).
 - [ ] Si no conectas ningún buzón, pon en Ajustes › Negocio un email de contacto que alguien lea: ahí llegan las
   respuestas a los recordatorios por email (para cancelar la cita o pedir no recibir más), y las atiende una persona.
-- [ ] Una cita de prueba a tu nombre recibe su recordatorio.
+- [ ] Una cita de prueba a tu nombre recibe su recordatorio y, al pulsar «Confirmo», queda «Confirmada por el cliente».
 
-Cómo: guía «La agenda: citas, servicios, recursos y recordatorios», apartado «10. Recordatorios».
+Cómo: guía «La agenda: citas, servicios, recursos y recordatorios», apartados «10. Recordatorios» y «11. El permiso
+«Avisos de sus citas»»; guía «Conectar WhatsApp», apartado «Plantillas».
 
-## 12. El equipo: usuarios, roles y verificación en dos pasos
+## 12. Los envíos, si mandas novedades o publicidad
+
+- [ ] **El permiso «Novedades y publicidad»,** marcado solo a quien te lo dio de verdad (en su ficha, en Contactos con
+  «Permisos» o al importarlos, diciendo cómo lo dio). Sin él, un envío no le llega por ningún canal.
+- [ ] **Ajustes › Envíos:** las horas de envío (de 9:00 a 21:00 por defecto) y cada cuántos días como mucho recibe uno
+  un mismo contacto (7 por defecto).
+- [ ] **Por correo:** un servicio de envíos (Brevo, Mailjet, Mailgun…) en Ajustes › Correo del sistema, nunca el buzón
+  con el que trabajas, con el dominio del negocio verificado (SPF, DKIM y DMARC) y el tope diario de tu plan en
+  Ajustes › Envíos. Solo con la app publicada con HTTPS.
+
+Cómo: guía «Envíos: novedades y publicidad a tus clientes», apartados «1. El permiso «Novedades y publicidad»», «5. El
+ritmo y las paradas» y «8. El correo: un servicio de envíos y los registros del dominio».
+
+## 13. El equipo: usuarios, roles y verificación en dos pasos
 
 - [ ] **Ajustes › Usuarios › Invitar:** el email y el rol de cada persona: Administrador, Supervisor, Agente (solo sus
   canales) o Solo lectura. La invitación caduca a los 7 días; sin correo del sistema, la app te da el enlace para que
@@ -209,7 +239,7 @@ Cómo: guía «La agenda: citas, servicios, recursos y recordatorios», apartado
 - [ ] Después, en Ajustes › Usuarios, activa «Exigir verificación en dos pasos a propietario y administradores».
 - [ ] Cada persona tiene su propia cuenta: nadie comparte contraseña.
 
-## 13. Los avisos y la app instalada
+## 14. Los avisos y la app instalada
 
 - [ ] **Ajustes › Notificaciones:** qué sucesos avisan y a quién (traspaso, conversación asignada, canal con error,
   calidad de WhatsApp, modelo que se retira y cita pendiente de confirmar), y cuántas horas se pausa la IA cuando
@@ -218,7 +248,7 @@ Cómo: guía «La agenda: citas, servicios, recursos y recordatorios», apartado
   primero hay que añadir la app a la pantalla de inicio. Hace falta la app publicada con HTTPS.
 - [ ] Los avisos por email necesitan el correo del sistema.
 
-## 14. Conversaciones de prueba
+## 15. Conversaciones de prueba
 
 - [ ] **Ajustes › Diagnóstico › Simulador:** un texto, una nota de voz, una imagen y un documento. Llegan a la Bandeja y
   la IA responde.
@@ -235,7 +265,7 @@ Cómo: guía «La agenda: citas, servicios, recursos y recordatorios», apartado
 
 [Captura: Ajustes › Diagnóstico, con la «Última ronda» reciente y sin trabajos fallidos]
 
-## 15. Abrir a los clientes
+## 16. Abrir a los clientes
 
 - [ ] Vercel Pro y Supabase Pro, si todavía estabas en los gratuitos.
 - [ ] Desactiva el «Modo pruebas» de cada canal.

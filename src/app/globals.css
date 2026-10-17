@@ -53,6 +53,7 @@
   --color-channel-email: var(--channel-email);
   --color-channel-web: var(--channel-web);
   --color-channel-telegram: var(--channel-telegram);
+  --color-channel-instagram: var(--channel-instagram);
 
   /* Agenda resource colours (8 named choices) */
   --color-resource-blue: var(--resource-blue);
@@ -140,6 +141,7 @@
   --channel-email: #ca3500;
   --channel-web: var(--muted-foreground);
   --channel-telegram: #0069a8;
+  --channel-instagram: #c6005c;
 
   --resource-blue: oklch(54.6% 0.245 262.881);
   --resource-violet: oklch(54.1% 0.281 293.009);
@@ -214,6 +216,7 @@
   --channel-email: #ff8904;
   --channel-web: var(--muted-foreground);
   --channel-telegram: #00bcff;
+  --channel-instagram: #fb64b6;
 
   --resource-blue: oklch(70.7% 0.165 254.624);
   --resource-violet: oklch(70.2% 0.183 293.541);

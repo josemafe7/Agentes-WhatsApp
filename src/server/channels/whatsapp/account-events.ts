@@ -7,10 +7,12 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { channels, whatsappTemplates } from "@/db/schema";
 import { sameTemplateLanguage } from "@/lib/meta/templates";
+import { applyMarketingPreference } from "@/server/compliance/whatsapp-marketing";
 import { notify } from "@/server/notifications/notify";
 import type { ChannelRecord } from "../types";
 import { PAYMENT_METHOD_CODE, recordMetaFailure } from "./failures";
 import type { AccountChange } from "./normalize";
+import { notifyTemplateChanges } from "./template-changes";
 import { enqueueTemplatesSync, requestHealthCheckSoon } from "./schedule";
 
 const NAME_DECISION_STATUS: Record<string, string> = { APPROVED: "APPROVED", REJECTED: "DECLINED", PENDING: "PENDING_REVIEW", DEFERRED: "PENDING_REVIEW" };
@@ -34,16 +36,13 @@ export function channelsForAccountChange(candidates: readonly ChannelRecord[], c
 }
 
 async function templateStatus(channel: ChannelRecord, data: Record<string, unknown>, now: Date): Promise<void> {
-  const metaId = str(data.message_template_id);
-  const name = str(data.message_template_name);
-  const language = str(data.message_template_language);
-  const rows = await db.select().from(whatsappTemplates).where(eq(whatsappTemplates.channelId, channel.id));
-  const target = rows.find((row) => (metaId && row.metaTemplateId === metaId) || (name && row.name === name && language && sameTemplateLanguage(row.language, language)));
+  const target = await templateOf(channel, data);
   if (!target) {
     await enqueueTemplatesSync(channel.id);
     return;
   }
   const reason = str(data.reason);
+  const rejected = str(data.event)?.toUpperCase() === "REJECTED" && target.status?.toUpperCase() !== "REJECTED";
   await db
     .update(whatsappTemplates)
     .set({
@@ -53,6 +52,53 @@ async function templateStatus(channel: ChannelRecord, data: Record<string, unkno
       updatedAt: now,
     })
     .where(and(eq(whatsappTemplates.id, target.id), eq(whatsappTemplates.channelId, channel.id)));
+  if (rejected) await notifyTemplateChanges([{ kind: "rejected", channelId: channel.id, name: target.name, reason }]);
+}
+
+/** The template a notice is about: by Meta's id, or by name and language. */
+async function templateOf(channel: ChannelRecord, data: Record<string, unknown>) {
+  const metaId = str(data.message_template_id);
+  const name = str(data.message_template_name);
+  const language = str(data.message_template_language);
+  const rows = await db.select().from(whatsappTemplates).where(eq(whatsappTemplates.channelId, channel.id));
+  return rows.find((row) => (metaId && row.metaTemplateId === metaId) || (name && row.name === name && language && sameTemplateLanguage(row.language, language))) ?? null;
+}
+
+/**
+ * [WA-60] Meta changes a template's category, or announces the day before that it will: the row says it and the owner
+ * and the admins hear it. The sync of every 6 hours confirms it (and brings its time-to-live, which Meta wipes).
+ */
+async function templateCategory(channel: ChannelRecord, data: Record<string, unknown>, now: Date): Promise<void> {
+  const target = await templateOf(channel, data);
+  await enqueueTemplatesSync(channel.id);
+  if (!target) return;
+  const upcoming = str(data.correct_category);
+  if (upcoming) {
+    const at = typeof data.category_update_timestamp === "number" ? new Date(data.category_update_timestamp * 1_000) : null;
+    if (target.upcomingCategory === upcoming) return;
+    await db.update(whatsappTemplates).set({ upcomingCategory: upcoming, upcomingCategoryAt: at, updatedAt: now }).where(eq(whatsappTemplates.id, target.id));
+    await notifyTemplateChanges([{ kind: "category_announced", channelId: channel.id, name: target.name, to: upcoming, at }]);
+    return;
+  }
+  const next = str(data.new_category);
+  if (!next || next.toUpperCase() === target.category?.toUpperCase()) return;
+  await db
+    .update(whatsappTemplates)
+    .set({ category: next, previousCategory: str(data.previous_category) ?? target.category, categoryChangedAt: now, upcomingCategory: null, upcomingCategoryAt: null, ttlSeconds: null, updatedAt: now })
+    .where(eq(whatsappTemplates.id, target.id));
+  await notifyTemplateChanges([{ kind: "category_changed", channelId: channel.id, name: target.name, from: target.category, to: next }]);
+}
+
+/** [WA-62] The customer stopped or resumed the business's marketing from WhatsApp. */
+async function userPreferences(channel: ChannelRecord, data: Record<string, unknown>, now: Date): Promise<void> {
+  const entries = Array.isArray(data.user_preferences) ? data.user_preferences : [];
+  for (const entry of entries) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const item = entry as Record<string, unknown>;
+    const value = str(item.value)?.toLowerCase();
+    if (str(item.category) !== "marketing_messages" || (value !== "stop" && value !== "resume")) continue;
+    await applyMarketingPreference(channel.id, { userId: str(item.user_id), waId: str(item.wa_id), value }, now);
+  }
 }
 
 async function nameUpdate(channel: ChannelRecord, data: Record<string, unknown>, now: Date): Promise<void> {
@@ -82,7 +128,9 @@ async function applyToChannel(channel: ChannelRecord, change: AccountChange, now
     case "message_template_status_update":
       return templateStatus(channel, data, now);
     case "template_category_update":
-      return enqueueTemplatesSync(channel.id);
+      return templateCategory(channel, data, now);
+    case "user_preferences":
+      return userPreferences(channel, data, now);
     case "phone_number_name_update":
       await nameUpdate(channel, data, now);
       return requestHealthCheckSoon(channel.id);

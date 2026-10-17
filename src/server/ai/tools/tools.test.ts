@@ -36,9 +36,10 @@ afterEach(() => {
 
 describe("tools an agent gets [AGE-08] [HER-10]", () => {
   it("the hand-off is always on; the knowledge search (phase 4) and the booking tools (phase 5) only when enabled", () => {
-    expect([...toolsForAgent([]).keys()]).toEqual(["transferir_a_humano"]);
-    expect([...toolsForAgent(["crear_cita", "buscar_conocimiento", "transferir_a_humano"]).keys()]).toEqual(["transferir_a_humano", "buscar_conocimiento", "crear_cita"]);
-    expect([...toolsForAgent(["herramienta_inventada"]).keys()]).toEqual(["transferir_a_humano"]);
+    // [HER-16] «Dar de baja» is always on too.
+    expect([...toolsForAgent([]).keys()]).toEqual(["transferir_a_humano", "dar_de_baja"]);
+    expect([...toolsForAgent(["crear_cita", "buscar_conocimiento", "transferir_a_humano"]).keys()]).toEqual(["transferir_a_humano", "buscar_conocimiento", "crear_cita", "dar_de_baja"]);
+    expect([...toolsForAgent(["herramienta_inventada"]).keys()]).toEqual(["transferir_a_humano", "dar_de_baja"]);
   });
 
   it("the model sees each tool as a function with the JSON Schema of its Zod parameters", () => {

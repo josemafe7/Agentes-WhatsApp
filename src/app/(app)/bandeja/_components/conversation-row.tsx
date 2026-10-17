@@ -62,6 +62,8 @@ export function ConversationRow({ item, href, selected, timezone, now }: Convers
             ) : null}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            {/* First, whole type and cut name: which channel this conversation is in, at a glance ([BAN-17]). */}
+            <ChannelMark type={item.channel.type} name={item.channel.name} variant="pill" className="max-w-[min(100%,14rem)]" />
             {item.urgent ? (
               <span className="inline-flex h-[22px] items-center gap-1 rounded-full bg-destructive-soft px-2 font-medium text-destructive-text">
                 <Siren aria-hidden className="size-3" />
@@ -78,7 +80,6 @@ export function ConversationRow({ item, href, selected, timezone, now }: Convers
               <ModeIcon aria-hidden className="size-3" />
               {mode.label}
             </span>
-            <ChannelMark type={item.channel.type} name={item.channel.name} className="max-w-32" />
             {item.labels.slice(0, MAX_LABELS_SHOWN).map((label) => (
               <span key={label} className="inline-flex h-5 max-w-24 items-center rounded-full border px-2 text-foreground">
                 <span className="truncate">{label}</span>

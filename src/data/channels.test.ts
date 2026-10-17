@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
 import { agents, auditLog, channelMembers, channels, contactIdentities, contacts, conversations, jobs, userRoles } from "@/db/schema";
+import { INSTAGRAM_HEALTH_CHECK_JOB } from "@/server/channels/instagram/schedule";
 import { HEALTH_CHECK_JOB } from "@/server/channels/whatsapp/schedule";
 import { encryptChannelSecrets } from "@/server/channels/secrets";
 import { AuthError, ConflictError, ValidationError } from "@/server/errors";
@@ -169,6 +170,25 @@ describe("common settings [CAN-04] [CAN-06] [CAN-07] [CAN-08] [CAN-16]", () => {
     expect((await channelRow(paused.id)).status).toBe("connecting");
     const checks = await db.select().from(jobs).where(eq(jobs.type, HEALTH_CHECK_JOB));
     expect(checks.map((job) => job.payload)).toEqual([{ channelId: paused.id }]);
+  });
+
+  it("a disconnected Instagram account goes back through its wizard; one with its token returns to «conectando» and is checked at once; deleting it stops its checks [IG-10] [CAN-15] [CAN-16]", async () => {
+    const disconnected = await createChannel({ name: "IG desconectada", type: "instagram", status: "disabled" });
+    const refused = await errorOf(updateChannel(users.owner.actor, disconnected.id, { enabled: true }));
+    expect(refused).toBeInstanceOf(ConflictError);
+    expect((refused as ConflictError).userMessage).toMatch(/asistente de Instagram/);
+    expect((await channelRow(disconnected.id)).status).toBe("disabled");
+
+    await db.delete(jobs);
+    const paused = await createChannel({ name: "IG pausada", type: "instagram", status: "disabled", secretsEnc: encryptChannelSecrets({ access_token: "token-de-prueba" }) });
+    await updateChannel(users.owner.actor, paused.id, { enabled: true });
+    expect((await channelRow(paused.id)).status).toBe("connecting");
+    const checks = await db.select().from(jobs).where(eq(jobs.type, INSTAGRAM_HEALTH_CHECK_JOB));
+    expect(checks.map((job) => job.payload)).toEqual([{ channelId: paused.id }]);
+
+    await deleteChannel(users.owner.actor, paused.id);
+    const pending = await db.select().from(jobs).where(eq(jobs.type, INSTAGRAM_HEALTH_CHECK_JOB));
+    expect(pending.map((job) => job.status)).toEqual(["cancelled"]);
   });
 
   it("only a channel without conversations can be deleted", async () => {

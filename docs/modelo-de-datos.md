@@ -29,10 +29,10 @@ Vienen de la decisión 0024 (que conserva las de 0003) y valen para todas las ta
 - **Autoría que sobrevive:** mensajes, notas y citas guardan el id de quien los escribió y una copia de su
   nombre en ese momento, porque un usuario borrado desaparece de las tablas de Better Auth y su nombre tiene
   que seguir viéndose ([USU-15]).
-- **Marcas de prueba:** `is_demo` (canales y usuarios de la demo), `is_test` (conversaciones y citas de
+- **Marcas de prueba:** `is_demo` (canales, usuarios y contactos de la demo), `is_test` (conversaciones y citas de
   «Probar agente») y `simulated` (mensajes del simulador). Sirven para borrarlos juntos, para no mandarlos
   nunca fuera y para que no cuenten en los informes ([ARR-11], [ARR-20], [AJU-13], [PRU-04], [PRU-05],
-  [INF-08]).
+  [INF-08]). Un contacto de la demo o del simulador nunca recibe nada por un canal que no sea de demo ([ENV-14]).
 
 ## Usuarios y negocio
 
@@ -111,10 +111,25 @@ Lo propio de cada tipo:
   modo local, por dónde va (`updateOffset`) y cuántas consultas seguidas han fallado (`pollFailures`). Secretos:
   token del bot y secreto de los avisos, propio de cada canal ([TG-01], [TG-02]). Su dirección de avisos lleva el
   id del canal: `/api/webhooks/telegram/{id}`.
+- **Instagram** (fase 16, sin migración: el tipo es un texto más). En `config` (`src/server/channels/instagram/config.ts`):
+  la cuenta (`accountId`, el `user_id` de `/me`, el que llega en los avisos: una cuenta solo puede estar en un canal,
+  [IG-11]; `username`, `accountName`), cuándo se pegó o renovó el token y hasta cuándo vale (`tokenSetAt`,
+  `tokenExpiresAt`), las renovaciones fallidas seguidas (`refreshFailures`), cuándo comprobó Meta la dirección de
+  avisos (`webhookVerifiedAt`) y qué clave firmó el último aviso válido (`signedWith`). Secretos: el token de la cuenta,
+  la clave secreta de Instagram, la de la app de Meta (opcional) y el token de verificación de los avisos, propio de
+  cada canal ([IG-01], [IG-02]). Su dirección de avisos lleva el id del canal: `/api/webhooks/instagram/{id}`. La
+  identidad de un cliente es su identificador de Instagram (`channel_type` `instagram`), y su usuario va en
+  `display_name`.
 
 `whatsapp_templates` guarda las plantillas sincronizadas de cada número: nombre, idioma, categoría, estado,
 variables y el id de Meta. Único por canal + nombre + idioma. Sirve a [WA-22], [WA-43] y a los recordatorios
 ([AGD-24]). Las de un número conectado por YCloud van a la misma tabla ([YC-07]); por código QR no hay plantillas.
+Desde la fase 12 (migración 0005) guarda además: cómo van sus variables (`parameter_format`: `NAMED` o
+`POSITIONAL`), si se creó desde la app (`created_in_app`) y con qué categoría se pidió (`requested_category`), el dato
+de la cita de cada variable (`variable_bindings`), qué hace cada botón de respuesta rápida (`button_roles`: `confirm`,
+`change` o `marketing_opt_out`, [AGD-32], [WA-62]), su caducidad (`ttl_seconds`, [WA-59]) y los cambios de categoría
+de Meta: la anterior y cuándo cambió (`previous_category`, `category_changed_at`) y la anunciada para una fecha
+(`upcoming_category`, `upcoming_category_at`, [WA-60]). La sincronización nunca borra lo que puso la app.
 
 `whatsapp_qr_keys` (migración 0003) guarda las claves de sesión de cada número vinculado por código QR: una fila
 por clave (`type` y `key_id` son los de la librería: pre-claves, sesiones por contacto y dispositivo,
@@ -181,10 +196,20 @@ Agentes internos (fase 10, migración 0004, que solo añade: `agents.audience`, 
   real no siempre coinciden (`docs/integracion-whatsapp-mensajes.md` §6). Un cambio de identidad de WhatsApp
   actualiza esta fila en el mismo contacto ([WA-39], [WA-40], [WA-50]). El BSUID es distinto en cada
   portfolio de Meta: el mismo cliente en números de portfolios distintos son dos identidades, y la app solo
-  lo señala como posible duplicado ([CTO-04]).
-- `consents`: contacto, canal, tipo (aceptación de los textos legales, baja o alta), origen y quién y cuándo.
-  Mientras una baja sigue vigente, en ese canal no contestan la IA ni salen recordatorios ni plantillas
-  ([CUM-03], [CUM-13], [CTO-08]).
+  lo señala como posible duplicado ([CTO-04]). Desde la fase 13 (migración 0006), `unconfirmed_since`: la identidad la
+  hizo la app y no el contacto al escribir (el primer WhatsApp a su teléfono, [WA-63]; la respuesta a un recordatorio
+  del correo del sistema, [AGD-24]) y espera a que una persona la confirme; mientras, la IA solo atiende la cita del
+  recordatorio. Un contacto importado ([CTO-11]) no tiene identidades: su teléfono y su email son solo datos.
+- `consents`: el historial de permisos y bajas de cada contacto, solo añadiendo filas: tipo (aceptación de los textos
+  legales; baja o alta de todo, `opt_out` / `opt_in`; baja o vuelta de novedades y publicidad, `marketing_opt_out` /
+  `marketing_opt_in`; permiso «Avisos de sus citas» dado o retirado, `reminders_granted` / `reminders_withdrawn`;
+  permiso «Novedades y publicidad» dado, retirado o reanudado), el tipo de canal al que se refiere (`channel_kind`:
+  `whatsapp`, `email`, `webchat` o `telegram`; los permisos valen para todos), cómo lo dio (`method`: en persona, por
+  escrito, en la web, en la conversación, importado u otro) y cuándo (`given_at`), la prueba (`evidence`: la pregunta
+  y la respuesta cuando lo anota la IA, [HER-15]), origen y quién (`actor_type`: persona, IA, cliente o sistema) y
+  cuándo se anotó. En cada permiso y en cada baja manda la fila más reciente. Mientras una baja de todo sigue
+  vigente, en ese tipo de canal no contestan la IA ni salen recordatorios, plantillas ni envíos; una de novedades y
+  publicidad solo para lo de marketing ([CUM-03], [CUM-13], [CTO-08], [CTO-09], [CTO-10]).
 
 ## Conversaciones y mensajes
 
@@ -254,6 +279,7 @@ Agentes internos (fase 10, migración 0004, que solo añade: `agents.audience`, 
 | `audit_log` | Registro de actividad: quién (persona, IA o sistema), qué, sobre qué y cuándo, sin datos personales. Solo se añade: nadie lo edita ni lo borra a mano. | [AJU-10], [SEG-10], [HER-03], [CUM-06] |
 | `realtime_events` | Cambios para las pantallas, con un cursor que crece (`seq`: estrictamente creciente en el orden en que se confirma cada cambio y sin repetidos, gracias a su propio candado, 0024). Se borran pronto. No está en el §4: la pide el sondeo (0009). | [BAN-03], [WEB-06] |
 | `rate_limits` | Contadores de límites de peticiones por clave (IP, visitante, email) y ventana. Better Auth usa además su propia tabla para el inicio de sesión. | [SEG-07], [USU-13], [WEB-08] |
+| `system_emails` | Registro de los correos del sistema (invitaciones, recuperación, avisos, recordatorios, envíos, prueba): tipo, a quién, asunto, cómo salió y si falló, sin el texto. Desde la fase 13 (migración 0006), los que van a un contacto (un recordatorio o, desde la fase 14, un envío) guardan su `message_id` propio, el contacto y la cita o, desde la migración 0008, el envío (`campaign_id`, para que la respuesta diga a qué envío responde, [ENV-12]): una respuesta que llega a un buzón conectado con ese Message-ID en In-Reply-To o References va a ese contacto. | [AJU-06], [AGD-24], [AGD-26], [ENV-04] |
 | `app_kv` | Almacén pequeño de clave y valor: el catálogo de modelos de OpenRouter ya normalizado (`ai.model_catalog`, se renueva a las 12 h), el agente que creó el asistente y sus preguntas frecuentes (`setup.first_agent`), el chat web del paso 6 (`setup.webchat_channel`), el «alquiler» de la respuesta en preparación de cada conversación (`reply.lease:<conversación>`, 5 min), el turno de asignación de cada canal (`handoff.round_robin:<canal>`), la última ronda del trabajo en segundo plano y otros cursores. | [MOD-01], [MOD-06], [ASI-09], [ASI-11], [MOT-02], [TRA-04], [AJU-11] |
 
 ## Agenda
@@ -265,9 +291,10 @@ Agentes internos (fase 10, migración 0004, que solo añade: `agents.audience`, 
 | `resource_schedules` | Tramos semanales de cada recurso, varios por día. | [AGD-02] |
 | `resource_time_off` | Ausencias de un recurso y huecos bloqueados, con inicio, fin y motivo. | [AGD-02], [AGD-09], [AGD-18] |
 | `service_resources` | Qué recursos hacen cada servicio. Único servicio + recurso. | [AGD-04], [AGD-12] |
-| `bookings` | Contacto, servicio, recurso, inicio y fin, franja ocupada (inicio − margen, fin + margen), personas, estado `pending`, `confirmed`, `cancelled`, `completed` o `no_show`, origen `ai` (con su canal), `human` o `web`, conversación, notas, autor con la copia del nombre, `is_test` y cuándo se envió el recordatorio. | [AGD-13], [AGD-14], [AGD-17], [AGD-19], [AGD-25], [PRU-04] |
-| `booking_events` | Historial de cada cita: quién (persona, IA, cliente o sistema), qué cambió y cuándo. Acciones: `created`, `moved`, `updated`, `status_changed`, `cancelled`, `notice_sent` (aviso al cliente), `reminder_sent` y `reminder_failed` (con el motivo). | [AGD-15], [AGD-23], [AGD-25] |
-| `reminder_settings` | Recordatorio: activado (no, por defecto), antelación, canal (plantilla de WhatsApp con sus variables asignadas, o email) y texto. | [AGD-20], [AGD-24], [AGD-25] |
+| `bookings` | Contacto, servicio, recurso, inicio y fin, franja ocupada (inicio − margen, fin + margen), personas, estado `pending`, `confirmed`, `cancelled`, `completed` o `no_show`, origen `ai` (con su canal), `human` o `web`, conversación, notas, autor con la copia del nombre, `is_test`, cuándo se envió el recordatorio único de antes de la fase 12 (`reminder_sent_at`), cuándo se le puso la hora actual (`starts_at_set_at`) y cuándo la confirmó el cliente con «Confirmo» (`customer_confirmed_at`, se vacía si cambia de hora). | [AGD-13], [AGD-14], [AGD-17], [AGD-19], [AGD-25], [AGD-33], [PRU-04] |
+| `booking_events` | Historial de cada cita: quién (persona, IA, cliente o sistema), qué cambió y cuándo. Acciones: `created`, `moved`, `updated`, `status_changed`, `cancelled`, `notice_sent` (aviso al cliente), `reminder_sent`, `reminder_failed` y `reminder_not_sent` (con el motivo) y `customer_confirmed`. | [AGD-15], [AGD-23], [AGD-25], [AGD-33] |
+| `reminder_settings` | Recordatorios: activados (no, por defecto), hasta tres reglas (`rules`: cada una con su antelación en horas o en días a una hora, sus canales en orden y el mensaje de cada uno: plantilla de WhatsApp con sus datos y sus botones, texto de Telegram, asunto y texto del correo) y la respuesta a «Confirmo» (`thanks_text`). Las columnas del recordatorio único de antes se leen como su primera regla. | [AGD-20], [AGD-24], [AGD-25], [AGD-32] |
+| `booking_reminder_sends` | Un recordatorio de una cita para una de sus horas (migración 0005): regla, hora de la cita (`starts_at`), cuándo tocaba (`due_at`), estado `sending`, `sent`, `failed` o `not_sent` con su motivo, canal por el que salió, mensaje y los intentos de cada canal (`attempts`). Único cita + regla + hora: es la marca de «una sola vez». | [AGD-24], [AGD-25], [AGD-32] |
 | `service_secondary_resources` y `booking_secondary_resources` | Preparadas, sin uso todavía (fase 5; hoy en la migración inicial de Postgres, `0001_initial`): el segundo tipo de recurso que necesita un servicio a la vez (por ejemplo, profesional y sala) y el que ocupa cada cita durante la misma franja. Únicos servicio + recurso y cita + recurso. El motor de disponibilidad ya rechaza esos servicios. | [AGD-07] |
 
 Solo ocupan hueco las citas `pending` y `confirmed`: las canceladas y los no presentados lo liberan
@@ -276,16 +303,48 @@ Solo ocupan hueco las citas `pending` y `confirmed`: las canceladas y los no pre
 
 Detalles de la agenda que salieron al construirla (fase 5, sin cambiar las tablas de la fase 0):
 
-- **Recordatorio una sola vez ([AGD-25]):** `bookings.reminder_sent_at` es la marca. Antes de enviar, una sola sentencia la
-  pone solo si estaba vacía; si otra ronda ya la había puesto, esa cita se salta. Se pone también si el envío falla (el
-  motivo queda en `booking_events` como `reminder_failed`): no se reintenta. Al mover una cita se vacía si su nuevo
-  momento de recordatorio aún no ha llegado, para que se recalcule.
+- **Recordatorio una sola vez ([AGD-25]):** desde la fase 12 la marca es la fila de `booking_reminder_sends` (cita +
+  regla + hora de la cita): se inserta antes de enviar y, si otra ronda ya la había insertado, esa cita se salta. Un
+  envío fallido queda en la fila y en `booking_events` y prueba el siguiente canal, pero el recordatorio no se repite.
+  Al mover una cita cambia su hora, así que cada regla se calcula de nuevo; con `starts_at_set_at` se sabe si su
+  momento ya había pasado cuando se puso la hora nueva (entonces no sale). Un recordatorio único de antes de la fase
+  12 (`reminder_sent_at`) cuenta como enviado para lo que tocaba hasta entonces.
 - **Citas de prueba ([PRU-04]):** `is_test`, sin contacto ni conversación; ocupan su hueco como las demás, nunca
   reciben avisos ni recordatorios y se borran todas juntas con su historial.
 - **Origen:** `source` `ai` guarda además `channel_id` y `conversation_id`; `human` guarda quién la creó y la copia de
   su nombre; una cita sin ficha de contacto (un cliente que llamó por teléfono) guarda solo `contact_name`.
 - **Aviso al equipo de una cita pendiente ([AGD-22]):** el suceso `booking_pending` de `notifications`, con enlace a
   `/agenda?cita=<id>`.
+
+## Envíos
+
+Desde la fase 14 (migraciones 0007 y 0008); los automáticos y los repetidos, desde la fase 15 (migración 0009).
+
+| Tabla | Qué guarda y campos clave | Reglas |
+|---|---|---|
+| `campaigns` | Un envío: nombre (solo para el equipo), estado `scheduled`, `sending`, `paused`, `finished` o `cancelled`, cuándo sale (`scheduled_at`), los canales marcados en su orden fijo (`routes`) y el mensaje de cada uno (`whatsapp`: número, plantilla, idioma y el valor de cada dato; `telegram`: bot y texto; `email`: asunto y texto), a cuántos contactos se programó, por qué y quién lo pausó (persona o sistema), cuándo empezó, terminó o se canceló, y quién lo programó con la copia de su nombre. Los que hace un automático o un repetido llevan `rule_id` (se vacía si se borra) y su día, `run_date` (único junto con `rule_id`: un envío por día y automático). | [ENV-01]–[ENV-04], [ENV-09], [ENV-10], [ENV-15], [ENV-16] |
+| `campaign_recipients` | Cada contacto de un envío (uno por contacto al programarlo; tras fusionar dos contactos que estaban en el mismo envío, el que queda tiene las dos filas, [CTO-05]): estado `pending`, `sending`, `sent`, `delivered`, `read`, `failed` o `not_sent` con su motivo en español, el canal por el que salió, nuestro mensaje de WhatsApp o Telegram (de él sale su estado), su coste (`cost_estimate`, copiado cuando Meta lo tarifica, desde la migración 0008: el coste del envío no cambia al borrar el mensaje), los intentos por cada canal (`attempts`), cuándo salió (`sent_at`, lo que cuenta para «uno cada 7 días») y el enlace de baja de su correo (`unsubscribe_token`, aleatorio y único). El contacto se vacía al borrarlo o pasado el plazo de conservación; la fila se queda para los totales. | [ENV-05]–[ENV-08], [ENV-11], [ENV-12], [CUM-05], [CTO-07] |
+| `campaign_rules` | Un envío automático tras la cita (`after_booking`: cuántos días después, a qué hora y para qué servicios; vacío, todos) o repetido (`weekly`: día de la semana, de 1 lunes a 7 domingo; `monthly`: día del mes, de 1 a 31, el último si el mes no lo tiene), con su hora, el filtro de los repetidos (`label` y `filter_channel_id`, el de Contactos), los canales y el mensaje de cada uno como un envío, `status` `active` o `paused`, desde cuándo está activo (`active_since`: tras la cita solo cuentan las que terminan desde entonces), la próxima vez (`next_run_at`, vacía en pausa) y, en los repetidos, la vez que espera a que termine el envío anterior (`waiting_since`). | [ENV-15], [ENV-16] |
+| `campaign_rule_bookings` | Cada cita por la que salió un automático, con su envío: único por automático y cita, para que salga como mucho una vez por cita. Sin datos personales propios. Se borra con su automático o con su cita. | [ENV-15] |
+| `campaign_settings` | Una fila: horas en que salen (de 9:00 a 21:00), días entre envíos a un mismo contacto (7), tope diario del correo del sistema (100) y cuántos de ellos pueden ser de envíos por hora y por día (25 y 75). | [AJU-18], [ENV-06], [ENV-08] |
+
+Cómo funcionan (`src/server/campaigns/`):
+
+- **Una sola vez:** cada ronda (trabajo `campaigns.run`, cada minuto mientras hay alguno programado o en marcha) pasa
+  la fila de `pending` a `sending` antes de enviar; si otra ronda la cogió antes, se la salta. Una fila que se queda
+  en `sending` más de 15 minutos es de una ronda que se paró a medias: queda `failed` («Se interrumpió…») y no se
+  vuelve a intentar, para no mandarlo dos veces.
+- **Siguiente canal:** si WhatsApp avisa más tarde de que no pudo entregarlo, el trabajo `campaigns.fallback` marca
+  ese intento como fallido, vacía `sent_at` (no llegó) y devuelve la fila a `pending`; la siguiente ronda la prueba por
+  el siguiente canal marcado que no se ha intentado, dentro de las horas y el ritmo. Un envío terminado vuelve a
+  «Enviando» para ella.
+- **Fusionar** dos contactos mueve sus filas al que se queda, con sus resultados y sus enlaces de baja; en un envío en
+  el que estaban los dos, lo que uno aún tenía pendiente pasa a «No enviado» si el otro ya lo recibió o también
+  esperaba, porque a cada contacto le llega como mucho uno.
+- **Automáticos y repetidos:** al empezar cada ronda, los activos cuya hora llegó hacen su envío del día (`automatic.ts`):
+  primero reservan su vez (pasan `next_run_at` a la siguiente, solo si nadie lo hizo antes) y después crean el envío con
+  sus contactos; si no hay nadie, no hay envío ese día. Una vez que la app no alcanzó en su propio día (estaba parada)
+  no se recupera: pasa a la siguiente y queda en el registro de actividad.
 
 ### Sin dobles reservas
 
@@ -314,7 +373,7 @@ Detalles de la agenda que salieron al construirla (fase 5, sin cambiar las tabla
 Con AES-256-GCM y `APP_ENCRYPTION_KEY` ([SEG-01], `docs/security.md`):
 
 - `channels.secrets_enc`: tokens de Meta, App Secret y PIN; secretos de cliente y tokens de Google y
-  Microsoft; contraseñas IMAP y SMTP; token y secreto de Telegram.
+  Microsoft; contraseñas IMAP y SMTP; token y secreto de Telegram; token, claves y token de verificación de Instagram.
 - `integration_settings`: claves de OpenRouter y Mistral OCR, contraseña SMTP del sistema y clave privada VAPID.
 - `custom_tools`: cabeceras secretas.
 
@@ -325,7 +384,11 @@ reconexión ([SEG-03]).
 ## Conservación
 
 La limpieza diaria ([CUM-05], [CUM-06]) actúa sobre `conversations` y `messages` (12 meses por defecto), los
-archivos de audio ya transcritos (30 días), los adjuntos (90 días) y `webhook_events` (14 días, entre 7 y 30);
+archivos de audio ya transcritos (30 días), los adjuntos (90 días), `webhook_events` (14 días, entre 7 y 30) y, desde
+la fase 14, los resultados de los envíos (`campaign_recipients`, 12 meses: el contacto, el mensaje y el enlace de baja se vacían y
+la fila queda para los totales y el coste; nunca los que aún esperan; y el registro de sus correos en `system_emails`
+se borra). El plazo de los envíos se añadió al JSON `retention` de
+`business_settings` sin migración: quien no lo tiene guardado lee el de por defecto;
 `realtime_events` y los trabajos terminados de `jobs` se borran antes, porque no tienen valor pasado un rato.
 
 Cómo lo hace (fase 7, `src/server/compliance/retention.ts`, sin cambiar el esquema):
@@ -355,8 +418,10 @@ Las conversaciones del equipo con los agentes internos (`assistant_chats`, `assi
 limpieza: no son datos de clientes. Las borra quien las escribió, o se van con su usuario o con el agente ([INT-10]).
 
 Bajas ([CUM-03]): la baja por «BAJA» o «STOP» se guarda en `consents` con `source` `keyword` (y la palabra en
-`note`); la que quita una persona, como `opt_in` con `source` `person`, quién y cuándo. Manda la más reciente de las
-dos en cada canal. Los clientes que crea el simulador llevan identidades con el prefijo `sim:`, que ningún canal
+`note`) y el tipo de canal en `channel_kind`; la que quita una persona, como `opt_in` con `source` `person`, quién y
+cuándo. Manda la más reciente de las dos en cada tipo de canal. Lo mismo con las de novedades y publicidad
+(`marketing_opt_out` / `marketing_opt_in`: el botón de baja de una plantilla de marketing, el cliente que le pide a
+Meta no recibir marketing o la IA, [WA-62], [HER-16]). Los clientes que crea el simulador llevan identidades con el prefijo `sim:`, que ningún canal
 da, así que nunca comparten contacto ni conversación con un cliente real ([AJU-13]).
 
 ## Fuentes

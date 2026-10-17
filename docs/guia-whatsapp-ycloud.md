@@ -81,8 +81,14 @@ el número de la API.
 Como con cualquier conexión oficial: puedes escribir libremente a un cliente durante las 24 horas siguientes a su
 último mensaje. Pasado ese tiempo solo puedes enviarle una plantilla aprobada por Meta.
 
-- Las plantillas se crean en YCloud (o en WhatsApp Manager).
-- En el panel del canal, «Sincronizar plantillas» las trae a la app.
+- Puedes crearlas desde la app: en el panel del canal, **«Nueva plantilla»**, con los modelos «Recordatorio de cita» y
+  «Novedades y publicidad» (como en la guía de WhatsApp con Meta). La app las manda a revisar a través de YCloud y
+  quedan «En revisión» hasta que Meta responde.
+- También puedes crearlas en YCloud (o en WhatsApp Manager) y traerlas con «Sincronizar plantillas».
+- Solo salen a quien tiene el permiso que piden: «Avisos de sus citas» las de utilidad y «Novedades y publicidad» las
+  de marketing (con su botón de baja). La app lo comprueba antes de cada una, también aquí.
+- Si el cliente le pide a WhatsApp no recibir marketing, YCloud lo avisa y la app lo anota como su baja de novedades
+  y publicidad. Al revalidar, la app añade sola los avisos que falten a su dirección en YCloud.
 
 ## El panel del número
 

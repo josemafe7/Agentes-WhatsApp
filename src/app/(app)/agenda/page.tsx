@@ -26,7 +26,9 @@ import { MonthView } from "./_components/month-view";
 import { TimeGrid } from "./_components/time-grid";
 import { nowLocal, viewRange } from "./_lib/calendar";
 import {
+  busyRanges,
   dayColumns,
+  drawnTimeOff,
   monthDays,
   panelBooking,
   placeItems,
@@ -35,10 +37,11 @@ import {
   toCalendarBooking,
   toCalendarTimeOff,
   visibleResources,
+  workingResources,
 } from "./_lib/calendar-data";
-import { gridBounds } from "./_lib/grid";
+import { foldedStretches, gridBounds } from "./_lib/grid";
 import { agendaWords } from "./_lib/labels";
-import { AGENDA_PATH, AGENDA_SETTINGS_PATH, agendaHref, bookingFilters, hasActiveFilters, matchesViewFilters, parseAgendaQuery, withoutFilters } from "./_lib/search-params";
+import { AGENDA_PATH, AGENDA_SETTINGS_PATH, agendaHref, bookingFilters, hasActiveFilters, matchesViewFilters, occupyingFilters, parseAgendaQuery, withoutFilters } from "./_lib/search-params";
 import type { AgendaSetup, NewBookingPrefill } from "./_lib/types";
 
 export const metadata: Metadata = { title: "Agenda" };
@@ -97,14 +100,19 @@ export default async function AgendaPage({ searchParams }: PageProps) {
   const date = query.date && isLocalDate(query.date) ? query.date : current.date;
   const range = viewRange(query.view, date);
 
-  let loaded: { bookings: BookingView[]; timeOff: Awaited<ReturnType<typeof listTimeOff>>; frame: Awaited<ReturnType<typeof getAgendaFrame>> } | null = null;
+  let loaded: Loaded | null = null;
   try {
-    const [list, timeOff, frame] = await Promise.all([
+    const resourceFilter = query.resourceIds.length ? { resourceIds: query.resourceIds } : {};
+    const occupying = occupyingFilters(query, range);
+    const [list, timeOff, frame, occupyingList] = await Promise.all([
       listBookings(actor, bookingFilters(query, range)),
-      listTimeOff(actor, { from: range.from, to: range.to, ...(query.resourceIds.length ? { resourceIds: query.resourceIds } : {}) }),
+      listTimeOff(actor, { from: range.from, to: range.to, ...resourceFilter }),
       getAgendaFrame(actor, range),
+      // Free time ([AGD-29]) counts every booking that takes its slot, also those hidden by the view's filters.
+      query.view !== "mes" && occupying ? listBookings(actor, occupying) : Promise.resolve(null),
     ]);
-    loaded = { bookings: list.bookings.filter((booking) => matchesViewFilters(booking, query)), timeOff, frame };
+    const bookings = list.bookings.filter((booking) => matchesViewFilters(booking, query));
+    loaded = { bookings, timeOff, frame, occupying: occupyingList?.bookings ?? bookings };
   } catch (error) {
     if (!(error instanceof ValidationError)) throw error;
   }
@@ -188,6 +196,14 @@ export default async function AgendaPage({ searchParams }: PageProps) {
   );
 }
 
+type Loaded = {
+  bookings: BookingView[];
+  timeOff: Awaited<ReturnType<typeof listTimeOff>>;
+  frame: Awaited<ReturnType<typeof getAgendaFrame>>;
+  /** Bookings that take their slot (pending and confirmed, tests included), whatever the view's filters. */
+  occupying: BookingView[];
+};
+
 function notFoundAsNull(error: unknown): null {
   if (error instanceof NotFoundError) return null;
   throw error;
@@ -213,7 +229,7 @@ type CalendarBodyProps = {
   today: string;
   now: Date;
   timezone: string;
-  loaded: { bookings: BookingView[]; timeOff: Awaited<ReturnType<typeof listTimeOff>>; frame: Awaited<ReturnType<typeof getAgendaFrame>> };
+  loaded: Loaded;
   resources: Awaited<ReturnType<typeof listResources>>;
   setup: AgendaSetup;
 };
@@ -221,27 +237,44 @@ type CalendarBodyProps = {
 /** The view asked for: month grid, or the time grid by days or by resources. */
 function CalendarBody({ query, date, today, now, timezone, loaded, resources, setup }: CalendarBodyProps) {
   const bookings = loaded.bookings.map(toCalendarBooking);
-  const hrefs = Object.fromEntries(bookings.map((booking) => [booking.id, agendaHref(query, { bookingId: booking.id })]));
+  const timeOff = loaded.timeOff.map(toCalendarTimeOff);
+  const hrefOf = (bookingId: string) => agendaHref(query, { bookingId });
 
   if (query.view === "mes") {
-    const weeks = monthDays(date, bookings, loaded.frame, today).map((week) =>
-      week.map((day) => ({ ...day, dayHref: agendaHref(query, { view: "dia", date: day.date, bookingId: undefined }) })),
-    );
+    const weeks = monthDays(date, bookings, {
+      frame: loaded.frame,
+      today,
+      resources,
+      timeOff,
+      mode: setup.mode,
+      resourceIds: query.resourceIds,
+      serviceIds: query.serviceIds,
+      words: setup.words,
+    }).map((week) => week.map((day) => ({ ...day, dayHref: agendaHref(query, { view: "dia", date: day.date, bookingId: undefined }) })));
+    const hrefs = Object.fromEntries(weeks.flat().flatMap((day) => day.previews.map((booking) => [booking.id, hrefOf(booking.id)])));
     return <MonthView weeks={weeks} hrefs={hrefs} words={setup.words} />;
   }
 
+  const hrefs = Object.fromEntries(bookings.map((booking) => [booking.id, hrefOf(booking.id)]));
   const byResource = query.view === "recursos";
   const range = viewRange(query.view, date);
-  const columns = byResource
-    ? resourceColumns(date, visibleResources(resources, query.resourceIds, bookings), loaded.frame, today, setup.mode)
-    : dayColumns(range, loaded.frame, today);
-  const timeOff = loaded.timeOff.map(toCalendarTimeOff);
+  const occupying = loaded.occupying.map(toCalendarBooking);
+  const shown = byResource ? visibleResources(resources, query.resourceIds, bookings) : workingResources(resources, query.resourceIds);
+  const columns = (
+    byResource ? resourceColumns(date, shown, loaded.frame, today, setup.mode) : dayColumns(range, loaded.frame, today)
+  ).map((column) => ({
+    ...column,
+    busy: column.closedLabel
+      ? []
+      : busyRanges(column.date, column.open, column.resourceId ? shown.filter((resource) => resource.id === column.resourceId) : shown, occupying, timeOff, loaded.frame, setup.mode),
+  }));
   const bookingPlacements = placeItems(columns, bookings);
-  const timeOffPlacements = placeItems(columns, timeOff);
+  const timeOffPlacements = placeItems(columns, drawnTimeOff(timeOff, byResource, query.resourceIds));
   const bounds = gridBounds(
     columns.flatMap((column) => column.open),
-    [...bookingPlacements, ...timeOffPlacements].filter((placement) => placement.endMin - placement.startMin < 1_440),
+    bookingPlacements.filter((placement) => placement.endMin - placement.startMin < 1_440),
   );
+  const folds = byResource ? [] : foldedStretches(columns, bounds, bookingPlacements, timeOffPlacements);
   const current = nowLocal(timezone, now);
 
   return (
@@ -253,6 +286,8 @@ function CalendarBody({ query, date, today, now, timezone, loaded, resources, se
       timeOffPlacements={timeOffPlacements}
       timeOffText={Object.fromEntries(loaded.timeOff.map((item) => [item.id, timeOffWhen(item, timezone)]))}
       bounds={bounds}
+      folds={folds}
+      capLanes={query.view === "semana"}
       hrefs={hrefs}
       byResource={byResource}
       now={{ ...current, epochMinute: Math.floor(now.getTime() / MINUTE_MS) }}

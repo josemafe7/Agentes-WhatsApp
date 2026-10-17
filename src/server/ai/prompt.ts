@@ -11,7 +11,7 @@ import { formatDateTime, formatNumber, toSingleLine } from "@/lib/format";
 import type { ChatMessage, FilePart, ImagePart } from "@/lib/openrouter/types";
 import { SECTOR_PRESETS } from "@/lib/sectors";
 
-export type PromptChannelKind = "whatsapp" | "email" | "webchat" | "telegram" | "test";
+export type PromptChannelKind = "whatsapp" | "email" | "webchat" | "telegram" | "instagram" | "test";
 /** Channels «Probar agente» can simulate ([PRU-03]). */
 export const SIMULATED_CHANNELS = ["whatsapp", "email", "webchat"] as const;
 export type SimulatedChannel = (typeof SIMULATED_CHANNELS)[number];
@@ -49,6 +49,8 @@ export type PromptHistoryMessage = {
   documentText?: string | null;
   /** The image or PDF itself, for models that take it (src/server/media/prepare.ts, [MED-05], [MED-06]). */
   parts?: (ImagePart | FilePart)[];
+  /** A tap on a reminder's button ([AGD-32]): which booking it is about. */
+  reminderReply?: { action: "confirm" | "change"; bookingId: string } | null;
 };
 
 export type BuildPromptInput = {
@@ -108,10 +110,12 @@ const CHANNEL_LABELS: Record<Exclude<PromptChannelKind, "test">, string> = {
   email: "correo electrónico",
   webchat: "chat de la web",
   telegram: "Telegram",
+  instagram: "mensajes directos de Instagram",
 };
 const SHORT_STYLE = "Estilo para este canal: mensajes breves y naturales, como en una conversación de chat, sin tablas ni encabezados.";
 /** Telegram sends «/start» by itself when someone opens the chat with a bot for the first time ([TG-10]). */
 const TELEGRAM_START = "En Telegram, «/start» es lo que se envía solo cuando alguien abre el chat por primera vez: no es una pregunta. Salúdale y dile en qué puedes ayudarle.";
+const INSTAGRAM_LENGTH = "En Instagram cada mensaje admite unos 900 caracteres como mucho: responde en pocas frases.";
 const EMAIL_STYLE = (business: string) =>
   `Estilo para este canal: empieza con un saludo, responde de forma clara y termina con una despedida y una firma que diga que eres el asistente de IA de ${business}.`;
 const FILE_TYPE_LABELS: Partial<Record<MessageContentType, string>> = {
@@ -281,7 +285,10 @@ function channelLines(input: BuildPromptInput): string[] {
   const label = CHANNEL_LABELS[effective];
   const channel = kind === "test" ? `Canal: Prueba desde el panel, simulando ${label}. Responde como lo harías en ese canal.` : `Canal: ${label}`;
   const style = effective === "email" ? EMAIL_STYLE(input.business.name.trim() || "el negocio") : SHORT_STYLE;
-  return effective === "telegram" ? [channel, style, TELEGRAM_START] : [channel, style];
+  if (effective === "telegram") return [channel, style, TELEGRAM_START];
+  // [IG-05] Instagram cuts a reply at 1,000 bytes: short answers keep it whole.
+  if (effective === "instagram") return [channel, style, INSTAGRAM_LENGTH];
+  return [channel, style];
 }
 
 function contactLine(contact: PromptContact | null): string {
@@ -356,6 +363,15 @@ function customerContent(message: PromptHistoryMessage): string {
       const document = withText(message.fileName ? `[Documento «${message.fileName}»]` : "[Documento]");
       // The document's text is the customer's content: data, never instructions (rule 10).
       return message.documentText?.trim() ? `${document}\n[Texto del documento]\n${message.documentText.trim()}` : document;
+    }
+    case "interactive": {
+      // A button: on a reminder, about that booking ([AGD-32]); any other, what it says.
+      const reply = message.reminderReply;
+      if (reply?.action === "change") {
+        return `[Ha pulsado «Necesito cambiarla» en el recordatorio de su cita (cita_id ${reply.bookingId}): ofrécele otros huecos o cancelarla, y confírmalo con él antes de cambiar nada]`;
+      }
+      if (reply?.action === "confirm") return `[Ha confirmado su cita (cita_id ${reply.bookingId}) con el botón del recordatorio]`;
+      return text ? `[Ha pulsado el botón «${text}»]` : "[Ha pulsado un botón]";
     }
     default: {
       // Other files are stored and shown in the inbox; the agent only knows one arrived ([MED-07]).

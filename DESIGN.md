@@ -32,6 +32,7 @@ colors:
   channel-email: "#ca3500"
   channel-web: "#65656f"
   channel-telegram: "#0069a8"
+  channel-instagram: "#c6005c"
   primary-dark: "#3c6cf1"
   primary-foreground-dark: "#ffffff"
   primary-text-dark: "#5a89fe"
@@ -60,6 +61,7 @@ colors:
   channel-email-dark: "#ff8904"
   channel-web-dark: "#9f9fa9"
   channel-telegram-dark: "#00bcff"
+  channel-instagram-dark: "#fb64b6"
 typography:
   page-title:
     fontFamily: Geist
@@ -398,6 +400,12 @@ Icono más palabra en la línea de datos del mensaje («10:42 · Leído»), nunc
 
 Origen de la cita (icono pequeño): IA `bot` en `--ai`, persona `user-round`, web `globe`.
 
+«Confirmada por el cliente» (fase 12, [AGD-33]): no es un estado, es una marca que se suma al de la cita cuando el
+cliente pulsa «Confirmo» en un recordatorio. Icono `user-round-check` en `--success`: solo el icono (12 px) en los
+bloques del calendario y en las previsualizaciones del mes, con el texto entero para los lectores de pantalla; en la
+lista de «+N» y en la ficha de la cita, una insignia con borde `success` y el texto «Confirmada por el cliente». Se
+quita si la cita cambia de hora.
+
 ### Identidad de canal
 
 Lucide no tiene logotipos de marcas (los quitó en su versión 1), así que cada canal se reconoce por un icono
@@ -411,9 +419,10 @@ indicar estados.
 | Correo (Gmail, Outlook, IMAP) | `mail` | `#ca3500` | `#ff8904` |
 | Chat web | `globe` | `--muted-foreground` | `--muted-foreground` |
 | Telegram | `send` | `#0069a8` | `#00bcff` |
+| Instagram | `camera` | `#c6005c` | `#fb64b6` |
 
-Todos dan al menos 3:1 con su fondo (objeto no textual). El nombre del canal («WhatsApp · Recepción») va
-siempre en texto `--foreground`.
+Todos dan al menos 3:1 con su fondo (objeto no textual); Instagram, 5,9:1 sobre blanco y 7,2:1 sobre el fondo
+oscuro. El nombre del canal («WhatsApp · Recepción») va siempre en texto `--foreground`.
 
 **Única excepción, el logotipo de WhatsApp** (encargo del propietario del 2026-10-09, [WA-53]): en «Añadir canal»,
 las tres tarjetas de las formas de conectar WhatsApp llevan su logotipo, para que se reconozca de un vistazo que
@@ -432,8 +441,10 @@ API oficial de Meta y «No oficial» (`warning` suave) en el código QR. Los pun
 El recurso (profesional, sala, mesa) elige entre 8 colores con nombre, no un selector libre: azul, violeta,
 rosa, naranja, ámbar, esmeralda, verde azulado y gris (tonos 600 de Tailwind en claro, 400 en oscuro). El
 bloque de la cita usa ese color al 14 % sobre `--card` de fondo, una franja izquierda de 3 px con el color
-entero y texto `--foreground`, así que el texto se lee igual sea cual sea el color. El nombre del recurso
-siempre aparece (columna o texto).
+entero y texto `--foreground`, así que el texto se lee igual sea cual sea el color. El color es solo de apoyo
+(suavizado, algunos no llegan a 3:1): el profesional está siempre en el nombre accesible de la cita, en su
+tooltip y en su ficha, y en pantalla en la columna (vista Recursos) o en su texto cuando cabe ([AGD-29]). Los
+filtros de recurso, con su punto de color, sirven de leyenda.
 
 ### Gráficos
 
@@ -485,9 +496,9 @@ WhatsApp con trama o menor opacidad y la palabra «estimado».
   3. Barra superior fija de 56 px: botón del menú (móvil), migas de pan, campana de notificaciones.
   4. Aviso «Añade tu clave de OpenRouter» (si toca), dentro del área de contenido y encima de la cabecera.
   5. Contenido con 24 px de margen lateral (16 px en móvil).
-- **Navegación:** Bandeja, Contactos, Agenda, Asistentes | Agentes, Conocimiento, Canales | Informes, Ajustes, con
-  un separador entre los tres grupos y sin títulos de grupo. Iconos: `inbox`, `users`, `calendar-days`,
-  `messages-square`, `bot`, `book-open`, `radio-tower`, `chart-column`, `settings`. Bandeja lleva el contador de no
+- **Navegación:** Bandeja, Contactos, Agenda, Envíos, Asistentes | Agentes, Conocimiento, Canales | Informes, Ajustes,
+  con un separador entre los tres grupos y sin títulos de grupo. Iconos: `inbox`, `users`, `calendar-days`,
+  `megaphone`, `messages-square`, `bot`, `book-open`, `radio-tower`, `chart-column`, `settings`. Bandeja lleva el contador de no
   leídos. Cada rol ve solo lo que puede usar (el servidor lo impide igualmente); «Asistentes», solo quien tiene
   algún agente interno que usar.
 - **Móvil y PWA (sobre todo agentes):** menos de 768 px, el menú lateral se sustituye por una barra inferior
@@ -703,10 +714,17 @@ Cada pantalla y cada bloque que carga datos tiene los cuatro:
 
 - **Fila de la lista:** avatar con iniciales y el icono del canal en su esquina; nombre (en negrita si hay no
   leídos); última línea del mensaje en `--muted-foreground`; hora relativa; contador de no leídos
-  (`--primary`); insignia «Pendiente de humano» si toca; modo (IA / Persona / IA en pausa); avatar pequeño de
-  la persona asignada. Seleccionada: `--primary-soft` y franja izquierda de 2 px `--primary`.
-- **Cabecera de la conversación:** nombre y canal («WhatsApp · Recepción») y, debajo, primero quién responde: el
-  interruptor de IA con su motivo y, si está en pausa, «IA en pausa hasta 18:40 · Reactivar», siempre entero. Después,
+  (`--primary`); y una línea de datos que empieza por el canal, visible en texto: una píldora con borde, el icono
+  en su color y «Tipo · nombre» en `--foreground` («Instagram · @peluqueria», «WhatsApp · Recepción»; si el nombre
+  repite el tipo, solo una vez: «Instagram»), con un ancho máximo que corta el nombre con «…», nunca el tipo
+  ([BAN-17]); después, la insignia «Pendiente de humano» si toca, el modo (IA / Persona / IA en pausa) y el avatar
+  pequeño de la persona asignada. Seleccionada: `--primary-soft` y franja izquierda de 2 px `--primary`.
+- **Canal de cada conversación:** el mismo «Tipo · nombre» va en la cabecera, en «Otras conversaciones» del panel
+  del contacto y en el filtro «Canal» de la bandeja y su chip. Es texto visible, leído una sola vez (sin copia
+  oculta para lectores de pantalla).
+- **Cabecera de la conversación:** nombre y canal («Tipo · nombre», visible: «WhatsApp · Recepción») y, debajo,
+  primero quién responde: el interruptor de IA con su motivo y, si está en pausa, «IA en pausa hasta 18:40 ·
+  Reactivar», siempre entero. Después,
   el selector de estado y «Pasar a una persona»; y, como una línea de datos que se pueden cambiar (selectores sin
   borde), «Asignada a», «Agente» (cerrado enseña solo el nombre del agente que responde; «El del canal (…)» está en
   su lista) y las etiquetas. Todo cabe en dos o tres líneas para que los mensajes ocupen la pantalla. En móvil, el
@@ -724,7 +742,11 @@ Cada pantalla y cada bloque que carga datos tiene los cuatro:
   `--warning-soft`), enviar. Debajo, en `caption`: «Al enviar, la IA se pausa en esta conversación hasta
   mañana a las 06:40». WhatsApp: chip «Ventana abierta · quedan 3 h 12 min» (info) o, si está cerrada, el
   compositor se sustituye por «La ventana de 24 h está cerrada: solo puedes enviar una plantilla aprobada» y
-  «Elegir plantilla».
+  «Elegir plantilla». Instagram: el mismo chip («Puedes responder hasta 18:40 · quedan 3 h 12 min») o, cerrada,
+  un aviso en `--muted` con `timer-off`: «Han pasado más de 24 horas desde el último mensaje del cliente: Instagram
+  no deja responder hasta que vuelva a escribir», sin plantillas; solo queda la nota interna ([BAN-18]).
+- **Mensaje borrado por el cliente:** dentro de su burbuja, «El cliente borró este mensaje» en cursiva y
+  `--muted-foreground`, sin su contenido ([IG-07]).
 - **Tiempo real:** los mensajes nuevos entran sin mover lo que se está leyendo; si no estás al final,
   aparece «Nuevos mensajes ↓». «Escribiendo…» con tres puntos (estáticos si se reduce el movimiento).
 
@@ -758,17 +780,40 @@ Cada pantalla y cada bloque que carga datos tiene los cuatro:
   servicio, «Nueva cita» (principal) y «Bloquear hueco». En móvil, para que el calendario empiece antes: «Nueva
   cita» y un menú «Más acciones» con «Bloquear hueco», las citas de prueba y la configuración; y la barra en tres
   filas cortas («Hoy», las flechas y «Filtros»; la fecha; las vistas a todo el ancho).
-- Rejilla: horas a la izquierda en `caption` tabular; línea por hora en `--border` y por media hora más
-  tenue. Fuera de horario y festivos: fondo `--muted` con «Cerrado». Ausencias del recurso: rayado diagonal
-  `--muted` con «Ausencia». Huecos bloqueados: rayado con el motivo. Línea de «ahora» de 2 px en `--primary`.
-- Cita: color del recurso (ver «Colores de recurso»), hora, contacto en 500 y servicio en
-  `--muted-foreground`; icono de origen arriba a la derecha; estilo según su estado. Si es corta, una línea.
+- Rejilla (fase 11, [AGD-29], [AGD-30]): horas a la izquierda en `caption` tabular; línea por hora en `--border`
+  y por media hora más tenue. Va de la primera hora de apertura a la última de cierre de los días que se ven,
+  sin margen, y se alarga solo para enseñar una cita que caiga fuera. Fuera de horario y festivos: fondo
+  `--muted` con «Cerrado». El tiempo abierto en el que nadie está libre lleva `--muted` al 50 %, así que lo libre
+  queda en `--card`: sin filtro de profesional, un tramo está libre si alguno de los que trabajan entonces no tiene
+  en él cita, bloqueo ni ausencia. Un tramo cerrado todos los días que se ven (el mediodía), de 45 minutos o más y
+  sin ninguna cita, bloqueo ni ausencia dibujados en él, se pliega en una franja de 24 px en `--muted` con borde
+  discontinuo, con el texto «Cerrado de 14:00 a 16:00» una sola vez, desde la primera columna; las horas saltan la
+  franja y la de después dice cuándo se abre («15:30»). Ausencias del recurso: rayado diagonal
+  `--muted` con «Ausencia», solo al filtrar por él o en la vista Recursos (sin filtro, la ausencia de uno se ve
+  como tiempo en el que no está libre). Huecos bloqueados: rayado con el motivo. Línea de «ahora» de 2 px en
+  `--primary` (en una franja plegada, dentro de ella).
+- Cita: color del recurso (ver «Colores de recurso»), hora en tabular, contacto en 500 y servicio en
+  `--muted-foreground`, y el profesional si cabe; icono de origen arriba a la derecha cuando hay tres líneas; estilo
+  según su estado. Las filas salen de la altura (una línea de 16 px por cada una) y del ancho medido: lo que no cabe
+  se acorta en una palabra entera con «…», nunca a media palabra; muy estrecha, la hora y el nombre de pila, uno
+  debajo del otro si no caben juntos (con una sola línea, el nombre de pila). El texto entero va en el tooltip, en
+  el nombre accesible y en la ficha.
+- Semana: un día con más citas a la vez es más ancho que uno tranquilo (4,5rem por cita a la vez, 7,5rem como
+  mínimo), y caben tres a la vez; si coinciden más (se solapan en algún momento), se ven tres y un botón «+N» de
+  1,75rem a su derecha, que abre una lista (`shadow-md`) con cada una enlazada a su ficha; su nombre accesible dice
+  qué abre («Ver 2 citas más de 10:00 a 11:00»). Las de la lista se mueven desde su ficha («Cambiar»).
 - Aforo (restaurante, clases): en la vista Recursos, ocupación por franja («6/8») y el número de personas en
   cada reserva («4 pers.»).
-- Mes: hasta tres citas por día y «+N más».
+- Mes ([AGD-31]): cada día, un solo enlace que abre ese día, con nombre accesible «martes, 13 de octubre: 5 citas,
+  70 % ocupado»; dentro, el número del día, la cifra de citas («6 citas»; en el móvil, solo el número) y una barra
+  de 4 px con lo lleno que está (`--muted-foreground` sobre `--muted`). En pantallas anchas, debajo, las dos
+  primeras citas (punto del color del profesional, hora y nombre), cada una enlazada a su ficha. Cerrados y festivos
+  en `--muted`, con «Cerrado», «Cerrado · Festivo local» o «Cerrado · 2 citas» (en el móvil, «Cerrado · 2»). Cabe en
+  375 px sin desplazarse de lado.
 - Arrastrar para mover o cambiar la duración, con ajuste al intervalo; zonas no válidas con el motivo
-  («Fuera de horario», «Ocupado»). Todo lo que se hace arrastrando se puede hacer también desde la ficha de
-  la cita (WCAG 2.5.7).
+  («Fuera de horario», «Ocupado»). La hora sale del punto bajo el puntero con la escala de la rejilla, así que
+  arrastrar al otro lado de una franja plegada cae a su hora. Todo lo que se hace arrastrando se puede hacer
+  también desde la ficha de la cita (WCAG 2.5.7).
 - Ficha de la cita en panel lateral: estado, servicio, recurso, inicio y fin, personas, contacto (enlace),
   conversación (enlace), origen, notas e historial.
 

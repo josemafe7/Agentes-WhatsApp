@@ -55,9 +55,10 @@ describe("the list of guides by groups [AJU-17]", () => {
     const groups = groupGuides(HELP_GUIDES);
     expect(groups.map((group) => [group.title, slugs(group.guides)])).toEqual([
       ["Para empezar", ["puesta-en-marcha", "despliegue"]],
-      ["Canales", ["whatsapp", "whatsapp-ycloud", "whatsapp-qr", "correo", "telegram"]],
+      ["Canales", ["whatsapp", "whatsapp-ycloud", "whatsapp-qr", "correo", "telegram", "instagram"]],
       ["Agentes y conocimiento", ["agentes-y-conocimiento", "asistentes-internos"]],
       ["Agenda", ["agenda"]],
+      ["Envíos", ["envios"]],
     ]);
     // No guide is lost or repeated on the way: the list shows exactly the guides of the app.
     expect(slugs(groups.flatMap((group) => group.guides)).sort()).toEqual(slugs(HELP_GUIDES).sort());
@@ -66,7 +67,7 @@ describe("the list of guides by groups [AJU-17]", () => {
   it("keeps what the page adds to each guide and leaves out a group without guides", () => {
     const titled = HELP_GUIDES.filter((guide) => guide.group !== "channels").map((guide) => ({ ...guide, title: guide.slug.toUpperCase() }));
     const groups = groupGuides(titled);
-    expect(groups.map((group) => group.key)).toEqual(["start", "agents", "agenda"]);
+    expect(groups.map((group) => group.key)).toEqual(["start", "agents", "agenda", "campaigns"]);
     expect(groups[0].guides.map((guide) => guide.title)).toEqual(["PUESTA-EN-MARCHA", "DESPLIEGUE"]);
     expect(groupGuides([])).toEqual([]);
   });
@@ -238,5 +239,56 @@ describe("the agenda guide [ARR-23] [AGD-20]", () => {
       expect(text, topic).toContain(topic);
     }
     expect(text.match(/\[Captura: /g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("the Instagram guide [ARR-23] [IG-01] [IG-04] [BAN-18]", () => {
+  const guide = HELP_GUIDES.find((candidate) => candidate.file === "guia-instagram.md");
+  const guideText = async () => (guide ? readGuide(guide) : "");
+
+  it("is at /ayuda/instagram, with a section for each link of the wizard", async () => {
+    expect(guide?.slug).toBe("instagram");
+    const ids = parseGuide(await guideText()).sections.map((section) => section.id);
+    const { INSTAGRAM_GUIDE_ANCHORS } = await import("@/app/(app)/canales/nuevo/instagram/_lib/steps");
+    for (const anchor of Object.values(INSTAGRAM_GUIDE_ANCHORS)) expect(ids, anchor).toContain(anchor);
+  });
+
+  it("covers the account, the Meta app, the token, the secret, publishing, the webhook, the test from another account, the window and the weekly renewal", async () => {
+    const text = await guideText();
+    for (const topic of [
+      // What you need and the Meta app of type Business with the Instagram product.
+      "cuenta profesional", "«Business»", "«Other»", "API setup with Instagram login", "«Set up»",
+      // The account and its token, and the Instagram app secret.
+      "«Add account»", "«Generate token»", "60 días", "«Instagram app secret»", "Business login settings", "App settings › Basic",
+      // Publishing, the webhook in Meta and «Allow access to messages».
+      "«Go live»", "Configure webhooks", "«Verify and save»", "`messages`", "Callback URL", "Verify token", "«Permitir acceso a los mensajes»",
+      // The test from another account and the review when nothing arrives (decision 0029).
+      "otra cuenta de Instagram", "«app para tu propio negocio»",
+      // The 24 h window, text only, and the token renewed each week.
+      "24 horas", "escribir primero", "solo con texto", "1.000 bytes", "renueva sola cada semana", "El cliente borró este mensaje", "«Desde Instagram»",
+    ]) {
+      expect(text, topic).toContain(topic);
+    }
+    expect(text.match(/\[Captura: /g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+  });
+
+  it("links only to the official Meta pages checked in docs/integracion-instagram.md «Fuentes»", async () => {
+    const sources = fs.readFileSync(path.join(DOCS, "integracion-instagram.md"), "utf8");
+    const official = new Set([...sources.slice(sources.indexOf("## Fuentes")).matchAll(/https:\/\/\S+/g)].map(([url]) => url));
+    const links = [...(await guideText()).matchAll(/\]\((https?:\/\/[^)\s]+)\)/g)].map(([, url]) => url);
+    expect(links.length).toBeGreaterThan(5);
+    for (const link of links) expect(official, link).toContain(link);
+  });
+
+  it("quotes the Spanish messages the app shows, so a person finds them in «Problemas»", async () => {
+    const problems = (await guideText()).split("\n## Problemas")[1] ?? "";
+    for (const message of [
+      "El token de Instagram no es válido o ha caducado",
+      "Esa cuenta no es profesional",
+      "Esta cuenta de Instagram ya está conectada en otro canal de la instalación",
+      "La cuenta de Instagram tiene desactivado el acceso de otras apps a sus mensajes",
+    ]) {
+      expect(problems, message).toContain(message);
+    }
   });
 });

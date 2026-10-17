@@ -186,7 +186,8 @@ Qué hace el asistente en el paso 2:
    - ve a **WhatsApp › Configuración** (WhatsApp › Configuration); si la app se creó con el caso de uso de WhatsApp, está en **Casos de uso › Personalizar › Configuración** (Use cases › Customize › Configuration);
    - pega la **URL de devolución de llamada** (Callback URL) y el **token de verificación** (Verify token);
    - pulsa **«Verificar y guardar»** (Verify and save): el asistente te avisa en directo cuando llega la verificación de Meta;
-   - en los campos del webhook, suscribe `messages` (**imprescindible**) y los recomendados: `account_update`, `phone_number_quality_update`, `phone_number_name_update`, `message_template_status_update`, `template_category_update`, `message_template_quality_update`, `business_capability_update`, `account_alerts` y `security`.
+   - en los campos del webhook, suscribe `messages` (**imprescindible**) y los recomendados: `account_update`, `phone_number_quality_update`, `phone_number_name_update`, `message_template_status_update`, `template_category_update`, `message_template_quality_update`, `business_capability_update`, `account_alerts`, `security` y `user_preferences` (cuando un cliente le pide a WhatsApp no recibir marketing de tu negocio: la app lo anota como su baja de novedades y publicidad).
+   - Si conectaste el número antes de la fase 12, añade `user_preferences` a mano en esa misma pantalla (o repite la suscripción automática desde el asistente): sin él, la app se entera de esa baja cuando falla el primer envío de marketing.
 3. **Siempre suscribe la app a la cuenta de WhatsApp del número** y comprueba que ha quedado. Sin esto no llegan mensajes, aunque la dirección esté bien. Repetirlo no hace daño.
 
 - DominIA Agentes **nunca** pone una dirección de avisos distinta para una cuenta o un número concreto (lo que Meta llama «override»). Si otra herramienta lo hizo, el diagnóstico lo avisa y no lo toca sin tu confirmación.
@@ -242,12 +243,18 @@ En DominIA Agentes:
 
 Cuando han pasado más de 24 horas desde el último mensaje del cliente, WhatsApp **solo deja enviar plantillas aprobadas** por Meta. La IA no escribe fuera de esa ventana; una persona puede enviar una plantilla desde la bandeja.
 
-1. Crea las plantillas en **WhatsApp Manager**, dentro de la cuenta de WhatsApp del negocio: nombre, idioma (español), categoría y texto con sus datos variables (por ejemplo, `{{nombre}}`). Meta las revisa antes de aprobarlas.
-2. En DominIA Agentes, pulsa **«Sincronizar plantillas»**, en el paso 3 del asistente o en el apartado **Plantillas** del panel del número (Canales › el canal). Trae cada plantilla con su estado, categoría, idioma y variables.
-3. Cuando Meta aprueba o cambia una plantilla, se actualiza sola.
+1. **Créalas desde la app:** en el apartado **Plantillas** del panel del número (Canales › el canal), pulsa **«Nueva plantilla»** (propietario y administrador). Empieza con un modelo:
+   - **«Recordatorio de cita»** (utilidad): «Hola {{nombre}}, te recordamos tu cita… el {{dia}} a las {{hora}} con {{profesional}} en {{negocio}}…», con los botones **«Confirmo»** y **«Necesito cambiarla»** y una caducidad de 1 hora. En un sector con datos de salud no lleva el servicio.
+   - **«Novedades y publicidad»** (marketing), con el botón de baja **«No quiero publicidad»**.
+   - O **«En blanco»**. Pones nombre (minúsculas, números y `_`), idioma, categoría, encabezado, texto (con «Insertar dato» para los datos de la cita), pie, botones y qué hace cada uno. La vista previa enseña cómo la verá el cliente.
+   Pulsa **«Enviar a Meta»**: queda **«En revisión»** hasta que Meta responde (suele tardar minutos, como mucho 24 horas) y se actualiza sola. Para editarla o borrarla, en WhatsApp Manager.
+2. También puedes crearlas en **WhatsApp Manager** y pulsar **«Sincronizar plantillas»** (en el paso 3 del asistente o en el apartado Plantillas). Trae cada plantilla con su estado, categoría, idioma y variables; en las que tengan botones, elige en «Qué hace cada botón» cuál es «Confirmo», «Necesito cambiarla» o la baja de publicidad.
+3. Cuando Meta aprueba, rechaza o cambia de categoría una plantilla, se actualiza sola y avisa al propietario y a los administradores (suceso «Plantilla de WhatsApp» de Ajustes › Notificaciones). El motivo de un rechazo sale en español.
 
 - Solo se pueden enviar las **aprobadas**.
-- **Categorías:** marketing, utilidad (por ejemplo, un recordatorio de cita) y autenticación. Cada una tiene su tarifa (apartado «Método de pago»).
+- **Categorías:** marketing, utilidad (por ejemplo, un recordatorio de cita) y autenticación. Cada una tiene su tarifa (apartado «Método de pago»). Si pides utilidad y el texto suena a publicidad, Meta la aprueba como marketing: la app te avisa al crearla de lo que suele cambiarla y, si pasa, lo dice en la plantilla.
+- **El permiso del cliente:** Meta pide su permiso antes de cualquier plantilla. La app solo envía una de utilidad a quien tiene el permiso **«Avisos de sus citas»** y una de marketing a quien tiene **«Novedades y publicidad»** y no se ha dado de baja de ella, y solo si la plantilla tiene un botón de baja. Si falta, el diálogo de la bandeja te deja anotarlo diciendo cómo lo dio (guía de la agenda, apartado 11).
+- **La baja de publicidad:** si el cliente pulsa el botón de baja de una plantilla de marketing, o se lo pide a WhatsApp, queda dado de baja de novedades y publicidad por WhatsApp (sus recordatorios siguen llegando).
 - Sin verificar la empresa, cada cuenta puede tener hasta **250 plantillas**.
 - En la bandeja, al elegir una plantilla, rellenas sus datos y ves cómo queda antes de enviarla.
 

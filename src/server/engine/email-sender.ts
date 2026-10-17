@@ -15,11 +15,11 @@ import { isEmailChannelType } from "@/server/channels/email/config";
 import { readEmailMetadata } from "@/server/channels/email/metadata";
 
 /** The tools that read or change what the contact already has: only for a sender who is surely that contact. */
-export const SENDER_CHECKED_TOOLS = ["ver_citas_del_cliente", "cancelar_cita", "reprogramar_cita", "guardar_datos_contacto"] as const;
+export const SENDER_CHECKED_TOOLS = ["ver_citas_del_cliente", "cancelar_cita", "reprogramar_cita", "guardar_datos_contacto", "dar_de_baja"] as const;
 
 /** What the agent is told when those tools are off for the turn (in «Qué no puedes hacer» of its instructions). */
 export const UNVERIFIED_SENDER_NOTE =
-  "En esta respuesta no puedes consultar, cambiar ni cancelar las citas del cliente ni guardar sus datos: no se ha podido comprobar que este correo lo envía de verdad esa persona. Si te pide algo de eso, explícale con amabilidad que por seguridad lo gestiona una persona del equipo y ofrécele pasarle con ella (transferir_a_humano). Puedes responder a sus preguntas generales.";
+  "En esta respuesta no puedes consultar, cambiar ni cancelar las citas del cliente, guardar sus datos ni darle de baja: no se ha podido comprobar que este correo lo envía de verdad esa persona. Si te pide algo de eso, explícale con amabilidad que por seguridad lo gestiona una persona del equipo y ofrécele pasarle con ella (transferir_a_humano). Puedes responder a sus preguntas generales.";
 
 /**
  * Whether the turn of an email conversation must go without SENDER_CHECKED_TOOLS: one of its customer emails was not
@@ -55,6 +55,8 @@ export function withoutSenderCheckedTools(agent: AgentRunConfig): AgentRunConfig
   return {
     ...agent,
     systemTools: agent.systemTools.filter((tool) => !blocked.includes(tool)),
+    // «Dar de baja» is always on: it is taken off here, for this turn only.
+    blockedTools: [...(agent.blockedTools ?? []), ...blocked],
     instructions: { ...agent.instructions, cannot: [agent.instructions.cannot?.trim(), UNVERIFIED_SENDER_NOTE].filter(Boolean).join("\n\n") },
   };
 }

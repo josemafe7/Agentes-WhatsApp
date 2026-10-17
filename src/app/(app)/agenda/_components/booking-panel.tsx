@@ -18,7 +18,7 @@ import type { HistoryLine } from "../_lib/history";
 import { peopleLabel } from "../_lib/labels";
 import type { CalendarBooking, EditableBooking } from "../_lib/types";
 import { useAgenda } from "./agenda-provider";
-import { BookingStatusBadge, ResourceDot, SourceIcon, TestChip } from "./booking-visuals";
+import { BookingStatusBadge, CustomerConfirmedMark, ResourceDot, SourceIcon, TestChip } from "./booking-visuals";
 
 export type PanelBooking = CalendarBooking & {
   whenText: string;
@@ -26,7 +26,7 @@ export type PanelBooking = CalendarBooking & {
   createdByName: string | null;
   createdText: string;
   cancelReason: string | null;
-  reminderText: string | null;
+  reminderLines: string[];
   originText: string;
   contactHref: string | null;
   conversationHref: string | null;
@@ -109,6 +109,7 @@ function BookingDetails({ booking }: { booking: PanelBooking }) {
     <div className="grid gap-6 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <BookingStatusBadge status={booking.status} />
+        {booking.customerConfirmed ? <CustomerConfirmedMark withText /> : null}
         {booking.isTest ? <TestChip /> : null}
       </div>
 
@@ -151,7 +152,15 @@ function BookingDetails({ booking }: { booking: PanelBooking }) {
           </span>
         </Row>
         <Row label="Creada">{booking.createdText}</Row>
-        {booking.reminderText ? <Row label="Recordatorio">{booking.reminderText}</Row> : null}
+        {booking.reminderLines.length ? (
+          <Row label="Recordatorios">
+            <ul className="grid gap-0.5">
+              {booking.reminderLines.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </Row>
+        ) : null}
         {booking.cancelReason ? <Row label="Motivo">{booking.cancelReason}</Row> : null}
         <Row label="Notas">{booking.notes ? <span className="whitespace-pre-wrap">{booking.notes}</span> : <span className="text-muted-foreground">Sin notas</span>}</Row>
       </dl>

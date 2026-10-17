@@ -6,7 +6,8 @@ import "server-only";
 import type { MessageContentType } from "@/lib/enums";
 import { phoneDigits } from "@/lib/meta/markets";
 import { describeYCloudError, metaCodeOf } from "@/lib/ycloud/errors";
-import { ycloudEventSchema, ycloudInboundMessageSchema, ycloudMessageSchema, type YCloudMessage } from "@/lib/ycloud/schemas";
+import { ycloudEventSchema, ycloudInboundMessageSchema, ycloudMessageSchema, ycloudUserPreferenceSchema, type YCloudMessage } from "@/lib/ycloud/schemas";
+import type { MarketingPreference } from "@/server/compliance/whatsapp-marketing";
 import type { PhoneEcho } from "../phone-echo";
 import type { ChannelDeliveryStatus, StatusUpdateEvent } from "../types";
 import { normalizeWhatsAppMessage, UNSUPPORTED_TEXT, type MessageOutcome } from "../whatsapp/normalize";
@@ -20,6 +21,8 @@ export type YCloudChange =
   | { kind: "status"; number: string | null; status: StatusUpdateEvent }
   | { kind: "echo"; number: string; echo: PhoneEcho; download: YCloudMediaDownload | null }
   | { kind: "template" }
+  /** The customer stopped or resumed the business's marketing in WhatsApp ([YC-11], [WA-62]). */
+  | { kind: "preference"; number: string | null; preference: MarketingPreference }
   | { kind: "ignored" };
 
 export type NormalizedYCloudEvent = { eventId: string; type: string; change: YCloudChange };
@@ -96,8 +99,23 @@ function status(raw: unknown, receivedAt: Date): YCloudChange {
     kind: "status",
     number: phoneDigits(message.from) || null,
     // Our message is stored with YCloud's id, the one the send answered.
-    status: { kind: "status_update", externalId: message.id, status: value, at: statusTime(message, value, receivedAt), error, pricing },
+    status: {
+      kind: "status_update",
+      externalId: message.id,
+      status: value,
+      at: statusTime(message, value, receivedAt),
+      error,
+      pricing,
+      wamid: clean(message.wamid),
+      recipient: statusRecipient(message.to, clean(message.toUserId) ?? clean(message.recipientUserId)),
+    },
   };
+}
+
+/** Who it went to, for a first message to a phone ([WA-63]): the number and, if YCloud gives it, the BSUID. */
+function statusRecipient(to: string | null | undefined, userId: string | null): { waId: string | null; userId: string | null } | null {
+  const waId = phoneDigits(to) || null;
+  return waId || userId ? { waId, userId } : null;
 }
 
 /** A message the business wrote from its phone ([YC-08]). */
@@ -133,6 +151,18 @@ function echo(raw: unknown, receivedAt: Date): YCloudChange {
   };
 }
 
+function preference(raw: unknown): YCloudChange {
+  const parsed = ycloudUserPreferenceSchema.safeParse(raw);
+  if (!parsed.success) return { kind: "ignored" };
+  const value = parsed.data.value?.toLowerCase();
+  if (parsed.data.category !== "marketing_messages" || (value !== "stop" && value !== "resume")) return { kind: "ignored" };
+  return {
+    kind: "preference",
+    number: phoneDigits(parsed.data.businessPhoneNumber) || null,
+    preference: { userId: clean(parsed.data.userId), waId: phoneDigits(parsed.data.contactPhoneNumber) || null, value },
+  };
+}
+
 /** Null when `body` is not a YCloud event at all. */
 export function normalizeYCloudEvent(body: unknown, receivedAt: Date = new Date()): NormalizedYCloudEvent | null {
   const event = ycloudEventSchema.safeParse(body);
@@ -147,7 +177,12 @@ export function normalizeYCloudEvent(body: unknown, receivedAt: Date = new Date(
       case "whatsapp.smb.message.echoes":
         return echo(event.data.whatsappMessage, receivedAt);
       case "whatsapp.template.reviewed":
+      case "whatsapp.template.category_updated":
+      case "whatsapp.template.quality_updated":
+        // The sync notes a change of status or category and tells the managers ([WA-60]).
         return { kind: "template" };
+      case "whatsapp.user.preferences":
+        return preference(event.data.whatsappUserPreference);
       default:
         // New event types appear without notice («Versioning»): acknowledged and left alone.
         return { kind: "ignored" };

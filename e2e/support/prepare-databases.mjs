@@ -1,6 +1,7 @@
 // Prepares the e2e databases before the app is built and started (docs/testing.md):
-//   demo        (DATABASE_URL)                 delete → migrate → demo seed → e2e-only users → agenda fixtures →
-//                                              «Asistentes» fixtures
+//   demo        (DATABASE_URL)                 delete → migrate → hair-salon demo seed (--sector=peluqueria: the
+//                                              specs were written for it; the default demo is the physio clinic) →
+//                                              e2e-only users → agenda fixtures → «Asistentes» fixtures
 //   fresh       (E2E_FRESH_DATABASE_URL)       delete → migrate (empty install: the setup wizard)
 //   restaurant  (E2E_RESTAURANT_DATABASE_URL)  delete → migrate → restaurant demo seed (the agenda by capacity)
 // Each one is an embedded database (PGlite): a folder under data/ that only its app server opens. The steps run one
@@ -71,16 +72,17 @@ function main() {
   deleteDatabase(restaurantDir);
 
   run("pnpm run db:migrate", { DATABASE_URL: demoUrl });
-  run("pnpm run seed", { DATABASE_URL: demoUrl, DEMO_MODE: "true" });
+  run("pnpm run seed --sector=peluqueria", { DATABASE_URL: demoUrl, DEMO_MODE: "true" });
   run("pnpm exec tsx --conditions=react-server e2e/support/create-e2e-users.ts", { DATABASE_URL: demoUrl });
   run("pnpm exec tsx --conditions=react-server e2e/support/create-agenda-fixtures.ts", { DATABASE_URL: demoUrl });
   run("pnpm exec tsx --conditions=react-server e2e/support/create-assistant-fixtures.ts", { DATABASE_URL: demoUrl });
+  run("pnpm exec tsx --conditions=react-server e2e/support/create-campaign-fixtures.ts", { DATABASE_URL: demoUrl });
 
   run("pnpm run db:migrate", { DATABASE_URL: freshUrl });
 
   run("pnpm run db:migrate", { DATABASE_URL: restaurantUrl });
   run("pnpm run seed --sector=restaurante", { DATABASE_URL: restaurantUrl, DEMO_MODE: "true" });
-  log("Bases de datos listas: demo en data/e2e-pglite, vacía en data/e2e-fresh-pglite y restaurante en data/e2e-restaurante-pglite.");
+  log("Bases de datos listas: demo de la peluquería en data/e2e-pglite, vacía en data/e2e-fresh-pglite y restaurante en data/e2e-restaurante-pglite.");
 }
 
 try {

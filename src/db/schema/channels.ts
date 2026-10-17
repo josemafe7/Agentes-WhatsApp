@@ -1,12 +1,13 @@
 // Channels (WhatsApp numbers, mailboxes, web chats, Telegram), agent channel membership, WhatsApp templates and the
 // session keys of the WhatsApp numbers linked by QR code.
 import { sql } from "drizzle-orm";
-import { index, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 import {
   CHANNEL_STATUSES,
   CHANNEL_TYPES,
   OFF_HOURS_BEHAVIORS,
   REPLY_MODES,
+  type TemplateButtonRole,
   WHATSAPP_CONNECTION_MODES,
 } from "@/lib/enums";
 import { agents } from "./agents";
@@ -111,7 +112,7 @@ export const channelMembers = pgTable(
   ],
 ).enableRLS();
 
-/** Templates synced from Meta for each number ([WA-22]). */
+/** Templates of each number, synced from Meta or YCloud or created from the app ([WA-22], [WA-57]). */
 export const whatsappTemplates = pgTable(
   "whatsapp_templates",
   {
@@ -130,6 +131,22 @@ export const whatsappTemplates = pgTable(
     variables: json<string[]>("variables").notNull().default(EMPTY_JSON_ARRAY),
     rejectedReason: text("rejected_reason"),
     lastSyncedAt: timestamp("last_synced_at"),
+    /** `NAMED` or `POSITIONAL`, as Meta returns it; null for rows synced before phase 12. */
+    parameterFormat: text("parameter_format"),
+    /** Created with «Nueva plantilla» ([WA-57]): the category asked for and who created it. */
+    createdInApp: bool("created_in_app").notNull().default(false),
+    requestedCategory: text("requested_category"),
+    /** Variable → the data that fills it, remembered for the templates created from the app ([WA-58]). */
+    variableBindings: json<Record<string, string>>("variable_bindings").notNull().default(EMPTY_JSON_OBJECT),
+    /** Quick-reply button text → what it does ([AGD-32], [WA-62]). */
+    buttonRoles: json<Record<string, TemplateButtonRole>>("button_roles").notNull().default(EMPTY_JSON_OBJECT),
+    /** `message_send_ttl_seconds`, when known ([WA-59]). */
+    ttlSeconds: integer("ttl_seconds"),
+    /** A change of category, done or announced for a date ([WA-60]). */
+    previousCategory: text("previous_category"),
+    categoryChangedAt: timestamp("category_changed_at"),
+    upcomingCategory: text("upcoming_category"),
+    upcomingCategoryAt: timestamp("upcoming_category_at"),
     ...timestamps(),
   },
   (t) => [uniqueIndex("whatsapp_templates_channel_name_language_uq").on(t.channelId, t.name, t.language)],

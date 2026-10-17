@@ -47,6 +47,7 @@ const NOTHING: RetentionCounts = {
   messagesAnonymized: 0,
   notesDeleted: 0,
   notificationsDeleted: 0,
+  campaignResultsAnonymized: 0,
 };
 
 let memory: ReturnType<typeof memoryFileStorage>;
@@ -93,10 +94,10 @@ beforeEach(async () => {
 });
 
 describe("the periods of Ajustes › Privacidad y legal [CUM-05]", () => {
-  it("a new installation keeps conversations 12 months, voice notes 30 days after their transcript, attachments 90 days and raw webhooks 14, and deletes", async () => {
+  it("a new installation keeps conversations 12 months, voice notes 30 days after their transcript, attachments 90 days, raw webhooks 14 and the results of the envíos 12 months, and deletes", async () => {
     await db.delete(businessSettings);
     await createBusiness();
-    expect((await loadBusinessSettings()).retention).toEqual({ conversationsMonths: 12, audioDays: 30, attachmentsDays: 90, webhookDays: 14, mode: "delete" });
+    expect((await loadBusinessSettings()).retention).toEqual({ conversationsMonths: 12, audioDays: 30, attachmentsDays: 90, webhookDays: 14, campaignResultsMonths: 12, mode: "delete" });
   });
 });
 

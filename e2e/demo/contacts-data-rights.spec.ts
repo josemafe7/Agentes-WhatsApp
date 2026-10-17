@@ -7,6 +7,7 @@ import type { Locator, Page } from "@playwright/test";
 import { authStatePath, newPersonContext, triggerTick } from "../support/app";
 import { CONVERSATION_URL, customerMessage } from "../support/inbox";
 import { uniqueMessage, uniquePhone, uniqueRef } from "../support/names";
+import { chooseOption } from "../support/forms";
 import { DEMO_WHATSAPP, simulateTextMessage } from "../support/simulator";
 import { clientIpFor, expect, test } from "../support/test";
 import { clickAndWaitForPost, expectRefused } from "../support/ui";
@@ -155,7 +156,9 @@ test("[CTO-08][CUM-03] a baja shows on the card and a supervisor lifts it when t
 
     await notice.getByRole("button", { name: "Levantar baja" }).click();
     const dialog = supervisorPage.getByRole("dialog");
-    await dialog.getByRole("textbox", { name: /Cómo lo ha pedido/ }).fill("Lo ha pedido por teléfono");
+    // [CUM-13] How the customer asked for it is kept with the alta.
+    await chooseOption(supervisorPage, dialog.getByRole("combobox", { name: "Cómo lo ha pedido" }), "Otro");
+    await dialog.getByRole("textbox", { name: /Nota/ }).fill("Lo ha pedido por teléfono");
     await clickAndWaitForPost(supervisorPage, dialog.getByRole("button", { name: "Levantar baja" }));
     await expect(notice).toHaveCount(0);
     await expect(main(supervisorPage).getByText(/^Alta( ·|$)/)).toBeVisible();
@@ -164,7 +167,7 @@ test("[CTO-08][CUM-03] a baja shows on the card and a supervisor lifts it when t
   }
 });
 
-test("[PER-01][SEG-04] Supervisor merges but neither exports nor erases; Agente and Solo lectura do none of it", async ({ page, browser }, testInfo) => {
+test("[PER-01][SEG-04][CTO-09] Supervisor merges but neither exports nor erases; Agente only marks permissions; Solo lectura does none of it", async ({ page, browser }, testInfo) => {
   const name = `Permisos ${uniqueRef(testInfo, "permisos")}`;
   await createContactByHand(page, { name });
   const card = new URL(page.url()).pathname;
@@ -184,7 +187,15 @@ test("[PER-01][SEG-04] Supervisor merges but neither exports nor erases; Agente 
           await expect(main(other).getByRole("button", { name: "Borrar contacto" })).toHaveCount(0);
         } else {
           await expect(main(other).getByRole("link", { name: "Posibles duplicados" })).toHaveCount(0);
-          await expect(main(other).getByRole("checkbox")).toHaveCount(0);
+          if (role === "agent") {
+            // [CTO-09] An Agente marks permissions of several contacts at once (of their channels), and nothing else.
+            await main(other).getByRole("checkbox").first().check();
+            const bar = main(other).getByRole("toolbar", { name: "Acciones con los contactos seleccionados" });
+            await expect(bar.getByRole("button", { name: "Permisos", exact: true })).toBeVisible();
+            for (const action of ["Fusionar", "Exportar", "Borrar"]) await expect(bar.getByRole("button", { name: action, exact: true })).toHaveCount(0);
+          } else {
+            await expect(main(other).getByRole("checkbox")).toHaveCount(0);
+          }
           await expectRefused(other, `${CONTACTS_PATH}/duplicados`);
           await expectRefused(other, `${CONTACTS_PATH}/fusionar`);
         }

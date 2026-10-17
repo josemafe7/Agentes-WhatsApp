@@ -46,3 +46,19 @@ export async function openSimulatedConversation(page: Page): Promise<string> {
   await expect(page).toHaveURL(CONVERSATION_URL);
   return conversationIdFromUrl(page.url());
 }
+
+/** The next message of the same contact, right after another one (the simulator keeps the contact and its conversation). */
+export async function simulateNextMessage(page: Page, text: string): Promise<void> {
+  const main = page.getByRole("main");
+  await main.getByRole("textbox", { name: /^(Mensaje|Texto del mensaje)/ }).fill(text);
+  await clickAndWaitForPost(page, main.getByRole("button", { name: /^Enviar/ }));
+}
+
+/** Where «Ver conversación» leads, without leaving the simulator. */
+export async function simulatedConversationPath(page: Page): Promise<string> {
+  const view = page.getByRole("main").getByRole("link", { name: /Ver conversación/ });
+  await expect(view, "«Ver conversación» once the message is in").toBeVisible();
+  const href = await view.getAttribute("href");
+  if (!href) throw new Error("«Ver conversación» has no address");
+  return href;
+}

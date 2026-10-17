@@ -34,49 +34,42 @@ beforeEach(async () => {
   ]);
 });
 
-const byWhatsApp = () => ({
-  enabled: true,
-  leadMinutes: 1_440,
-  channel: "whatsapp_template",
-  whatsappChannelId: number.id,
-  templateName: "recordatorio_cita",
-  templateLanguage: "es",
-  templateVariables: { "1": "contact.name", "2": "booking.date", "3": "booking.time" },
-  emailSubject: "",
-  emailBody: "",
-});
+const whatsapp = () => ({ channelId: number.id, templateName: "recordatorio_cita", templateLanguage: "es", variables: { "1": "contact.name", "2": "booking.date", "3": "booking.time" } });
+const rule = (overrides: Record<string, unknown> = {}) => ({ id: "r1", lead: { kind: "hours", minutes: 1_440 }, routes: ["whatsapp"], whatsapp: whatsapp(), telegram: null, email: null, ...overrides });
+const byWhatsApp = (overrides: Record<string, unknown> = {}) => ({ enabled: true, rules: [rule(overrides)] });
 
 const reminderJobs = () => db.select().from(jobs).where(eq(jobs.type, "booking.reminders"));
 
 describe("saveReminderSettingsAction", () => {
-  it.each<Role>(["owner", "admin"])("[AGD-24] %s turns on the reminder by WhatsApp with an approved utility template and its variables", async (role) => {
+  it.each<Role>(["owner", "admin"])("[AGD-24] %s turns on a reminder by WhatsApp with an approved utility template and its variables", async (role) => {
     await signInAs(role);
     expect(await saveReminderSettingsAction(undefined, byWhatsApp())).toEqual({ ok: true, message: "Recordatorios guardados." });
     const [row] = await db.select().from(reminderSettings);
-    expect(row).toMatchObject({ enabled: true, leadMinutes: 1_440, channel: "whatsapp_template", templateName: "recordatorio_cita", templateVariables: { "1": "contact.name", "2": "booking.date", "3": "booking.time" } });
+    expect(row.enabled).toBe(true);
+    expect(row.rules).toMatchObject([{ lead: { kind: "hours", minutes: 1_440 }, routes: ["whatsapp"], whatsapp: { templateName: "recordatorio_cita", variables: { "1": "contact.name", "2": "booking.date", "3": "booking.time" } } }]);
     expect(await reminderJobs()).toHaveLength(1);
   });
 
-  it("[AGD-24] refuses a template variable without a booking field, by the field", async () => {
+  it("[AGD-24] refuses a template variable without a booking field, next to that reminder", async () => {
     await signInAs("owner");
-    const result = await saveReminderSettingsAction(undefined, { ...byWhatsApp(), templateVariables: { "1": "contact.name" } });
+    const result = await saveReminderSettingsAction(undefined, byWhatsApp({ whatsapp: { ...whatsapp(), variables: { "1": "contact.name" } } }));
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.fieldErrors?.templateVariables).toBeDefined();
+    if (!result.ok) expect(result.fieldErrors?.["rules.0.whatsapp"]).toBeDefined();
     expect(await db.select().from(reminderSettings)).toHaveLength(0);
   });
 
   it("[AGD-24] refuses a template that is not an approved utility one", async () => {
     await signInAs("owner");
-    const result = await saveReminderSettingsAction(undefined, { ...byWhatsApp(), templateName: "promo_otono", templateVariables: {} });
+    const result = await saveReminderSettingsAction(undefined, byWhatsApp({ whatsapp: { ...whatsapp(), templateName: "promo_otono", variables: {} } }));
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.fieldErrors?.templateName).toBeDefined();
+    if (!result.ok) expect(result.fieldErrors?.["rules.0.whatsapp"]).toBeDefined();
   });
 
   it("[AGD-24] by email with an editable text; turning it off stops the job", async () => {
     await signInAs("admin");
-    const email = { ...byWhatsApp(), channel: "email", leadMinutes: 120, templateVariables: {}, emailSubject: "Tu cita en {negocio}", emailBody: "Hola, {nombre}: te esperamos el {fecha} a las {hora}." };
+    const email = byWhatsApp({ lead: { kind: "hours", minutes: 120 }, routes: ["email"], whatsapp: null, email: { subject: "Tu cita en {negocio}", body: "Hola, {nombre}: te esperamos el {fecha} a las {hora}." } });
     expect((await saveReminderSettingsAction(undefined, email)).ok).toBe(true);
-    expect((await db.select().from(reminderSettings))[0]).toMatchObject({ enabled: true, channel: "email", leadMinutes: 120, emailSubject: "Tu cita en {negocio}" });
+    expect((await db.select().from(reminderSettings))[0]).toMatchObject({ enabled: true, rules: [{ routes: ["email"], lead: { minutes: 120 }, email: { subject: "Tu cita en {negocio}" } }] });
     expect((await saveReminderSettingsAction(undefined, { ...email, enabled: false })).ok).toBe(true);
     expect((await db.select().from(reminderSettings))[0].enabled).toBe(false);
     expect((await reminderJobs())[0].status).toBe("cancelled");
@@ -84,9 +77,9 @@ describe("saveReminderSettingsAction", () => {
 
   it("[AJU-15] refuses a lead time out of range", async () => {
     await signInAs("owner");
-    const result = await saveReminderSettingsAction(undefined, { ...byWhatsApp(), leadMinutes: 5 });
+    const result = await saveReminderSettingsAction(undefined, byWhatsApp({ lead: { kind: "hours", minutes: 5 } }));
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.fieldErrors?.leadMinutes).toBeDefined();
+    if (!result.ok) expect(result.fieldErrors?.["rules.0.lead"]).toEqual(["Al menos 15 minutos."]);
   });
 
   it.each<Role>(["supervisor", "agent", "viewer"])("[PER-01] %s cannot change the reminders", async (role) => {

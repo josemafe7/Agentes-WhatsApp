@@ -37,18 +37,19 @@ describe("Telegram Bot API client (docs/integracion-telegram.md)", () => {
     expect(fake.calls).toHaveLength(0);
   });
 
-  it("setWebhook always sends the secret and only asks for messages [TG-01]", async () => {
+  it("setWebhook always sends the secret and asks for messages, button taps and blocks [TG-01] [TG-12] [TG-13]", async () => {
     const { api, calls } = client({ setWebhook: () => tgOk(true) });
     await api.setWebhook({ url: "https://agentes.example.com/api/webhooks/telegram/abc", secretToken: TG_TEST.webhookSecret });
     expect(calls[0].body).toEqual({ url: "https://agentes.example.com/api/webhooks/telegram/abc", secret_token: TG_TEST.webhookSecret, allowed_updates: [...TELEGRAM_ALLOWED_UPDATES] });
-    expect(TELEGRAM_ALLOWED_UPDATES).toEqual(["message"]);
+    // Messages, the taps on a reminder's buttons and the bot blocked or unblocked ([TG-12], [TG-13]).
+    expect(TELEGRAM_ALLOWED_UPDATES).toEqual(["message", "callback_query", "my_chat_member"]);
   });
 
-  it("getUpdates asks only for messages from the offset, and skips an odd entry [TG-06]", async () => {
+  it("getUpdates asks for what the app handles from the offset, and skips an odd entry [TG-06]", async () => {
     const { api, calls } = client({ getUpdates: () => tgOk([{ update_id: 11, message: { message_id: 1 } }, "roto", { update_id: 12 }]) });
     const updates = await api.getUpdates({ offset: 11 });
     expect(updates.map((update) => update.update_id)).toEqual([11, 12]);
-    expect(calls[0].body).toEqual({ offset: 11, limit: 100, timeout: 0, allowed_updates: ["message"] });
+    expect(calls[0].body).toEqual({ offset: 11, limit: 100, timeout: 0, allowed_updates: ["message", "callback_query", "my_chat_member"] });
   });
 
   it("errors come in Spanish by code and never carry the token or Telegram's text [TG-09] [SEG-02]", async () => {

@@ -1,54 +1,47 @@
-// Booking reminders ([AGD-24], [AGD-25], [CUM-03]): off by default. When on, a recurring job looks every few minutes
-// for bookings whose reminder moment (start − lead) has come and sends each one reminder, by WhatsApp with an approved
-// utility template and its variables mapped in Agenda › Configuración (sendTemplateMessage, which never writes to a
-// customer who opted out or from a disabled channel) or by email.
-// - Email, so the customer can answer to cancel ([AGD-26]): when the customer already wrote to one of the business's
-//   connected mailboxes (Gmail, Outlook or IMAP), the reminder is a reply in that thread, sent by the channel like any
-//   message of the inbox, and the answer lands in that same conversation (where the AI can cancel and «BAJA» works).
-//   Otherwise it goes by the system mail with Reply-To: the connected mailbox, so the answer still reaches the inbox,
-//   or, without one, the business's contact email (a person reads it). A first email never goes through a mailbox
-//   connector: they only answer an email received (Outlook replies to it; Gmail and IMAP would title it «Re:»).
-// - Once: the booking is claimed atomically (reminder_sent_at set only if still empty and the booking still pending or
-//   confirmed) before anything is sent, so two rounds at once never send it twice; a failure is recorded, not retried.
-//   Its status is read again right before sending: a booking cancelled meanwhile is released, not reminded.
-// - Never for cancelled, completed, no-show or test bookings, nor for bookings made after their reminder moment
-//   (the customer just got the confirmation). A moved booking is recalculated (src/server/booking/service.ts).
+// Booking reminders ([AGD-24], [AGD-25]): off by default. When on, a recurring job looks every minute for the reminders
+// that are due (up to three per booking, src/server/booking/reminder-config.ts) and sends each one through the first of
+// its channels, in order, that the customer can receive (src/server/booking/reminder-channels.ts); if a channel refuses
+// it, through the next one, while the booking has not started. One that went out by a channel never goes by another.
+// - Once for each time of the booking: a row of booking_reminder_sends (booking, reminder, time) is the claim, taken
+//   before anything is sent, so two rounds at once never send it twice; a booking moved to another time gets its
+//   reminders again for the new time, and those whose new moment had already passed do not go.
+// - Never for cancelled, completed, no-show or test bookings; not one whose moment had passed when the booking was made
+//   or moved (the customer just got the confirmation); one missed while the app was stopped goes on its return only
+//   while the next reminder of that booking is not due yet and the booking is more than 15 minutes away.
+// - What does not go out stays in the booking's history with why, in a few words ([AGD-25]).
+// A failure Meta reports later ([AGD-24]) continues with the next channel through reminder-fallback.ts.
 import "server-only";
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte } from "drizzle-orm";
-import { getEmailBrand } from "@/data/business";
+import { and, asc, eq, gt, inArray, isNotNull, lte } from "drizzle-orm";
 import { loadBusinessSettings } from "@/data/settings";
-import { sendTemplateMessage } from "@/data/whatsapp-send";
 import { db } from "@/db";
-import { bookings, channels, consents, contacts, conversations, reminderSettings } from "@/db/schema";
-import { emailSchema } from "@/lib/validation";
+import { bookingReminderSends, bookings, contacts } from "@/db/schema";
+import type { ReminderAttempt, ReminderRule } from "@/lib/reminder-rules";
+import { leadLabel, ROUTE_LABELS } from "@/lib/reminder-rules";
+import { getSectorPreset } from "@/lib/sectors";
 import { getJobQueue, type JobQueue } from "@/server/adapters/job-queue";
-import { EMAIL_CHANNEL_TYPES, isEmailChannelType, readEmailConfig, type EmailChannelType } from "@/server/channels/email/config";
-import { replyRecipientContactId } from "@/server/channels/email/reply-context";
-import { bookingReminderEmail } from "@/server/email-templates";
-import { AppError } from "@/server/errors";
-import { sendSystemEmail, type MailerOptions } from "@/server/mailer";
-import { sendOutbound } from "@/server/outbound/send";
+import type { MailerOptions } from "@/server/mailer";
 import { safeErrorMessage } from "@/server/redact";
-import { descNullsLast } from "@/server/sql-helpers";
 import { OCCUPYING_STATUSES } from "./availability";
-import { bookingDayText, bookingTimeText, bookingWord } from "./format";
-import { type AgendaSettingsSnapshot, loadAgendaSettings } from "./load";
-import { defaultReminderEmail, ReminderMappingError, type ReminderValues, renderReminderText, templateVariablesFor } from "./reminder-fields";
 import { type BookingActor, recordBookingEvent } from "./events";
+import { bookingDayText, bookingTimeText } from "./format";
+import { type AgendaSettingsSnapshot, loadAgendaSettings } from "./load";
+import { tryRoute, type ReminderContext } from "./reminder-channels";
+import { loadReminderConfig, longestLeadMs, reminderDueAt } from "./reminder-config";
+import type { ReminderValues } from "./reminder-fields";
 import { MINUTE_MS } from "./time";
 import { type BookingView, selectBookingView } from "./views";
 
 export const BOOKING_REMINDERS_JOB = "booking.reminders";
 export const BOOKING_REMINDERS_KEY = "booking.reminders";
-/** How often due reminders are looked for. */
-export const REMINDERS_INTERVAL_MS = 5 * 60_000;
+/** How often due reminders are looked for: every minute, so «15 minutos antes» is never late. */
+export const REMINDERS_INTERVAL_MS = 60_000;
+/** Later than this after its moment, a reminder is one the app missed while it was stopped. */
+export const LATE_AFTER_MS = 10 * MINUTE_MS;
+/** A missed reminder still goes only while the booking is further away than this ([AGD-25]). */
+const MISSED_MIN_AHEAD_MS = 15 * MINUTE_MS;
 /** Reminders sent in one round at most; the rest wait for the next round. */
 const MAX_PER_ROUND = 50;
-/** A contact's email conversations looked at to find the thread the reminder answers. */
-const THREAD_CANDIDATES = 10;
 const SYSTEM: BookingActor = { type: "system" };
-
-type Settings = typeof reminderSettings.$inferSelect;
 
 /** Keeps the recurring job alive while reminders are on (idempotent), or removes the pending one when they go off. */
 export async function syncBookingReminderJob(enabled: boolean, options: { queue?: JobQueue; now?: Date } = {}): Promise<void> {
@@ -60,63 +53,9 @@ export async function syncBookingReminderJob(enabled: boolean, options: { queue?
   }
 }
 
-export type ReminderRoundResult = { sent: number; failed: number };
+export type ReminderRoundResult = { sent: number; failed: number; notSent: number };
 
-async function loadSettings(): Promise<Settings | null> {
-  const [row] = await db.select().from(reminderSettings).limit(1);
-  return row ?? null;
-}
-
-/** Bookings whose reminder moment has come and that were booked before it. */
-async function dueBookings(now: Date, leadMinutes: number): Promise<string[]> {
-  const leadMs = leadMinutes * MINUTE_MS;
-  const rows = await db
-    .select({ id: bookings.id, startsAt: bookings.startsAt, createdAt: bookings.createdAt })
-    .from(bookings)
-    .where(
-      and(
-        inArray(bookings.status, [...OCCUPYING_STATUSES]),
-        eq(bookings.isTest, false),
-        isNull(bookings.reminderSentAt),
-        isNotNull(bookings.contactId),
-        gt(bookings.startsAt, now),
-        lte(bookings.startsAt, new Date(now.getTime() + leadMs)),
-      ),
-    )
-    .orderBy(asc(bookings.startsAt))
-    .limit(MAX_PER_ROUND * 4);
-  return rows
-    .filter((row) => row.createdAt.getTime() <= row.startsAt.getTime() - leadMs)
-    .slice(0, MAX_PER_ROUND)
-    .map((row) => row.id);
-}
-
-/**
- * Takes the booking for this round; false when another round already did, or when it is no longer pending or
- * confirmed (cancelled since the round listed it) ([AGD-25]).
- */
-async function claim(bookingId: string, now: Date): Promise<boolean> {
-  const claimed = await db
-    .update(bookings)
-    .set({ reminderSentAt: now })
-    .where(and(eq(bookings.id, bookingId), isNull(bookings.reminderSentAt), inArray(bookings.status, [...OCCUPYING_STATUSES])))
-    .returning({ id: bookings.id });
-  return claimed.length === 1;
-}
-
-/** Still pending or confirmed, read again right before sending. */
-async function stillDue(bookingId: string): Promise<boolean> {
-  const [row] = await db.select({ status: bookings.status }).from(bookings).where(eq(bookings.id, bookingId));
-  return row !== undefined && OCCUPYING_STATUSES.includes(row.status);
-}
-
-/** Gives the claim back (the booking was cancelled meanwhile): it gets a reminder if it is ever brought back. */
-async function release(bookingId: string, claimedAt: Date): Promise<void> {
-  await db
-    .update(bookings)
-    .set({ reminderSentAt: null })
-    .where(and(eq(bookings.id, bookingId), eq(bookings.reminderSentAt, claimedAt)));
-}
+type Candidate = { id: string; startsAt: Date; createdAt: Date; startsAtSetAt: Date | null; reminderSentAt: Date | null };
 
 function valuesOf(view: BookingView, contactName: string | null, agenda: AgendaSettingsSnapshot): ReminderValues {
   return {
@@ -130,153 +69,163 @@ function valuesOf(view: BookingView, contactName: string | null, agenda: AgendaS
   };
 }
 
-/** The latest choice of the contact in the email channels is «baja» ([CUM-03]). */
-async function optedOutOfEmail(contactId: string): Promise<boolean> {
-  const [latest] = await db
-    .select({ type: consents.type })
-    .from(consents)
-    .where(and(eq(consents.contactId, contactId), inArray(consents.channelType, [...EMAIL_CHANNEL_TYPES]), inArray(consents.type, ["opt_out", "opt_in"])))
-    .orderBy(desc(consents.createdAt))
-    .limit(1);
-  return latest?.type === "opt_out";
+/** «Sin permiso de avisos y sin email»: the reasons once each, the first one capitalised. */
+export function joinReasons(reasons: readonly string[]): string {
+  const unique = [...new Set(reasons)];
+  const words = unique.map((reason, index) => (index === 0 ? reason : reason.charAt(0).toLowerCase() + reason.slice(1)));
+  return words.length <= 1 ? (words[0] ?? "Ningún canal disponible") : `${words.slice(0, -1).join(", ")} y ${words[words.length - 1]}`;
 }
 
-type SendOutcome = { ok: true; via: string } | { ok: false; reason: string };
-
-async function sendByWhatsApp(settings: Settings, view: BookingView, values: ReminderValues, now: Date): Promise<SendOutcome> {
-  if (!settings.whatsappChannelId || !settings.templateName || !settings.templateLanguage) return { ok: false, reason: "Falta elegir el número y la plantilla de WhatsApp." };
-  const sent = await sendTemplateMessage(
-    {
-      channelId: settings.whatsappChannelId,
-      contactId: view.contactId ?? "",
-      templateName: settings.templateName,
-      language: settings.templateLanguage,
-      variables: templateVariablesFor(settings.templateVariables, values),
-    },
-    { now },
-  );
-  return sent.status === "failed" ? { ok: false, reason: sent.error?.message ?? "No se pudo enviar." } : { ok: true, via: "whatsapp" };
-}
-
-type Mailbox = { channelId: string; channelType: EmailChannelType; address: string };
-
-/** The business's own mailboxes that can send now: connected, not the demo's and not waiting for a new connection. */
-async function usableMailboxes(): Promise<Mailbox[]> {
-  const rows = await db
-    .select({ id: channels.id, type: channels.type, config: channels.config })
-    .from(channels)
-    .where(and(inArray(channels.type, [...EMAIL_CHANNEL_TYPES]), eq(channels.status, "connected"), eq(channels.isDemo, false)))
-    .orderBy(asc(channels.createdAt), asc(channels.id));
-  return rows.flatMap((row) => {
-    const config = readEmailConfig(row.config);
-    const address = config.emailAddress?.toLowerCase();
-    return config.reconnect || !address || !isEmailChannelType(row.type) ? [] : [{ channelId: row.id, channelType: row.type, address }];
-  });
-}
-
-/**
- * The contact's latest real thread in one of those mailboxes whose reply reaches them: the newest customer email of
- * the thread is theirs (a thread takes emails from anyone, and the reminder carries their booking); null when none.
- */
-async function contactThread(contactId: string, mailboxes: readonly Mailbox[]): Promise<{ conversationId: string; mailbox: Mailbox } | null> {
-  if (mailboxes.length === 0) return null;
-  const rows = await db
-    .select({ id: conversations.id, channelId: conversations.channelId, metadata: conversations.metadata })
-    .from(conversations)
-    .where(
-      and(
-        eq(conversations.contactId, contactId),
-        inArray(
-          conversations.channelId,
-          mailboxes.map((mailbox) => mailbox.channelId),
-        ),
-        eq(conversations.isTest, false),
-        isNotNull(conversations.externalThreadId),
-      ),
-    )
-    .orderBy(descNullsLast(conversations.lastMessageAt), desc(conversations.createdAt))
-    .limit(THREAD_CANDIDATES);
-  for (const row of rows) {
-    // The simulator's conversations never leave the app ([AJU-13]).
-    if (row.metadata.simulated === true) continue;
-    const mailbox = mailboxes.find((item) => item.channelId === row.channelId);
-    if (mailbox && (await replyRecipientContactId(row.id, mailbox.channelType, null)) === contactId) return { conversationId: row.id, mailbox };
+/** Why a due reminder does not go, or null when it goes now ([AGD-25]). */
+export function notGoingReason(
+  rule: ReminderRule,
+  booking: Candidate,
+  all: readonly ReminderRule[],
+  timeZone: string,
+  now: Date,
+): { kind: "wait" } | { kind: "skip" } | { kind: "not_sent"; reason: string } | null {
+  const due = reminderDueAt(rule.lead, booking.startsAt, timeZone);
+  if (due > now) return { kind: "wait" };
+  // The single reminder of before phase 12 already went for this time: what was due by then is covered.
+  if (booking.reminderSentAt && (!booking.startsAtSetAt || booking.startsAtSetAt <= booking.reminderSentAt) && due <= booking.reminderSentAt) return { kind: "skip" };
+  const setAt = booking.startsAtSetAt ?? booking.createdAt;
+  if (due < setAt) return { kind: "not_sent", reason: booking.startsAtSetAt ? "Cambió de hora después de su momento" : "Se reservó después de su momento" };
+  if (now.getTime() - due.getTime() > LATE_AFTER_MS) {
+    const nextDue = all
+      .map((other) => reminderDueAt(other.lead, booking.startsAt, timeZone))
+      .filter((other) => other > due)
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+    const nextAlreadyDue = nextDue !== undefined && nextDue <= now;
+    if (nextAlreadyDue || booking.startsAt.getTime() - now.getTime() <= MISSED_MIN_AHEAD_MS) return { kind: "not_sent", reason: "La app no estaba en marcha a su hora" };
   }
   return null;
 }
 
-/** Where the answer to a system email goes: the connected mailbox (so it reaches the inbox), else the business's email. */
-async function replyAddress(mailboxes: readonly Mailbox[]): Promise<string | undefined> {
-  const candidates = [mailboxes[0]?.address, (await loadBusinessSettings()).contactEmail];
-  for (const candidate of candidates) {
-    const parsed = emailSchema.safeParse(candidate ?? "");
-    if (parsed.success) return parsed.data;
-  }
-  return undefined;
+/** Takes the reminder of this booking time for this round; null when another round already did. */
+async function claim(booking: Candidate, rule: ReminderRule, dueAt: Date, status: "sending" | "not_sent", reason: string | null, now: Date): Promise<string | null> {
+  const [row] = await db
+    .insert(bookingReminderSends)
+    .values({ bookingId: booking.id, ruleId: rule.id, startsAt: booking.startsAt, dueAt, status, reason, createdAt: now, updatedAt: now })
+    .onConflictDoNothing({ target: [bookingReminderSends.bookingId, bookingReminderSends.ruleId, bookingReminderSends.startsAt] })
+    .returning({ id: bookingReminderSends.id });
+  return row?.id ?? null;
 }
 
-async function sendByEmail(
-  settings: Settings,
-  view: BookingView,
-  values: ReminderValues,
-  agenda: AgendaSettingsSnapshot,
-  options: { mailer: MailerOptions; now: Date },
-): Promise<SendOutcome> {
-  const contactId = view.contactId ?? "";
-  if (await optedOutOfEmail(contactId)) return { ok: false, reason: "El cliente se ha dado de baja del correo." };
-  const defaults = defaultReminderEmail(bookingWord(agenda.terminology));
-  const subject = renderReminderText(settings.emailSubject?.trim() || defaults.subject, values);
-  const body = renderReminderText(settings.emailBody?.trim() || defaults.body, values);
-  const mailboxes = await usableMailboxes();
-  const thread = await contactThread(contactId, mailboxes);
-  if (thread) {
-    // A reply in the customer's thread: it keeps the thread's subject, so the text says it all.
-    const sent = await sendOutbound({ conversationId: thread.conversationId, sender: { type: "system" }, text: body, metadata: { bookingReminder: view.id }, now: options.now });
-    return sent.status === "failed" ? { ok: false, reason: sent.error?.message ?? "No se pudo enviar." } : { ok: true, via: thread.mailbox.channelType };
+const at = (now: Date) => now.toISOString();
+
+/**
+ * Tries the reminder's channels from `from` on, in order; records each attempt and the outcome on its row and in the
+ * booking's history. Shared by the round and by the fallback after a failure Meta reports later.
+ */
+export async function deliverReminder(
+  sendId: string,
+  rule: ReminderRule,
+  from: number,
+  options: { now: Date; mailer?: MailerOptions; earlier?: ReminderAttempt[] },
+): Promise<"sent" | "failed" | "not_sent" | "gone"> {
+  const { now } = options;
+  const [row] = await db.select().from(bookingReminderSends).where(eq(bookingReminderSends.id, sendId));
+  if (!row) return "gone";
+  const agenda = await loadAgendaSettings();
+  const view = await selectBookingView(row.bookingId, agenda.timezone);
+  // Cancelled, moved or started since: nothing more goes for this time ([AGD-24]).
+  if (!view?.contactId || !OCCUPYING_STATUSES.includes(view.status) || view.startsAt.getTime() !== row.startsAt.getTime() || view.startsAt <= now) {
+    await db.update(bookingReminderSends).set({ status: "not_sent", reason: "La cita ya no está pendiente", updatedAt: now }).where(eq(bookingReminderSends.id, sendId));
+    return "gone";
   }
-  const [contact] = await db.select({ email: contacts.email }).from(contacts).where(eq(contacts.id, contactId));
-  if (!contact?.email) return { ok: false, reason: "El cliente no tiene email." };
-  const email = bookingReminderEmail({ brand: await getEmailBrand(), subject, body });
-  const result = await sendSystemEmail({ kind: "reminder", to: contact.email, replyTo: await replyAddress(mailboxes), ...email }, options.mailer);
-  return result.ok ? { ok: true, via: result.via } : { ok: false, reason: result.message };
+  const [contact] = await db.select({ name: contacts.name }).from(contacts).where(eq(contacts.id, view.contactId));
+  const business = await loadBusinessSettings();
+  const ctx: ReminderContext = {
+    sendId,
+    rule,
+    view: { ...view, contactId: view.contactId },
+    values: valuesOf(view, contact?.name ?? null, agenda),
+    agenda,
+    healthData: business.sector ? getSectorPreset(business.sector).healthData : false,
+    now,
+    mailer: options.mailer ?? {},
+  };
+  const attempts: ReminderAttempt[] = [...(options.earlier ?? row.attempts)];
+  for (const route of rule.routes.slice(from)) {
+    const result = await tryRoute(route, ctx);
+    if (result.outcome === "sent") {
+      attempts.push({ channel: route, outcome: "sent", at: at(now) });
+      await db
+        .update(bookingReminderSends)
+        .set({ status: "sent", channel: route, messageId: result.messageId, attempts, reason: null, sentAt: now, updatedAt: now })
+        .where(eq(bookingReminderSends.id, sendId));
+      await recordBookingEvent(db, row.bookingId, SYSTEM, "reminder_sent", { ruleId: rule.id, lead: leadLabel(rule.lead), channel: route, via: result.via }, now);
+      return "sent";
+    }
+    attempts.push({ channel: route, outcome: result.outcome, reason: result.reason, at: at(now) });
+    if (result.outcome === "failed") {
+      await recordBookingEvent(db, row.bookingId, SYSTEM, "reminder_failed", { ruleId: rule.id, channel: route, reason: result.reason }, now);
+    }
+  }
+  const reasons = attempts.filter((attempt) => attempt.outcome !== "sent").map((attempt) => attempt.reason ?? `${ROUTE_LABELS[attempt.channel]} no disponible`);
+  const failed = attempts.some((attempt) => attempt.outcome === "failed");
+  const reason = joinReasons(reasons);
+  await db
+    .update(bookingReminderSends)
+    .set({ status: failed ? "failed" : "not_sent", attempts, reason, updatedAt: now })
+    .where(eq(bookingReminderSends.id, sendId));
+  await recordBookingEvent(db, row.bookingId, SYSTEM, "reminder_not_sent", { ruleId: rule.id, lead: leadLabel(rule.lead), reason }, now);
+  return failed ? "failed" : "not_sent";
 }
 
-/** One round: sends the reminders that are due. Never throws for one booking; each outcome goes to its history. */
+/** One round: the reminders that are due. Never throws for one booking; each outcome goes to its history. */
 export async function runBookingReminders(options: { now?: Date; mailer?: MailerOptions } = {}): Promise<ReminderRoundResult> {
   const now = options.now ?? new Date();
-  const settings = await loadSettings();
-  const result: ReminderRoundResult = { sent: 0, failed: 0 };
-  if (!settings?.enabled || settings.leadMinutes <= 0) return result;
+  const result: ReminderRoundResult = { sent: 0, failed: 0, notSent: 0 };
+  const config = await loadReminderConfig();
+  if (!config.enabled || config.rules.length === 0) return result;
   const agenda = await loadAgendaSettings();
-  for (const bookingId of await dueBookings(now, settings.leadMinutes)) {
-    if (!(await claim(bookingId, now))) continue;
-    const view = await selectBookingView(bookingId, agenda.timezone);
-    if (!view?.contactId) continue;
-    let outcome: SendOutcome;
-    try {
-      const [contact] = await db.select({ name: contacts.name }).from(contacts).where(eq(contacts.id, view.contactId));
-      const values = valuesOf(view, contact?.name ?? null, agenda);
-      // Cancelled by someone since the round listed it: nothing goes out ([AGD-25]).
-      if (!(await stillDue(bookingId))) {
-        await release(bookingId, now);
+  const windowEnd = new Date(now.getTime() + longestLeadMs(config.rules));
+  // Every booking of the window: a cap here would leave the latest ones out until the earlier ones pass, and their
+  // reminders would go late or not at all. What a round does is capped below (MAX_PER_ROUND).
+  const candidates: Candidate[] = await db
+    .select({ id: bookings.id, startsAt: bookings.startsAt, createdAt: bookings.createdAt, startsAtSetAt: bookings.startsAtSetAt, reminderSentAt: bookings.reminderSentAt })
+    .from(bookings)
+    .where(and(inArray(bookings.status, [...OCCUPYING_STATUSES]), eq(bookings.isTest, false), isNotNull(bookings.contactId), gt(bookings.startsAt, now), lte(bookings.startsAt, windowEnd)))
+    .orderBy(asc(bookings.startsAt));
+  if (candidates.length === 0) return result;
+  // The reminders already taken for the times of the window (a send keeps the time of the booking it was for).
+  const taken = new Set(
+    (
+      await db
+        .select({ bookingId: bookingReminderSends.bookingId, ruleId: bookingReminderSends.ruleId, startsAt: bookingReminderSends.startsAt })
+        .from(bookingReminderSends)
+        .where(and(gt(bookingReminderSends.startsAt, now), lte(bookingReminderSends.startsAt, windowEnd)))
+    ).map((row) => `${row.bookingId}:${row.ruleId}:${row.startsAt.getTime()}`),
+  );
+  let handled = 0;
+  for (const booking of candidates) {
+    for (const rule of config.rules) {
+      if (handled >= MAX_PER_ROUND) return result;
+      if (taken.has(`${booking.id}:${rule.id}:${booking.startsAt.getTime()}`)) continue;
+      const decision = notGoingReason(rule, booking, config.rules, agenda.timezone, now);
+      if (decision?.kind === "wait" || decision?.kind === "skip") continue;
+      const dueAt = reminderDueAt(rule.lead, booking.startsAt, agenda.timezone);
+      handled += 1;
+      if (decision?.kind === "not_sent") {
+        if (await claim(booking, rule, dueAt, "not_sent", decision.reason, now)) {
+          result.notSent += 1;
+          await recordBookingEvent(db, booking.id, SYSTEM, "reminder_not_sent", { ruleId: rule.id, lead: leadLabel(rule.lead), reason: decision.reason }, now);
+        }
         continue;
       }
-      outcome =
-        settings.channel === "email"
-          ? await sendByEmail(settings, view, values, agenda, { mailer: options.mailer ?? {}, now })
-          : await sendByWhatsApp(settings, view, values, now);
-    } catch (error) {
-      if (!(error instanceof AppError) && !(error instanceof ReminderMappingError)) {
+      const sendId = await claim(booking, rule, dueAt, "sending", null, now);
+      if (!sendId) continue;
+      try {
+        const outcome = await deliverReminder(sendId, rule, 0, { now, mailer: options.mailer, earlier: [] });
+        if (outcome === "sent") result.sent += 1;
+        else if (outcome === "failed") result.failed += 1;
+        else result.notSent += 1;
+      } catch (error) {
         console.error(`[agenda] Recordatorio fallido: ${safeErrorMessage(error)}`);
+        result.failed += 1;
+        await db.update(bookingReminderSends).set({ status: "failed", reason: "Error inesperado", updatedAt: now }).where(eq(bookingReminderSends.id, sendId));
       }
-      outcome = { ok: false, reason: error instanceof AppError ? error.userMessage : error instanceof ReminderMappingError ? error.message : "Error inesperado." };
-    }
-    if (outcome.ok) {
-      result.sent++;
-      await recordBookingEvent(db, bookingId, SYSTEM, "reminder_sent", { channel: settings.channel, via: outcome.via }, now);
-    } else {
-      result.failed++;
-      await recordBookingEvent(db, bookingId, SYSTEM, "reminder_failed", { channel: settings.channel, reason: outcome.reason }, now);
     }
   }
   return result;

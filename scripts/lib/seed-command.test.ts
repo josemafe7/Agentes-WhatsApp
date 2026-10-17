@@ -70,10 +70,10 @@ describe("pnpm seed", () => {
     expect(hashes.some((h) => h.password === DEMO_PASSWORD)).toBe(false);
   });
 
-  it("[ARR-06] the default demo is a hair salon with hours, services and named professionals", async () => {
+  it("[ARR-06] the default demo is a physiotherapy clinic with hours, services and named professionals", async () => {
     await seed();
     const [settings] = await db.select().from(businessSettings);
-    expect(settings).toMatchObject({ name: "Peluquería Aurora", sector: "peluqueria", timezone: "Europe/Madrid" });
+    expect(settings).toMatchObject({ name: "Fisioterapia Movimiento", sector: "fisioterapia", timezone: "Europe/Madrid" });
     expect(settings.setupCompletedAt).not.toBeNull();
     expect(settings.aiDisclosureText).toContain("inteligencia artificial");
     // [CUM-08] The example privacy text says how long conversations are kept: the demo's own retention.
@@ -81,14 +81,14 @@ describe("pnpm seed", () => {
     expect(settings.termsText).toBeTruthy();
     expect(settings.dataDeletionText).toBeTruthy();
     expect(settings.retention).toEqual(DEFAULT_RETENTION);
-    expect(settings.terminology).toEqual(getSectorPreset("peluqueria").terminology);
+    expect(settings.terminology).toEqual(getSectorPreset("fisioterapia").terminology);
 
-    const preset = getSectorPreset("peluqueria");
+    const preset = getSectorPreset("fisioterapia");
     const serviceRows = await db.select().from(services).orderBy(asc(services.sortOrder));
     expect(serviceRows.map((s) => s.name)).toEqual(preset.services.map((s) => s.name));
     expect(serviceRows.every((s) => s.price !== null && s.price > 0)).toBe(true);
     const resourceRows = await db.select().from(resources).orderBy(asc(resources.sortOrder));
-    expect(resourceRows.map((r) => r.name)).toEqual(["Lucía", "Andrés", "Marta"]);
+    expect(resourceRows.map((r) => r.name)).toEqual(["Álvaro Díaz", "Nuria Campos"]);
     expect(await db.select().from(resourceSchedules)).toHaveLength(preset.resources.flatMap((r) => r.schedule).length);
     expect(await db.select().from(serviceResources)).toHaveLength(preset.services.flatMap((s) => s.resourceKeys).length);
     expect(await db.select().from(businessHours)).toHaveLength(preset.businessHours.length);

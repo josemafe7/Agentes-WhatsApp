@@ -13,6 +13,8 @@ import "@/server/knowledge/jobs";
 import "@/server/channels/whatsapp/jobs";
 import "@/server/channels/email/jobs";
 import "@/server/channels/telegram/jobs";
+import "@/server/channels/instagram/jobs";
 import "@/server/channels/ycloud/jobs";
 import "@/server/booking/jobs";
+import "@/server/campaigns/jobs";
 import "@/server/channels/webchat/cleanup";

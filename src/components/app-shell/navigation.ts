@@ -14,6 +14,7 @@ import {
   Info,
   Mail,
   MessageCircle,
+  Megaphone,
   MessagesSquare,
   RadioTower,
   ScrollText,
@@ -39,6 +40,7 @@ export type SectionKey =
   | "bandeja"
   | "contactos"
   | "agenda"
+  | "envios"
   | "asistentes"
   | "agentes"
   | "conocimiento"
@@ -67,6 +69,7 @@ export type SettingsPageKey =
   | "privacidad"
   | "notificaciones"
   | "recordatorios"
+  | "envios"
   | "actividad"
   | "diagnostico"
   | "cuenta"
@@ -86,7 +89,7 @@ export type SettingsPage = {
 
 /**
  * Settings sub-navigation, in order: Negocio, Usuarios, Horario | IA, Correo del sistema, WhatsApp | Privacidad y
- * legal, Notificaciones, Recordatorios | Registro de actividad, Diagnóstico | Mi cuenta, Acerca de. Permissions from
+ * legal, Notificaciones, Recordatorios, Envíos | Registro de actividad, Diagnóstico | Mi cuenta, Acerca de. Permissions from
  * «Quién puede hacer qué» ([PER-03], [PER-04]).
  */
 export const SETTINGS_PAGES: readonly SettingsPage[] = [
@@ -172,6 +175,15 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     permission: PERMISSIONS.agenda.configure,
   },
   {
+    key: "envios",
+    label: "Envíos",
+    href: "/ajustes/envios",
+    icon: Megaphone,
+    description: "Horas de envío, cada cuántos días como mucho y topes del correo.",
+    group: 2,
+    permission: PERMISSIONS.settings.business,
+  },
+  {
     key: "actividad",
     label: "Registro de actividad",
     href: "/ajustes/actividad",
@@ -212,11 +224,12 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
 /** «Asistentes»: where each person asks the internal agents they were given ([INT-06]). */
 export const ASSISTANTS_HREF = "/asistentes";
 
-/** The nine sections: Bandeja, Contactos, Agenda, Asistentes | Agentes, Conocimiento, Canales | Informes, Ajustes. */
+/** The ten sections: Bandeja, Contactos, Agenda, Envíos, Asistentes | Agentes, Conocimiento, Canales | Informes, Ajustes. */
 export const SECTIONS: readonly NavSection[] = [
   { key: "bandeja", label: "Bandeja", href: "/bandeja", icon: Inbox, group: 0, anyOf: [PERMISSIONS.inbox.view] },
   { key: "contactos", label: "Contactos", href: "/contactos", icon: Users, group: 0, anyOf: [PERMISSIONS.contacts.view] },
   { key: "agenda", label: "Agenda", href: "/agenda", icon: CalendarDays, group: 0, anyOf: [PERMISSIONS.agenda.view] },
+  { key: "envios", label: "Envíos", href: "/envios", icon: Megaphone, group: 0, anyOf: [PERMISSIONS.campaigns.view] },
   { key: "asistentes", label: "Asistentes", href: ASSISTANTS_HREF, icon: MessagesSquare, group: 0, anyOf: [PERMISSIONS.internal.use] },
   { key: "agentes", label: "Agentes", href: "/agentes", icon: Bot, group: 1, anyOf: [PERMISSIONS.agents.view] },
   {

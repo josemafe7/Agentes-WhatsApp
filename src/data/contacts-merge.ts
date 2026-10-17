@@ -10,11 +10,27 @@ import "server-only";
 import { and, asc, count, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor, type Transaction } from "@/db";
-import { aiRuns, bookings, channels, consents, contactIdentities, contacts, conversations, handoffEvents, internalNotes, messages, notifications } from "@/db/schema";
-import type { ChannelType } from "@/lib/enums";
+import {
+  aiRuns,
+  bookings,
+  campaignRecipients,
+  channels,
+  consents,
+  contactIdentities,
+  contacts,
+  conversations,
+  handoffEvents,
+  internalNotes,
+  messages,
+  notifications,
+  systemEmails,
+} from "@/db/schema";
+import { hasPermission, optOutTypes, permissionTypes, type ConsentState } from "@/lib/consents";
+import { CHANNEL_KINDS, CONTACT_PERMISSIONS, type ChannelType } from "@/lib/enums";
 import { PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema } from "@/lib/validation";
 import { getJobQueue, type JobQueue } from "@/server/adapters/job-queue";
+import { appendConsent, loadConsentState } from "@/server/compliance/consent-state";
 import { replyDedupeKey } from "@/server/engine/schedule";
 import { summaryDedupeKey } from "@/server/engine/summary";
 import { AuthError, ConflictError, parseInput } from "@/server/errors";
@@ -265,6 +281,56 @@ async function foldConversations(tx: Transaction, fold: ConversationFold, keepId
 }
 
 /**
+ * [CTO-05] If either contact withdrew a permission or is opted out of a kind of channel, the one that stays is too: once
+ * their consents are together, whatever of that the joined history would not say any more is written again, after
+ * everything else (source «merge»).
+ */
+async function keepWithdrawals(tx: Executor, keepId: string, sides: ConsentState[], now: Date): Promise<void> {
+  const joined = await loadConsentState(keepId, tx);
+  for (const permission of CONTACT_PERMISSIONS) {
+    const withdrawn = sides.some((side) => side.permissions[permission] && !hasPermission(side, permission));
+    if (withdrawn && hasPermission(joined, permission)) {
+      await appendConsent(tx, { contactId: keepId, type: permissionTypes(permission).withdrawn, source: "merge", actorType: "system" }, now);
+    }
+  }
+  for (const kind of CHANNEL_KINDS) {
+    for (const scope of ["all", "marketing"] as const) {
+      if (sides.some((side) => side.optOuts[kind][scope]) && !joined.optOuts[kind][scope]) {
+        await appendConsent(tx, { contactId: keepId, channelKind: kind, type: optOutTypes(scope).out, source: "merge", actorType: "system" }, now);
+      }
+    }
+  }
+}
+
+/**
+ * Their envíos go to the kept one, with their results and their «Darme de baja» links ([CTO-05]), so they count for how
+ * often it gets one ([ENV-06]). In an envío both were in, only one message goes ([ENV-03]): what one of them still had
+ * waiting no longer goes if the other's went out, is going or is waiting too (then the kept one's goes).
+ */
+async function moveCampaignRows(tx: Transaction, fromId: string, toId: string, now: Date): Promise<void> {
+  const rowsOf = (contactId: string) =>
+    tx.select({ id: campaignRecipients.id, campaignId: campaignRecipients.campaignId, status: campaignRecipients.status }).from(campaignRecipients).where(eq(campaignRecipients.contactId, contactId));
+  const [kept, merged] = [await rowsOf(toId), await rowsOf(fromId)];
+  const cancelled: string[] = [];
+  for (const campaignId of new Set(merged.map((row) => row.campaignId))) {
+    const keptRows = kept.filter((row) => row.campaignId === campaignId);
+    if (keptRows.length === 0) continue;
+    const mergedRows = merged.filter((row) => row.campaignId === campaignId);
+    const tried = (rows: typeof kept) => rows.some((row) => row.status !== "pending" && row.status !== "not_sent");
+    const waiting = (rows: typeof kept) => rows.filter((row) => row.status === "pending");
+    if (waiting(mergedRows).length > 0 && (tried(keptRows) || waiting(keptRows).length > 0)) cancelled.push(...waiting(mergedRows).map((row) => row.id));
+    else if (waiting(keptRows).length > 0 && tried(mergedRows)) cancelled.push(...waiting(keptRows).map((row) => row.id));
+  }
+  if (cancelled.length > 0) {
+    await tx
+      .update(campaignRecipients)
+      .set({ status: "not_sent", reason: "Se fusionó con otro contacto del envío", updatedAt: now })
+      .where(and(inArray(campaignRecipients.id, cancelled), eq(campaignRecipients.status, "pending")));
+  }
+  await tx.update(campaignRecipients).set({ contactId: toId, updatedAt: now }).where(eq(campaignRecipients.contactId, fromId));
+}
+
+/**
  * «Fusionar»: `mergeId` joins `keepId` and disappears ([CTO-05]). In one transaction; the pending replies and summaries
  * of the conversations that joined another are cancelled afterwards (the target's own go on).
  */
@@ -281,8 +347,13 @@ export async function mergeContacts(actor: Actor, input: unknown, options: { que
     for (const fold of plan) await foldConversations(tx, fold, keep.id, now);
     const moved = await tx.update(conversations).set({ contactId: keep.id, updatedAt: now }).where(eq(conversations.contactId, merge.id)).returning({ id: conversations.id });
     const identities = await tx.update(contactIdentities).set({ contactId: keep.id, updatedAt: now }).where(eq(contactIdentities.contactId, merge.id)).returning({ id: contactIdentities.id });
+    const sidesBefore = [await loadConsentState(keep.id, tx), await loadConsentState(merge.id, tx)];
     const consentRows = await tx.update(consents).set({ contactId: keep.id, updatedAt: now }).where(eq(consents.contactId, merge.id)).returning({ id: consents.id });
+    await keepWithdrawals(tx, keep.id, sidesBefore, now);
     const bookingRows = await tx.update(bookings).set({ contactId: keep.id, updatedAt: now }).where(eq(bookings.contactId, merge.id)).returning({ id: bookings.id });
+    // An answer to an email of the system mail sent to the merged one reaches the kept one ([AGD-24]).
+    await tx.update(systemEmails).set({ contactId: keep.id, updatedAt: now }).where(eq(systemEmails.contactId, merge.id));
+    await moveCampaignRows(tx, merge.id, keep.id, now);
     const { values } = mergedValues(keep, merge, data.choices);
     await tx
       .update(contacts)

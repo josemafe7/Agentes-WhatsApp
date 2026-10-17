@@ -34,6 +34,7 @@ export async function applyStatusUpdate(
       status: messages.status,
       pricingType: messages.pricingType,
       pricingCategory: messages.pricingCategory,
+      metadata: messages.metadata,
     })
     .from(messages)
     .where(and(eq(messages.channelId, channel.id), eq(messages.externalId, event.externalId)));
@@ -41,11 +42,13 @@ export async function applyStatusUpdate(
 
   const next = nextMessageStatus(message.status, event.status);
   const firstPricing = event.pricing && message.pricingType === null && message.pricingCategory === null ? event.pricing : null;
-  if (!next && !firstPricing) return { messageId: message.id, conversationId: message.conversationId, status: message.status, changed: false };
+  const newWamid = event.wamid && message.metadata.wamid !== event.wamid ? event.wamid : null;
+  if (!next && !firstPricing && !newWamid) return { messageId: message.id, conversationId: message.conversationId, status: message.status, changed: false };
 
   await executor
     .update(messages)
     .set({
+      ...(newWamid ? { metadata: { ...message.metadata, wamid: newWamid } } : {}),
       ...(next ? { status: next, statusUpdatedAt: event.at } : {}),
       ...(next === "failed" ? { error: event.error ?? { message: "El canal no ha podido entregar el mensaje." } } : {}),
       ...(firstPricing ? { pricingType: firstPricing.type, pricingCategory: firstPricing.category } : {}),

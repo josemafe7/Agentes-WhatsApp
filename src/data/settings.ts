@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { generateVAPIDKeys } from "web-push";
 import { z } from "zod";
 import { db, type Executor } from "@/db";
-import { businessSettings, integrationSettings, type SmtpSettings } from "@/db/schema";
+import { businessSettings, DEFAULT_RETENTION, integrationSettings, type SmtpSettings } from "@/db/schema";
 import { isValidHex } from "@/lib/color";
 import { AGENDA_MODES, ROLES, SECTORS } from "@/lib/enums";
 import { isValidTimeZone } from "@/lib/format";
@@ -46,10 +46,15 @@ export async function ensureSettingsRows(executor: Executor = db): Promise<void>
 /** System: the business settings row (created with defaults if missing). */
 export async function loadBusinessSettings(executor: Executor = db): Promise<BusinessSettings> {
   const [row] = await executor.select().from(businessSettings).limit(1);
-  if (row) return row;
+  if (row) return withRetentionDefaults(row);
   await ensureSettingsRows(executor);
   const [created] = await executor.select().from(businessSettings).limit(1);
-  return created;
+  return withRetentionDefaults(created);
+}
+
+/** A period added after the row was written takes its default ([CUM-05]). */
+function withRetentionDefaults(row: BusinessSettings): BusinessSettings {
+  return { ...row, retention: { ...DEFAULT_RETENTION, ...row.retention } };
 }
 
 /** System: the integration settings row (created if missing). Contains encrypted secrets: never return it. */
@@ -162,6 +167,7 @@ export const businessSettingsInputSchema = z
       audioDays: z.number().int().min(1).max(3_650),
       attachmentsDays: z.number().int().min(1).max(3_650),
       webhookDays: z.number().int().min(7, "Entre 7 y 30 días.").max(30, "Entre 7 y 30 días."),
+      campaignResultsMonths: z.number().int().min(1).max(120).default(DEFAULT_RETENTION.campaignResultsMonths),
       mode: z.enum(["delete", "anonymize"]),
     }),
     aiPauseHours: z.number().int().min(1, "Mínimo 1 hora.").max(168, "Máximo 168 horas."),

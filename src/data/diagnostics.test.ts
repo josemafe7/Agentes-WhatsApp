@@ -107,6 +107,15 @@ describe("getDiagnostics [AJU-11]", () => {
     expect(webhooks.unknown).toEqual({ count: 1, lastReceivedAt: older, lastNumber: "123" });
   });
 
+  it("webhooks: an Instagram account shows its last webhook too [IG-10]", async () => {
+    await db.delete(webhookEvents);
+    const instagram = await createChannel({ type: "instagram", name: "Instagram" });
+    const at = new Date("2026-10-16T08:00:00Z");
+    await db.insert(webhookEvents).values({ source: "instagram", channelId: instagram.id, signatureValid: true, receivedAt: at });
+    const { webhooks } = await getDiagnostics(owner);
+    expect(webhooks.channels).toEqual(expect.arrayContaining([{ channelId: instagram.id, name: "Instagram", type: "instagram", isDemo: false, lastReceivedAt: at, count: 1 }]));
+  });
+
   it("recent errors: the failed AI calls of real conversations, newest first and without secrets [MOT-12] [AJU-11]", async () => {
     await db.delete(aiRuns);
     const channel = await createChannel({ type: "webchat", name: "Web" });

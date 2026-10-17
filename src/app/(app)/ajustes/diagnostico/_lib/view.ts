@@ -32,13 +32,14 @@ const AI_RUN_KIND_LABELS: Record<AiRunKind, string> = {
   generation: "Generación",
   summary: "Resumen de la conversación",
 };
-const CHANNEL_TYPE_LABELS: Partial<Record<ChannelType, string>> = { whatsapp: "WhatsApp", telegram: "Telegram" };
+const CHANNEL_TYPE_LABELS: Partial<Record<ChannelType, string>> = { whatsapp: "WhatsApp", telegram: "Telegram", instagram: "Instagram" };
 const EMAIL_KIND_LABELS: Record<SystemEmailKind, string> = {
   invitation: "Invitación",
   password_reset: "Recuperar contraseña",
   notification: "Aviso",
   reminder: "Recordatorio",
   test: "Prueba",
+  campaign: "Envío",
 };
 const EMAIL_STATUS_LABELS: Record<SystemEmailStatus, string> = {
   sent: "Enviado",
@@ -46,13 +47,17 @@ const EMAIL_STATUS_LABELS: Record<SystemEmailStatus, string> = {
   failed: "No se envió",
 };
 
-/** «Pruebas de conexión» ([AJU-11]): what each channel's test does, as its own panel does it. */
-const CHANNEL_TESTS: Record<TestableChannelType, { badge: string; description: string; action: string }> = {
+/**
+ * «Pruebas de conexión» ([AJU-11]): what each channel's test does, as its own panel does it. Instagram's text is here
+ * whether or not its test is offered (src/data/diagnostics-connections.ts decides which types are testable).
+ */
+const CHANNEL_TESTS: Record<TestableChannelType | "instagram", { badge: string; description: string; action: string }> = {
   whatsapp: { badge: "WhatsApp", description: "Revalida el número por la vía con la que está conectado (Meta, YCloud o código QR) y pone al día sus semáforos.", action: "Revalidar" },
   email_gmail: { badge: "Gmail", description: "Comprueba con Google que el acceso al buzón sigue funcionando.", action: "Probar acceso" },
   email_outlook: { badge: "Outlook", description: "Comprueba con Microsoft que el acceso al buzón sigue funcionando.", action: "Probar acceso" },
   email_imap: { badge: "Correo IMAP/SMTP", description: "Prueba la entrada (IMAP) y el envío (SMTP) con los datos guardados.", action: "Probar conexión" },
   telegram: { badge: "Telegram", description: "Revalida el bot con Telegram y pone al día sus semáforos.", action: "Revalidar" },
+  instagram: { badge: "Instagram", description: "Revalida la cuenta con Instagram (token y suscripción a los mensajes) y pone al día sus semáforos.", action: "Revalidar" },
 };
 const CHANNEL_STATUS_NOTES: Partial<Record<ChannelStatus, string>> = {
   connecting: "Sin terminar de conectar.",

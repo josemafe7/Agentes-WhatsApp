@@ -13,6 +13,8 @@ export const WHATSAPP_LIMITS = {
   /** Codes by SMS or call ([WA-19]). */
   requestCode: { limit: 5, windowMs: 60 * MINUTE_MS, message: "Has pedido muchos códigos seguidos. Espera un rato antes de pedir otro." },
   verifyCode: { limit: 10, windowMs: 15 * MINUTE_MS, message: "Demasiados intentos con el código. Espera unos minutos." },
+  /** «Nueva plantilla»: each one goes to Meta's review ([WA-57]). */
+  createTemplate: { limit: 20, windowMs: 60 * MINUTE_MS, message: "Has creado muchas plantillas seguidas. Espera un rato antes de crear otra." },
   /** «Validar con Meta» and «Conectar» ([WA-05], [WA-06]). */
   validate: { limit: 30, windowMs: MINUTE_MS, message: "Demasiadas comprobaciones con Meta seguidas. Espera un minuto." },
 } as const;

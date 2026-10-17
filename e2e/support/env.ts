@@ -15,7 +15,7 @@ export const FRESH_URL = `http://localhost:${FRESH_PORT}`;
 export const RESTAURANT_URL = `http://localhost:${RESTAURANT_PORT}`;
 
 // Each app server has its own embedded database (PGlite): a folder under data/ that only that server opens.
-/** Demo install: migrations + demo seed, prepared before the build (e2e/support/prepare-databases.mjs). */
+/** Demo install: migrations + the hair-salon demo (--sector=peluqueria), prepared before the build (e2e/support/prepare-databases.mjs). */
 export const DEMO_DATABASE_URL = "pglite:./data/e2e-pglite";
 /** Empty install (migrations only) for the setup wizard. */
 export const FRESH_DATABASE_URL = "pglite:./data/e2e-fresh-pglite";
@@ -55,6 +55,7 @@ export const EXTERNAL_SERVICE_ENV = {
   MISTRAL_BASE_URL: `${MOCK_URL}/mistral`,
   TELEGRAM_API_BASE_URL: `${MOCK_URL}/telegram`,
   YCLOUD_API_BASE_URL: `${MOCK_URL}/ycloud/v2`,
+  INSTAGRAM_GRAPH_BASE_URL: `${MOCK_URL}/instagram`,
 } as const;
 
 /**

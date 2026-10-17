@@ -9,7 +9,7 @@ describe("Grupos de la pestaña Herramientas [AGE-08]", () => {
     expect(groupTools(named(SYSTEM_TOOL_NAMES)).map((group) => [group.title, group.tools.map((tool) => tool.name)])).toEqual([
       ["Conocimiento", ["buscar_conocimiento"]],
       ["Agenda", ["listar_servicios", "consultar_disponibilidad", "crear_cita", "ver_citas_del_cliente", "cancelar_cita", "reprogramar_cita"]],
-      ["Clientes", ["guardar_datos_contacto"]],
+      ["Clientes", ["guardar_datos_contacto", "anotar_permiso_avisos", "dar_de_baja"]],
       ["Traspaso", ["transferir_a_humano"]],
     ]);
   });

@@ -100,6 +100,8 @@ function searchCondition(search: string): SQL | undefined {
   );
 }
 
+const DELETED_BY_CONTACT = "El cliente borró este mensaje";
+
 function preview(text: string | null): string | null {
   if (!text) return null;
   const flat = text.replace(/\s+/g, " ").trim();
@@ -162,7 +164,7 @@ export async function listConversations(actor: Actor, input: unknown = {}): Prom
     Promise.all(
       ids.map(async (id) => {
         const [last] = await db
-          .select({ text: messages.text, contentType: messages.contentType, direction: messages.direction, senderType: messages.senderType, createdAt: messages.createdAt })
+          .select({ text: messages.text, contentType: messages.contentType, direction: messages.direction, senderType: messages.senderType, createdAt: messages.createdAt, metadata: messages.metadata })
           .from(messages)
           .where(eq(messages.conversationId, id))
           .orderBy(desc(messages.createdAt), desc(messages.id))
@@ -197,7 +199,17 @@ export async function listConversations(actor: Actor, input: unknown = {}): Prom
       labels: row.labels,
       unreadCount: row.unreadCount,
       lastMessageAt: row.lastMessageAt,
-      lastMessage: last ? { ...last, preview: preview(last.text) } : null,
+      lastMessage: last
+        ? {
+            text: last.text,
+            contentType: last.contentType,
+            direction: last.direction,
+            senderType: last.senderType,
+            createdAt: last.createdAt,
+            // [IG-07] Deleted by the customer: the list says so, as the conversation does.
+            preview: last.metadata.deletedByContact === true ? DELETED_BY_CONTACT : preview(last.text),
+          }
+        : null,
       urgent: urgentIds.has(row.id),
     };
   });

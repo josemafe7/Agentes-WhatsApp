@@ -19,6 +19,8 @@ export type CalendarBooking = {
   resourceColor: ResourceColor;
   contactName: string | null;
   channel: { name: string; type: ChannelType } | null;
+  /** «Confirmada por el cliente» with a reminder's button ([AGD-33]). */
+  customerConfirmed: boolean;
 };
 
 export type CalendarTimeOff = {
@@ -42,6 +44,8 @@ export type GridColumn = {
   ariaLabel: string;
   /** Open ranges of the business (and of the resource in the resources view). */
   open: MinuteRange[];
+  /** Open time in which nobody shown is free: drawn a shade darker than free time ([AGD-29]). */
+  busy: MinuteRange[];
   /** «Cerrado» or the holiday's reason when the whole day is closed. */
   closedLabel: string | null;
   isToday: boolean;

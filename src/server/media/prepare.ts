@@ -103,13 +103,23 @@ export async function transcribePendingAudio(messages: readonly ModelInputMessag
   return transcribed;
 }
 
+function reminderReplyOf(metadata: Record<string, unknown>): PromptHistoryMessage["reminderReply"] {
+  const reply = metadata.reminderReply;
+  if (typeof reply !== "object" || reply === null) return null;
+  const { action, bookingId } = reply as { action?: unknown; bookingId?: unknown };
+  return (action === "confirm" || action === "change") && typeof bookingId === "string" ? { action, bookingId } : null;
+}
+
 function baseOf(message: ModelInputMessage): PromptHistoryMessage {
+  const reminderReply = reminderReplyOf(message.metadata);
   return {
     role: message.senderType,
     text: message.text,
     contentType: message.contentType,
     transcript: message.transcript,
     fileName: message.media?.fileName ?? null,
+    // Only the tap on a reminder's button carries it ([AGD-32]).
+    ...(reminderReply ? { reminderReply } : {}),
   };
 }
 

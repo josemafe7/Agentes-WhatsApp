@@ -1,5 +1,6 @@
 // A WhatsApp conversation in the Bandeja ([BAN-08], [WA-43], [CAN-06], [CAN-14]): the 24 h window counted from Meta's
-// timestamp of the customer's last message, only approved templates (with their variables) once it is closed, Meta's
+// timestamp of the customer's last message, only approved templates (with their variables, and the customer's permission
+// recorded first, [WA-61]) once it is closed, Meta's
 // 131047 closing it early, and test mode letting the AI answer only the listed numbers. Each test connects a number of
 // its own through the wizard (templates synced there) and leaves it disabled.
 import { createNamedAgent } from "../support/agents";
@@ -17,7 +18,7 @@ const HOUR_MS = 60 * 60_000;
 /** The approved templates of the simulated Meta (e2e/mocks/routes/meta-data.json), the only ones offered ([WA-43]). */
 const APPROVED = META.templates.filter((template) => template.status === "APPROVED").map((template) => template.name);
 
-test("[WA-43][BAN-08][CAN-14][WA-22][WA-42] outside the 24 h window only an approved template can be sent, with its variables", async ({ page, request, mock }, testInfo) => {
+test("[WA-43][BAN-08][CAN-14][WA-22][WA-42][WA-61] outside the 24 h window only an approved template can be sent, with its variables and the customer's permission", async ({ page, request, mock }, testInfo) => {
   test.setTimeout(180_000);
   const number = testNumber(testInfo, "WhatsApp ventana cerrada");
   const customer = testCustomer(testInfo, "Pedro ventana");
@@ -37,7 +38,13 @@ test("[WA-43][BAN-08][CAN-14][WA-22][WA-42] outside the 24 h window only an appr
     // [WA-22][WA-43] Only the approved ones, never the pending or the rejected one.
     expect((await offeredTemplates(page)).sort()).toEqual([...APPROVED].sort());
 
-    await sendTemplate(page, "recordatorio_cita", { nombre: "Pedro", fecha: "3 de octubre", hora: "10:30" });
+    // [WA-61] A utility template needs «Avisos de sus citas», which this new customer has not given yet.
+    await sendTemplate(
+      page,
+      "recordatorio_cita",
+      { nombre: "Pedro", fecha: "3 de octubre", hora: "10:30" },
+      { recordPermission: { blocked: "Falta el permiso «Avisos de sus citas» del cliente: anótalo antes, diciendo cómo lo dio.", how: "En persona" } },
+    );
     await expect(conversationLog(page)).toContainText("Hola Pedro, te recordamos tu cita el 3 de octubre a las 10:30.");
     await expect.poll(async () => (await sentMessages(mock, number)).length).toBe(1);
     const [sent] = await sentMessages(mock, number);

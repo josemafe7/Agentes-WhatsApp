@@ -2,6 +2,7 @@
 // ([AJU-06]). Without SMTP, in development or the demo the message is saved as a .eml in data/outbox and
 // listed in Diagnóstico; in production it fails with a clear error. Every attempt is logged in system_emails.
 import "server-only";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import nodemailer, { type SendMailOptions } from "nodemailer";
@@ -19,12 +20,44 @@ const SMTP_CONNECTION_TIMEOUT_MS = 15_000;
 const SMTP_SOCKET_TIMEOUT_MS = 30_000;
 
 /** `replyTo`: where the recipient's answer goes (a booking reminder: the business's mailbox, [AGD-26]). */
-export type SystemEmail = { kind: SystemEmailKind; to: string; subject: string; text: string; html?: string; replyTo?: string };
+export type SystemEmail = {
+  kind: SystemEmailKind;
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+  replyTo?: string;
+  /**
+   * The contact it goes to (a reminder, with its booking; an envío, with its envío): the email gets a Message-ID of its own, kept in its log,
+   * so an answer that reaches a connected mailbox goes to that contact ([AGD-24], [AGD-26]).
+   */
+  recipient?: { contactId: string; bookingId?: string; campaignId?: string };
+  /** Set by sendSystemEmail when there is a recipient. */
+  messageId?: string;
+  /** The one-click baja of an envío (RFC 8058: List-Unsubscribe and List-Unsubscribe-Post, [ENV-11]). */
+  unsubscribeUrl?: string;
+};
 export type MailSender = { sendMail(options: SendMailOptions): Promise<unknown> };
 export type SendSystemEmailResult =
   | { ok: true; via: "smtp"; logId: string }
   | { ok: true; via: "outbox"; logId: string; file: string }
-  | { ok: false; reason: "not_configured" | "send_failed"; message: string; logId: string };
+  | {
+      ok: false;
+      reason: "not_configured" | "send_failed";
+      message: string;
+      logId: string;
+      /** The server refused the account itself (user or password not valid, account suspended or blocked): the envíos stop ([ENV-09]). */
+      accountRejected?: boolean;
+    };
+
+/** SMTP answers that mean the account, not one recipient: authentication failed (530, 534, 535) or blocked. */
+function isAccountRejection(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const { code, responseCode, response } = error as { code?: unknown; responseCode?: unknown; response?: unknown };
+  if (code === "EAUTH") return true;
+  if (typeof responseCode === "number" && [530, 534, 535].includes(responseCode)) return true;
+  return typeof response === "string" && /suspend|disabled|blocked|locked/i.test(response);
+}
 
 export type MailerOptions = {
   /** Folder for .eml files (default data/outbox). */
@@ -66,7 +99,11 @@ function message(email: SystemEmail, from: SendMailOptions["from"]): SendMailOpt
     subject: email.subject,
     text: email.text,
     ...(email.html ? { html: email.html } : {}),
-    headers: { [SYSTEM_EMAIL_HEADER]: email.kind },
+    headers: {
+      [SYSTEM_EMAIL_HEADER]: email.kind,
+      ...(email.unsubscribeUrl ? { "List-Unsubscribe": `<${email.unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } : {}),
+    },
+    ...(email.messageId ? { messageId: email.messageId } : {}),
     // Nothing in a message may read server files or fetch URLs.
     disableFileAccess: true,
     disableUrlAccess: true,
@@ -89,6 +126,10 @@ async function logAttempt(
       status,
       outboxFile: details.outboxFile ?? null,
       error: details.error ?? null,
+      messageId: email.messageId ?? null,
+      contactId: email.recipient?.contactId ?? null,
+      bookingId: email.recipient?.bookingId ?? null,
+      campaignId: email.recipient?.campaignId ?? null,
     })
     .returning({ id: systemEmails.id });
   return row.id;
@@ -109,9 +150,11 @@ async function saveToOutbox(email: SystemEmail, outboxDir: string): Promise<stri
 export async function sendSystemEmail(email: SystemEmail, options: MailerOptions = {}): Promise<SendSystemEmailResult> {
   const to = emailSchema.parse(email.to);
   const replyTo = email.replyTo ? emailSchema.parse(email.replyTo) : undefined;
-  // Header injection guard: a subject is one line.
-  const safeEmail: SystemEmail = { ...email, to, replyTo, subject: email.subject.replace(/[\r\n]+/g, " ").trim() };
   const smtp = options.smtp !== undefined ? options.smtp : await getSmtpConfig();
+  // Header injection guard: a subject is one line. An email to a contact gets its own Message-ID, of the sender's domain.
+  const domain = (smtp?.fromEmail ?? "localhost").split("@").pop() || "localhost";
+  const messageId = email.recipient ? `<${randomUUID()}@${domain}>` : undefined;
+  const safeEmail: SystemEmail = { ...email, to, replyTo, subject: email.subject.replace(/[\r\n]+/g, " ").trim(), messageId };
 
   if (smtp) {
     try {
@@ -120,7 +163,7 @@ export async function sendSystemEmail(email: SystemEmail, options: MailerOptions
       return { ok: true, via: "smtp", logId: await logAttempt(safeEmail, "sent", "smtp") };
     } catch (error) {
       const logId = await logAttempt(safeEmail, "failed", "smtp", { error: safeErrorMessage(error) });
-      return { ok: false, reason: "send_failed", message: SEND_FAILED_MESSAGE, logId };
+      return { ok: false, reason: "send_failed", message: SEND_FAILED_MESSAGE, logId, ...(isAccountRejection(error) ? { accountRejected: true } : {}) };
     }
   }
 

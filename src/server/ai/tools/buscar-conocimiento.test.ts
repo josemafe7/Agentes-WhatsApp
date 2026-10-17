@@ -67,8 +67,8 @@ const PRICES = "## Precios\n\nEl tinte completo cuesta 40 euros. El corte de pel
 
 describe("buscar_conocimiento(consulta) [HER-01] [CON-16]–[CON-20]", () => {
   it("is registered, enabled per agent, and the model sees its one parameter", () => {
-    expect([...toolsForAgent(["buscar_conocimiento"]).keys()]).toEqual(["transferir_a_humano", "buscar_conocimiento"]);
-    expect([...toolsForAgent([]).keys()]).toEqual(["transferir_a_humano"]);
+    expect([...toolsForAgent(["buscar_conocimiento"]).keys()]).toEqual(["transferir_a_humano", "buscar_conocimiento", "dar_de_baja"]);
+    expect([...toolsForAgent([]).keys()]).toEqual(["transferir_a_humano", "dar_de_baja"]);
     const definition = toolDefinitions(toolsForAgent(["buscar_conocimiento"])).find((tool) => tool.function.name === "buscar_conocimiento");
     expect(definition?.function.parameters).toMatchObject({ type: "object", properties: { consulta: { type: "string" } }, required: ["consulta"] });
   });

@@ -12,7 +12,7 @@ Cómo leer cada ficha:
 
 - **Ruta:** en español y en minúsculas. Los filtros y la vista van en la URL (`?estado=pendiente`), para
   poder compartir y volver atrás.
-- **Fase:** la primera fase de la especificación en la que aparece (0 a 10). Algunas partes llegan después y se
+- **Fase:** la primera fase de la especificación en la que aparece (0 a 14). Algunas partes llegan después y se
   indica.
 - **Estados:** los textos que importan. Lo que no se dice sigue las reglas comunes de `DESIGN.md` (esqueleto
   al cargar, aviso con «Reintentar» si falla, pantalla «Sin permiso» si el rol no llega).
@@ -29,6 +29,7 @@ Suyos = solo lo de sus canales ([PER-02]) · Con acceso = solo los agentes inter
 | Contactos | ✔ | ✔ | ✔ sin exportar ni borrar | Suyos, sin fusionar, exportar ni borrar | Ver |
 | Agenda: citas | ✔ | ✔ | ✔ con bloqueos y ausencias | ✔ sin bloqueos ni ausencias | Ver |
 | Agenda: servicios, recursos, configuración | ✔ | ✔ | Solo las ausencias de los recursos | — | — |
+| Envíos | ✔ | ✔ | Ver | — | Ver |
 | Asistentes | ✔ todos | ✔ todos | Con acceso | Con acceso | — |
 | Agentes | ✔ | ✔ | Ver y Probar | — | Ver |
 | Agentes internos (crear, configurar y dar acceso) | ✔ | ✔ | — | — | — |
@@ -37,7 +38,7 @@ Suyos = solo lo de sus canales ([PER-02]) · Con acceso = solo los agentes inter
 | Bases de conocimiento internas | ✔ | ✔ | — | — | — |
 | Canales | ✔ | ✔ | — | — | Ver (estado y panel, sin credenciales) |
 | Informes | ✔ | ✔ | ✔ | — | Ver |
-| Ajustes: Negocio, Horario, Correo del sistema, WhatsApp, Privacidad, Notificaciones, Diagnóstico, Actividad | ✔ | ✔ | — | — | — |
+| Ajustes: Negocio, Horario, Correo del sistema, WhatsApp, Privacidad, Notificaciones, Envíos, Diagnóstico, Actividad | ✔ | ✔ | — | — | — |
 | Ajustes: IA (claves) | ✔ | ✔ | — | — | — |
 | Ajustes: Usuarios | ✔ | ✔ (sin tocar al propietario ni traspasar la propiedad) | — | — | — |
 | Mi cuenta, Acerca de, Ayuda | ✔ | ✔ | ✔ | ✔ | ✔ |
@@ -48,22 +49,23 @@ Pantallas por rol:
 - **Administrador** (ordenador): todas; no puede cambiar, desactivar ni borrar al propietario ni traspasar la
   propiedad ([PER-05], [PER-06]).
 - **Supervisor** (ordenador): Bandeja y conversación (todas), Contactos, Agenda (citas, bloqueos y ausencias,
-  sin configuración), Asistentes (los agentes internos que le han dado), Agentes (ver y Probar, solo los de
+  sin configuración), Envíos (ver), Asistentes (los agentes internos que le han dado), Agentes (ver y Probar, solo los de
   clientes), Conocimiento (solo las bases para clientes), Informes, Mi cuenta, Acerca de y Ayuda. Nada de
   Canales ni del resto de Ajustes ([PER-04]).
 - **Agente** (móvil como app instalada y ordenador): Bandeja, conversación y Contactos de sus canales, Agenda
   (citas), Asistentes (los agentes internos que le han dado), Mi cuenta, Acerca de y Ayuda.
-- **Solo lectura** (ordenador): Bandeja, Contactos, Agenda (citas), Agentes, Conocimiento, Canales (estado y
+- **Solo lectura** (ordenador): Bandeja, Contactos, Agenda (citas), Envíos, Agentes, Conocimiento, Canales (estado y
   panel, sin credenciales) e Informes, siempre sin botones de acción; Mi cuenta, Acerca de y Ayuda. No ve
   ningún secreto ni el registro de actividad ([PER-03]), ni los agentes internos, sus bases o «Asistentes»
   ([INT-05], [INT-15]).
 - **Sin sesión:** inicio de sesión, recuperación, invitación, asistente de arranque (solo en una instalación
-  vacía), páginas legales, `/widget-demo` y el chat web en la web del negocio.
+  vacía), páginas legales, `/widget-demo`, el chat web en la web del negocio y «Darme de baja» de un envío por correo
+  (`/baja/[token]`).
 
 ## Navegación
 
-- **Menú lateral** (ordenador): Bandeja · Contactos · Agenda · Asistentes | Agentes · Conocimiento · Canales |
-  Informes · Ajustes. Solo aparecen las secciones del rol, y «Asistentes» solo a quien tiene algún agente interno
+- **Menú lateral** (ordenador): Bandeja · Contactos · Agenda · Envíos · Asistentes | Agentes · Conocimiento ·
+  Canales | Informes · Ajustes. Solo aparecen las secciones del rol, y «Asistentes» solo a quien tiene algún agente interno
   que usar ([INT-06]). Abajo, menú de usuario: Mi cuenta, Ayuda, Tema (Claro, Oscuro, Sistema), Cerrar sesión. Se
   pliega a iconos.
 - **Barra inferior** (móvil y PWA): Bandeja · Agenda · Contactos · Más (el resto de secciones del rol, también
@@ -85,6 +87,8 @@ Pantallas por rol:
   - Agente › Probar → cita de prueba → «Borrar citas de prueba».
   - Notificación de traspaso (app, push o email) → conversación.
   - Ajustes › Diagnóstico › Simulador → «Ver conversación» en la bandeja.
+  - Contactos → marcar contactos → «Programar envío» → «Revisar destinatarios» → «Programar envío» → el envío con sus
+    resultados en Envíos.
 
 ## Acceso (sin sesión)
 
@@ -155,14 +159,16 @@ lateral: logo, stepper y una columna.
 
 - **Quién:** propietario, administrador, supervisor, agente (sus canales) y solo lectura (sin acciones).
 - **Se ve:** lista de conversaciones de todos los canales permitidos con canal, contacto, último mensaje,
-  hora, no leídos, estado, modo (IA, Persona, IA en pausa), asignado y etiquetas. En ordenador, a la derecha,
+  hora, no leídos, estado, modo (IA, Persona, IA en pausa), asignado y etiquetas. El canal va en texto, en una
+  pastilla con su icono, al principio de la línea de datos: «Instagram · @cuenta», «WhatsApp · Recepción» (si el
+  nombre es el del tipo, una sola vez); el filtro de canal los nombra igual (fase 16, [BAN-17]). En ordenador, a la derecha,
   la conversación elegida (o «Elige una conversación»).
 - **Acciones:** buscar por contacto o por el texto de los mensajes, sin distinguir tildes ni mayúsculas; filtrar por
   canal, estado, asignado, IA o persona, sin leer y etiquetas; pestañas rápidas «Pendientes de humano», «Mías»,
   «Todas»; abrir una conversación.
 - **Áreas:** Bandeja (lista, filtros, tiempo real, no leídos), Traspaso, Roles.
-- **Estados:** vacío sin canales: «Todavía no hay conversaciones · Cuando un cliente escriba por WhatsApp,
-  correo o el chat web, aparecerá aquí» con «Conectar un canal» (quien pueda) y «Probar con el simulador»;
+- **Estados:** vacío sin canales: «Todavía no hay conversaciones · Cuando un cliente escriba por cualquiera de tus
+  canales, aparecerá aquí» con «Conectar un canal» (quien pueda) y «Probar con el simulador»;
   vacío por filtros; sin conexión: «Sin conexión. Reintentando…» sin perder la lista.
 
 ### Conversación · `/bandeja/[id]` · fase 2
@@ -172,16 +178,33 @@ lateral: logo, stepper y una columna.
   se corta, con «Ver todo»); mensajes con su autor (cliente, IA con el nombre del agente, persona, sistema), estados
   de entrega, audios con transcripción, imágenes y documentos, notas internas; en ordenador, la ficha del contacto a
   la derecha cuando la conversación conserva al menos 480 px de ancho y, si no, en un panel lateral que abre su botón
-  de la cabecera. La pantalla ocupa justo el alto disponible: el cuadro de escribir está siempre a la vista.
+  de la cabecera. La pantalla ocupa justo el alto disponible: el cuadro de escribir está siempre a la vista. Desde la
+  fase 14, el mensaje de un envío lleva delante «Envío «nombre»:», para saber a qué envío responde el cliente
+  ([ENV-12]).
   - WhatsApp (fase 3): ventana de 24 h («Ventana abierta hasta … · quedan …») y, si está cerrada, solo plantillas
     aprobadas con «Elegir plantilla»: diálogo con idioma y categoría, un campo por variable y vista previa; bajo
     cada mensaje enviado, su coste estimado («≈ 0,02 US$ estimado · Utilidad», «Gratis · Servicio» o «Sin estimar»).
+    Desde la fase 12, una plantilla que el cliente no puede recibir lo dice en el diálogo y no deja enviarla: sin
+    el permiso que pide («Falta el permiso «Avisos de sus citas» del cliente…»), con «Anotar permiso» (cómo lo dio y
+    una nota) allí mismo; dado de baja; o una de marketing sin botón de baja ([WA-61]).
+  - Instagram (fase 16): la cabecera dice «Instagram · @cuenta»; ventana de 24 h como en WhatsApp, pero cerrada no
+    ofrece plantillas: «Han pasado más de 24 horas desde el último mensaje del cliente: Instagram no deja responder
+    hasta que vuelva a escribir.» y el cuadro de escribir se desactiva ([BAN-18]). Solo texto, de 1.000 bytes como
+    mucho (una respuesta más larga se rechaza diciendo por qué, [IG-05]). Lo que el negocio responde desde la app de
+    Instagram aparece firmado «Desde Instagram» y pausa la IA ([IG-06]); un mensaje que el cliente borra queda «El
+    cliente borró este mensaje», también en la lista ([IG-07]).
   - Correo (fase 6): hilo con asunto y borradores para aprobar. Un correo cuyo remitente no verificó el servidor que
     lo recibió lleva «Remitente no verificado», y uno que pedía las respuestas en otra dirección (Reply-To) lo dice:
     se responde solo a quien lo envió ([COR-25]).
   - Bajas (fase 7): si el cliente se ha dado de baja en ese canal, sobre el cuadro de escribir: «Este cliente se ha
-    dado de baja en este canal: la IA, los recordatorios y las plantillas están parados.»; una persona puede seguir
-    escribiéndole ([CUM-04]).
+    dado de baja en este canal: la IA, los recordatorios, las plantillas y los envíos están parados.»; una persona
+    puede seguir escribiéndole ([CUM-04]).
+  - Sin confirmar (fase 13): si la identidad del cliente la hizo la app (el primer WhatsApp a su teléfono, o su
+    respuesta a un recordatorio del correo del sistema), sobre el cuadro de escribir: «Sin confirmar: la app escribió
+    a un teléfono o a un correo que nadie ha confirmado que sea de este cliente…» con «Confirmar» para quien puede
+    editar el contacto ([WA-63]).
+  - Permisos y bajas (fase 12), en la ficha del lateral: «Avisos de sus citas» y «Novedades y publicidad» (Sí o No),
+    las bajas vigentes con su fecha y «Anotar una baja» para la que el cliente pide por otra vía ([CTO-08], [CTO-09]).
   - Fuentes de la IA (fase 4): «Ver fuentes» / «¿Por qué respondió esto?».
   - Conservación (fase 7): un archivo que la limpieza diaria ya borró dice «El archivo se borró por la política de
     conservación»; una nota de voz dice «El audio se borró por la política de conservación» y sigue enseñando su
@@ -205,34 +228,63 @@ lateral: logo, stepper y una columna.
 - **Se ve:** tabla con nombre, identidades (iconos de canal), teléfono o email, etiquetas, última
   conversación y próxima cita.
 - **Acciones:** buscar, filtrar por canal y etiqueta, abrir ficha, crear un contacto a mano; seleccionar para
-  fusionar duplicados (elegir dos y qué datos se quedan; propietario, administrador y supervisor) o para
-  exportar (CSV) y borrar (propietario y administrador; se confirma escribiendo cuántos contactos son). «Posibles
+  fusionar duplicados (elegir dos y qué datos se quedan; propietario, administrador y supervisor), para
+  exportar (CSV) y borrar (propietario y administrador; se confirma escribiendo cuántos contactos son) o, desde la
+  fase 12, para «Permisos»: marcar o quitar un permiso a todos los elegidos diciendo cómo lo dieron (hasta 500; se
+  saltan los dados de baja y dice cuántos se marcaron; también el agente, en sus canales, [CTO-09]). «Posibles
   duplicados» y «Exportar» toda la lista con la búsqueda y los filtros. El agente solo ve los contactos de sus
-  canales.
-- **Áreas:** Contactos, Cumplimiento (exportar y borrar).
+  canales. Desde la fase 14, propietario y administrador: «Programar envío» con los seleccionados y, arriba, «Envío a
+  todos» o «Envío a los del filtro» (etiqueta y canal; con una búsqueda escrita no sale, [ENV-02]).
+- **Áreas:** Contactos, Cumplimiento (exportar y borrar), Envíos.
 - **Estados:** vacío: «Aún no hay contactos · Se crean solos cuando alguien escribe por un canal».
+
+### Importar contactos · `/contactos/importar` · fase 13
+
+Propietario y administrador ([CTO-11]–[CTO-13]); en Contactos, «Importar».
+
+- **Se ve:** «1. El archivo»: qué columnas entiende (Nombre, Teléfono, Email, Etiquetas y, para cada permiso, «sí» o
+  «no», su fecha y cómo lo dio), «Descargar plantilla» (un Excel con esos títulos), el archivo (.xlsx o .csv, hasta
+  5.000 contactos y 5 MB; 4 MB en Vercel) y el prefijo de los teléfonos que no lo llevan (+34). «2. Lo que se
+  importará»: cuántas filas entran, cuántas se saltan porque ya existen (con el contacto o la fila con los que
+  coinciden y «Descargar la lista») y las filas con errores con lo que les pasa; las columnas que no conoce. Si el
+  archivo marca permisos, la casilla «Confirmo que estos clientes dieron de verdad los permisos que marca el archivo».
+- **Acciones:** «Revisar archivo» (no escribe nada) e «Importar N contactos»; al terminar, lo que hizo, «Ir a
+  Contactos» e «Importar otro archivo».
+- **Estados:** un archivo que no se puede leer, sin columna de teléfono ni de email, sin filas o demasiado grande lo
+  dice en una frase; sin permiso, «Sin permiso».
 
 ### Ficha del contacto · `/contactos/[id]` (y panel lateral en la conversación) · fase 2
 
 - **Se ve:** datos, identidades por canal (nunca el teléfono como clave), etiquetas, campos personalizados,
-  consentimientos y bajas por canal, citas (fase 5) e historial de conversaciones.
+  consentimientos y bajas por canal, citas (fase 5) e historial de conversaciones. Desde la fase 12, «Permisos»:
+  «Avisos de sus citas» y «Novedades y publicidad», cada uno con desde cuándo, cómo lo dio y quién lo anotó (si fue la
+  IA, su pregunta y la respuesta del cliente); el aviso «Dado de baja» dice de qué (de todo o de novedades y
+  publicidad) y en qué tipo de canal; y los consentimientos, en español, con su tipo de canal y cómo.
 - **Acciones:** editar datos y etiquetas; «Nueva cita»; abrir una conversación; exportar sus datos y borrarlos
-  (fase 7, con confirmación escribiendo el nombre).
+  (fase 7, con confirmación escribiendo el nombre); «Marcar permiso» / «Quitar permiso» (cómo y cuándo lo dio),
+  «Anotar una baja» (de qué y en qué canal) y «Levantar baja» de cada una, solo si el cliente lo pide y diciendo cómo
+  lo pidió (fase 12).
 - **Áreas:** Contactos, Agenda, Cumplimiento.
 
 ## Agenda
 
-### Agenda · `/agenda?vista=dia|semana|mes|recursos&fecha=…` · fase 5
+### Agenda · `/agenda?vista=dia|semana|mes|recursos&fecha=…` · fase 5 (semana y mes rehechos en la fase 11)
 
 - **Se ve:** calendario en vista de día, semana, mes o por recurso (columnas); horario, festivos, ausencias y
   huecos bloqueados; citas con su estado y origen; en aforo, ocupación por franja. La terminología del sector
-  (Cita/Reserva, Profesional/Mesa/Sala/Box, Cliente/Paciente/Comensal).
+  (Cita/Reserva, Profesional/Mesa/Sala/Box, Cliente/Paciente/Comensal). En la semana, cada cita con su hora, su
+  nombre y su servicio (y el profesional si cabe), acortados en palabra entera; tres a la vez como mucho y un
+  «+N» con las demás; lo libre en blanco y lo ocupado un poco más oscuro; los días con más citas a la vez, más
+  anchos. En el día y la semana, el cierre de mediodía común a todos los días, plegado en una franja «Cerrado de
+  14:00 a 16:00». En el mes, cuántas citas tiene cada día y una barra con lo lleno que está (y, en pantallas
+  anchas, sus dos primeras citas); los cerrados dicen «Cerrado» o «Cerrado · 2 citas».
 - **Acciones:** nueva cita (servicio, recurso o cualquiera, inicio, personas, contacto, notas) con huecos
   libres calculados; mover y cambiar duración arrastrando (o desde la ficha); bloquear huecos; filtrar por
   recurso, servicio, estado, origen y citas de prueba; mostrar canceladas; «Citas de prueba (N)» con su lista y
   «Borrar todas»; menú «⋯» a la configuración (el supervisor, a las ausencias). En el móvil, «Bloquear hueco» y
   «Citas de prueba (N)» están en ese mismo menú «⋯». `/agenda?nueva=1&contacto=<id>` o
-  `&conversacion=<id>` abre «Nueva cita» ya rellena.
+  `&conversacion=<id>` abre «Nueva cita» ya rellena. «+N» abre la lista de las citas que no caben, cada una con su
+  ficha; pulsar un día del mes abre ese día.
 - **Áreas:** Agenda (pantalla, motor de disponibilidad, sin dobles reservas, modos por recurso y por aforo).
 - **Estados:** sin servicios o recursos: «Configura la agenda · Añade al menos un servicio y un recurso» con
   enlace (quien pueda); hueco ocupado al guardar: «Ese hueco ya no está libre» y huecos alternativos.
@@ -240,7 +292,9 @@ lateral: logo, stepper y una columna.
 ### Ficha de la cita · panel lateral en `/agenda?cita=[id]` · fase 5
 
 - **Se ve:** estado, servicio, recurso, inicio y fin, personas, contacto, conversación, origen (IA con canal,
-  persona o web), notas, autor e historial.
+  persona o web), notas, autor e historial. Desde la fase 12, la marca «Confirmada por el cliente» (también en el
+  calendario, [AGD-33]) y «Recordatorios»: cada uno con su antelación y si salió (por qué canal y cuándo) o por qué
+  no salió.
 - **Acciones:** confirmar, cambiar, cancelar (con motivo), marcar completada o no presentado, volver a confirmar una
   cancelada, con «Avisar al cliente por su conversación» al confirmar, cambiar o cancelar; ir al contacto o a la
   conversación. Una cita de prueba lo dice y se borra con las demás de prueba («Citas de prueba» o Probar), no sola.
@@ -273,13 +327,82 @@ Pestañas General, Servicios y Recursos (el supervisor solo ve Recursos, para la
 - **Acciones:** guardar.
 - **Áreas:** Agenda (modos, palabras).
 
-### Recordatorios · `/ajustes/recordatorios` · fase 5
+### Recordatorios · `/ajustes/recordatorios` · fase 5 (varios por cita desde la fase 12)
 
-- **Se ve:** interruptor (desactivado por defecto), cuándo (de 30 minutos a 1 semana antes) y por dónde: WhatsApp
-  (número, plantilla de utilidad aprobada y la variable de cada dato de la cita, con el aviso de que se cobra) o
-  email (asunto y texto con `{nombre}`, `{servicio}`, `{fecha}`, `{hora}`, `{recurso}`, `{personas}` y `{negocio}`).
+- **Se ve:** interruptor (desactivado por defecto) y hasta tres tarjetas «Recordatorio N» («Añadir recordatorio»,
+  «Quitar»). Cada una: cuándo, «En horas» (de 15 minutos a 1 semana antes) o «En días, a una hora» (de 1 a 7 días
+  antes, a las HH:MM); por dónde, en orden (casillas WhatsApp, Telegram y Correo con flechas para subir y bajar: sale
+  por el primero que el cliente puede recibir y, si falla, por el siguiente); y el mensaje de cada canal marcado:
+  WhatsApp (número, plantilla de utilidad aprobada, el dato de la cita de cada variable y qué botón es «Confirmo» y
+  cuál «Necesito cambiarla», con el aviso de que Meta la cobra y de que solo sale a quien tiene el permiso), Telegram
+  (bot y texto, con los dos botones) o correo (asunto y texto con `{nombre}`, `{servicio}`, `{fecha}`, `{hora}`,
+  `{recurso}`, `{personas}` y `{negocio}`; no necesita permiso). Lo que impide guardarlo sale junto a su tarjeta; lo
+  que puede hacer que llegue tarde (la caducidad de la plantilla) o enseñar datos de salud (el servicio en un sector
+  sanitario), como aviso. Al final, «Respuesta a «Confirmo»».
 - **Acciones:** guardar (programa o quita el trabajo de los recordatorios).
-- **Áreas:** Agenda (avisos), WhatsApp (plantillas).
+- **Áreas:** Agenda (avisos), WhatsApp (plantillas), Telegram, Cumplimiento (permisos).
+
+## Envíos
+
+Propietario y administrador los programan; supervisor y «Solo lectura» los ven; el Agente no entra ([ENV-01]).
+
+### Envíos · `/envios` · fases 14 y 15
+
+- **Se ve:** arriba, «Antes de enviar publicidad»: las normas en tres líneas (solo a quien la aceptó, baja fácil y
+  gratuita en cada mensaje, que se vea que es publicidad y quién la envía) con «Guía de envíos» y, en un sector con
+  datos de salud, el aviso de elegir por dolencia y de los productos sanitarios ([CUM-14], [CUM-15]). Después,
+  «Automáticos y repetidos» (fase 15): cada uno con su nombre, su estado (Activo o En pausa), cuándo sale y para quién
+  en una línea, sus canales y la próxima vez (o «Esperando a que termine el envío anterior»). Y, aparte, la
+  tabla de los envíos: nombre, estado (Programado, Enviando, En pausa, Terminado, Cancelado), cuándo, canales, contactos y
+  resultados (enviados, fallidos, no enviados y pendientes), del más reciente al más antiguo y de 25 en 25. En el
+  móvil, tarjetas.
+- **Acciones:** abrir un envío o un automático; «Programar envío» (a todos los contactos); «Nuevo automático o
+  repetido»; «Anterior» y «Siguiente» entre páginas.
+- **Estados:** vacío: «Aún no hay envíos» con cómo programar uno; sin automáticos, qué son en una frase.
+
+### Programar envío · `/envios/nuevo?contactos=…` o `?etiqueta=…&canal=…` · fase 14
+
+- **Se ve:** «Para:» los contactos marcados o los del filtro, con «Elegir en Contactos»; las normas; el nombre (solo
+  para el equipo); «Por dónde» (WhatsApp, Telegram y Correo, siempre en ese orden) y el mensaje de cada canal marcado:
+  WhatsApp (número de la API oficial, plantilla de marketing aprobada con botón de baja, cada dato con el nombre del
+  contacto, el del negocio o un texto fijo, el texto de la plantilla con lo que dirá, el aviso de que Meta la cobra y,
+  con YCloud, de que lo enviado desde su consola también cuenta), Telegram (bot y texto, con «No quiero publicidad») o
+  correo (asunto y texto, con los avisos de correo del sistema sin configurar y de respuestas fuera de la app si no hay
+  buzón conectado); y «Cuándo sale»: ahora o un día y una hora, con las horas de envío. Sin dirección pública con
+  HTTPS, el correo sale desactivado y lo explica ([ENV-04]).
+- **Acciones:** «Revisar destinatarios»: cuántos lo recibirán por cada canal (los que solo tienen teléfono, «solo si
+  su teléfono tiene WhatsApp»), cuántos no y por qué, el coste estimado por WhatsApp (y los países sin tarifa) y, si
+  hay que repartirlo, cuándo terminará ([ENV-07]); «Programar envío», solo después de revisar (cambiar algo pide
+  revisar otra vez).
+- **Estados:** lo que impide programarlo sale junto a su canal o su hora; demasiados envíos seguidos: «Espera un
+  rato».
+
+### Envío · `/envios/[id]` (cambiar en `/envios/[id]/editar`) · fase 14
+
+- **Se ve:** estado, cuándo sale (o empezó, terminó o se canceló), cuántos contactos y quién lo programó; si está en
+  pausa, el motivo (si se paró solo, cómo seguir); los totales (pendientes, enviados, entregados, leídos, fallidos y no
+  enviados), la nota de que entregado y leído solo existen en WhatsApp y el coste estimado; el mensaje de cada canal; y
+  los contactos de 25 en 25 con su canal, estado, motivo, cuándo salió y coste ([ENV-12]).
+- **Acciones:** «Cambiar» (mientras no ha empezado, también si la app lo paró a su hora; sus contactos no cambian),
+  «Pausar» (solo en marcha), «Reanudar» y «Cancelar envío» (con confirmación: lo que salió no se deshace) ([ENV-10]);
+  abrir la ficha de un contacto. Si lo hizo un automático o un repetido, «Lo hizo «…»» lleva a él.
+
+### Nuevo automático o repetido · `/envios/automaticos/nuevo` (cambiar en `/envios/automaticos/[id]/editar`) · fase 15
+
+- **Se ve:** nombre (solo para el equipo); «Cuándo sale»: «Tras la cita» (días después, de 1 a 90, hora y «Todos los
+  servicios» o algunos), «Cada semana» (día y hora) o «Cada mes» (día del mes y hora, con «si el mes no tiene ese día,
+  sale el último»); en los repetidos, a quién: una etiqueta (o todos) y, si se quiere, el canal por el que escribieron;
+  los canales y el mensaje de cada uno, como al programar un envío; y, al crearlo, «Activarlo al guardar» (marcado)
+  ([ENV-15], [ENV-16]).
+- **Acciones:** «Guardar» (al cambiarlo, vale desde la próxima vez).
+- **Estados:** lo que falta sale junto a su campo.
+
+### Automático o repetido · `/envios/automaticos/[id]` · fase 15
+
+- **Se ve:** su tipo, estado, canales y quién lo creó; cuándo sale y para quién en una línea; la próxima vez (o que
+  está en pausa, o que espera a que termine el envío anterior); el mensaje de cada canal; y los envíos que ha hecho
+  (los 25 últimos), cada uno con su estado, que llevan a su página.
+- **Acciones:** «Cambiar», «Pausar» o «Activar» y «Borrar» (con confirmación: los envíos que hizo se quedan).
 
 ## Asistentes
 
@@ -426,8 +549,8 @@ Pestañas con ruta propia y barra «Cambios sin guardar»:
 
 ### Canales · `/canales` · fase 2
 
-- **Se ve:** tarjetas por canal (WhatsApp, correo, chat web y Telegram) con estado, número, correo, dominio o
-  usuario del bot (enteros, sin cortar), agente activo e interruptor de IA, modo pruebas, «Demo» y último mensaje. Un número de WhatsApp
+- **Se ve:** tarjetas por canal (WhatsApp, correo, chat web, Telegram e Instagram) con estado, número, correo, dominio,
+  usuario del bot o de la cuenta de Instagram (enteros, sin cortar), agente activo e interruptor de IA, modo pruebas, «Demo» y último mensaje. Un número de WhatsApp
   dice además por qué vía está conectado: «WhatsApp · API de Meta», «· YCloud» o «· Código QR» ([WA-54]).
 - **Acciones:** «Añadir canal»; cambiar agente activo o IA desde la tarjeta; abrir panel; «Continuar
   configuración» si está a medias.
@@ -440,8 +563,8 @@ Pestañas con ruta propia y barra «Cambios sin guardar»:
   Meta» (insignia «Recomendada»), «YCloud · coexistencia» y «Código QR · no oficial» (insignia «No oficial»). Cada
   tarjeta lleva el logotipo de WhatsApp, una frase y cuatro puntos, a favor o a tener en cuenta, que las
   distinguen. Debajo, «Comparar las tres formas» despliega una tabla (si es oficial, qué pasa con el móvil, qué
-  hace falta, coste, plantillas, riesgo de bloqueo y dónde funciona). Después, «Otros canales»: Chat web, Correo y
-  Telegram.
+  hace falta, coste, plantillas, riesgo de bloqueo y dónde funciona). Después, «Otros canales»: Chat web, Correo,
+  Telegram e Instagram.
 - **Acciones:** elegir y abrir su asistente.
 
 ### Asistente de WhatsApp · `/canales/nuevo/whatsapp` · fase 3
@@ -529,7 +652,21 @@ apartado en Ayuda ([AJU-17]).
 - **Estados:** token rechazado, junto al campo y en español; bot ya conectado en otro canal; Telegram no acepta la
   dirección de avisos (el bot queda guardado y se reintenta con «Revalidar»).
 
-### Panel del canal · `/canales/[id]` y pestañas · fases 2, 3, 6 y 9
+### Asistente de Instagram · `/canales/nuevo/instagram` (volver a conectar con `?canal=`) · fase 16
+
+- **Quién:** propietario y administrador.
+- **Se ve:** cuatro pasos ([IG-01]). «Prepara tu app de Meta»: la cuenta profesional y pública, crear la app (tipo
+  «Business», producto Instagram), «Add account» y «Generate token», la «Instagram app secret» y publicar la app, cada
+  paso con su página oficial de Meta; sin dirección pública con HTTPS, el aviso de que Meta no puede avisar a la app
+  hasta publicarla. «Conectar»: token de la cuenta, clave secreta de Instagram, clave secreta de la app de Meta
+  (opcional), nombre del canal, agente activo e IA del canal; las claves en campos de contraseña. «Avisos de Meta»: la
+  cuenta conectada (@usuario), la dirección de avisos y el token de verificación para copiarlos, cómo pegarlos en
+  «Configure webhooks» y un semáforo que se pone en verde cuando Meta comprueba la dirección. «Prueba»: escribir a la
+  cuenta desde otra cuenta de Instagram, y «Ha llegado tu mensaje» en cuanto llega.
+- **Estados:** un token que Instagram rechaza no guarda nada y dice por qué en español; la misma cuenta ya conectada
+  en otro canal ([IG-11]).
+
+### Panel del canal · `/canales/[id]` y pestañas · fases 2, 3, 6, 9 y 16
 
 - **Resumen** (`/canales/[id]`): arriba, lado a lado, «Estado» (estado, último mensaje y agente) y «Agente e IA» (el
   agente activo y el interruptor de IA, que es lo que más se cambia); después, los avisos que piden hacer algo y lo
@@ -555,8 +692,13 @@ apartado en Ayuda ([AJU-17]).
   si la sesión se cerró o nunca se escaneó, «Volver a vincular».
 - **Configuración** (`/configuracion`): modo de respuesta, aviso de IA del primer mensaje, comportamiento fuera
   de horario y lo propio de cada tipo.
-- **Plantillas** (WhatsApp): lista con estado, categoría, idioma, variables y motivo de rechazo; «Sincronizar». En
-  la fase 3 está en el Resumen, no en una pestaña propia.
+- **Plantillas** (WhatsApp): lista con estado, categoría, idioma, variables y motivo de rechazo (en español);
+  «Sincronizar». En la fase 3 está en el Resumen, no en una pestaña propia. Desde la fase 12 (Meta y YCloud):
+  «Nueva plantilla» (propietario y administrador), que empieza con los modelos «Recordatorio de cita» y «Novedades y
+  publicidad» o en blanco: nombre, idioma, categoría, caducidad, encabezado, texto con «Insertar dato», pie y
+  botones de respuesta rápida con lo que hace cada uno, y vista previa con datos de ejemplo; la manda a revisar (en
+  un número de demo queda aprobada al momento). Cada plantilla dice si se creó desde la app, su caducidad, los
+  cambios de categoría de Meta y, si tiene botones, «Qué hace cada botón» ([WA-57]–[WA-62]).
 - **Apariencia y código** (`/apariencia`, chat web): lo del asistente de chat web.
 - **Acciones de las otras vías de WhatsApp:** con YCloud, Revalidar, Cambiar clave, Sincronizar plantillas y
   Desconectar; por código QR, Reconectar (si la sesión sigue vinculada pero la conexión está cerrada), Volver a
@@ -565,7 +707,14 @@ apartado en Ayuda ([AJU-17]).
   IA, Desconectar (confirmación escribiendo el nombre; en WhatsApp borra credenciales y, si se confirma, da de
   baja la suscripción y el registro; un número desconectado no se «Activa»: se vuelve a conectar con su
   asistente); «Reconectar» si el correo requiere reconexión.
-- **Áreas:** Canales, WhatsApp (panel, revisión cada 6 h), Correo, Chat web, Telegram (panel, revisión cada 6 h).
+- **Instagram** (fase 16, [IG-10]): la cuenta (@usuario, con su enlace), los semáforos (token, caducidad del token,
+  recepción y último mensaje), el token enmascarado y «Vale hasta…» (se renueva sola cada semana), y la dirección de
+  avisos con su token de verificación (solo propietario y administrador). Acciones: Revalidar (vuelve a comprobar el
+  token y a suscribir la cuenta), Cambiar token (diálogo con campo de contraseña; solo de la misma cuenta) y
+  Desconectar (escribiendo el nombre: borra token y claves y deja el canal desactivado con su historial). Un canal de
+  demo solo lo explica.
+- **Áreas:** Canales, WhatsApp (panel, revisión cada 6 h), Correo, Chat web, Telegram (panel, revisión cada 6 h),
+  Instagram (panel, revisión cada 6 h con la renovación semanal del token).
 
 ## Informes
 
@@ -598,10 +747,11 @@ verificación en dos pasos ([USU-12]).
 | Usuarios | `/ajustes/usuarios` | 0 | Tabla (nombre, email, rol, canales del agente, 2FA, último acceso, insignia «Prueba»); invitar; reenviar o revocar invitaciones; cambiar rol; desactivar y reactivar; borrar; «Borrar usuarios de prueba»; exigir 2FA a propietario y administradores (desactivado por defecto, [USU-12]); «Traspasar la propiedad», solo para el propietario y con su contraseña ([USU-16]). Al quitarle a un Agente su último canal, avisa de que desde ese momento ve todos ([PER-02]) | Roles, Demo, Seguridad |
 | Horario | `/ajustes/horario` | 0 | Tramos por día, festivos y cierres | Agenda, Traspaso |
 | IA | `/ajustes/ia` | 1 (reordenación, 4) | Clave de OpenRouter (enmascarada) con «Probar clave»; modelos por defecto de chat y su respaldo (de otro proveedor), transcripción (con aviso si algún proveedor no es sin retención de datos), embeddings (comprobado de verdad al cambiarlo, con aviso de volver a procesar el conocimiento) y descripción de imágenes, con selectores desactivados hasta que hay clave y aviso si un modelo en uso se retira; recomendados; ZDR; «Reordenar resultados» con su modelo (desactivado por defecto; con ZDR, solo modelos sin retención); clave de Mistral OCR (opcional) ([AJU-04]). En tarjetas, por lo que se decide en cada una: «Clave de OpenRouter», «Modelos por defecto» (chat y respaldo), «Audio, imágenes y búsqueda» (transcripción, embeddings y descripción de imágenes), «Modelos recomendados», «Privacidad» (ZDR), «Reordenar resultados» y la clave de Mistral OCR, con un solo «Guardar cambios» | IA, Modelos, Seguridad |
-| Correo del sistema | `/ajustes/correo` | 0 | SMTP y «Enviar correo de prueba» (invitaciones, recuperación, avisos) | Ajustes |
+| Correo del sistema | `/ajustes/correo` | 0 | SMTP y «Enviar correo de prueba» (invitaciones, recuperación, avisos, recordatorios y envíos); desde la fase 14, «Para enviar a muchos contactos»: un servicio de envíos con el dominio verificado (SPF, DKIM y DMARC), no la cuenta de trabajo, con enlaces a Ajustes › Envíos y a la guía ([AJU-06]) | Ajustes |
 | WhatsApp | `/ajustes/whatsapp` | 3 | Tarifas por mercado y categoría (editables; las de la demo marcadas «ejemplo»), con la tabla primero y, plegado debajo, «Cómo se calcula el coste estimado», que incluye la nota de que los mensajes gratis los marca Meta en cada estado y no se configuran ([AJU-09]); dirección de avisos y token de verificación de la instalación para copiar, si Meta ya la verificó y el aviso cuando no hay dirección pública con HTTPS | WhatsApp (coste estimado) |
-| Privacidad y legal | `/ajustes/privacidad` | 7 | Datos del responsable, textos de las páginas legales con enlace a cada una, aviso de IA por defecto, conservación (conversaciones, audios, adjuntos, webhooks) | Cumplimiento |
-| Recordatorios | `/ajustes/recordatorios` | 5 | Recordatorios de citas: activar (desactivados por defecto), antelación y canal (plantilla de utilidad de WhatsApp con sus variables, o email con su texto) ([AGD-24]); también enlazado desde Agenda › Configuración | Agenda |
+| Privacidad y legal | `/ajustes/privacidad` | 7 | Datos del responsable, textos de las páginas legales con enlace a cada una, aviso de IA por defecto, conservación (conversaciones, audios, adjuntos, webhooks y, desde la fase 14, resultados de los envíos) | Cumplimiento |
+| Recordatorios | `/ajustes/recordatorios` | 5 (12) | Recordatorios de citas: activar (desactivados por defecto) y hasta tres por cita, cada uno con su antelación y sus canales en orden (plantilla de utilidad de WhatsApp con sus datos y botones, Telegram o correo) y la respuesta a «Confirmo» ([AGD-24], [AGD-32]); también enlazado desde Agenda › Configuración | Agenda |
+| Envíos | `/ajustes/envios` | 14 | Cuándo salen (de 9:00 a 21:00 por defecto, en la zona del negocio), días entre envíos a un mismo contacto (7) y el correo: tope diario del correo del sistema (100, el del plan del servicio) y cuántos pueden ser de envíos por hora y por día (25 y 75) ([AJU-18]) | Envíos |
 | Notificaciones | `/ajustes/notificaciones` | 2 | Qué sucesos avisan (traspaso, conversación nueva —desactivado por defecto—, conversación asignada, canal con error, calidad de WhatsApp, modelo que se retira y, desde la fase 5, cita pendiente de confirmar) y a quién por defecto ([AJU-08]); desde la fase 7, «Instalar la app» y «Activar avisos» en este dispositivo; «Bandeja y traspasos»: horas de pausa de la IA cuando responde una persona ([BAN-11]) y traspasos por turnos o sin asignar ([TRA-04]); cada persona elige después en Mi cuenta por dónde le llegan | Traspaso, PWA |
 | Registro de actividad | `/ajustes/actividad` | 7 | Acciones de personas, IA y sistema con filtros (quién y qué acción; debajo, las fechas y «Filtrar»): fecha y hora, quién, qué hizo —con sus detalles debajo, en español y con los identificadores abreviados— y sobre qué. Cabe en su columna sin scroll de lado; si no llega a unos 640 px, pasa a tarjetas | Seguridad (trazabilidad) |
 | Diagnóstico | `/ajustes/diagnostico` | 2 | Arriba, «Resumen»: si todo funciona o cuántas cosas hay que revisar, y una línea con semáforo por área (base de datos, trabajo en segundo plano, IA, correo del sistema y canales) que lleva a su apartado. Después, cada apartado: base de datos, cola (pendientes y fallidos con «Reintentar»), errores recientes de la IA (hora, tipo, canal, modelo, error y «Ver la conversación»), último webhook por canal (y, de los avisos para números que no son de ningún canal, cuántos, cuándo y el número del último, [WA-34]), correos ignorados de cada buzón por motivo ([COR-16]), correos del sistema y pruebas de conexión (la clave de OpenRouter, el correo de prueba del sistema y la prueba de cada canal conectado, con su resultado en español, [AJU-11]) | Ajustes (diagnóstico) |
@@ -620,7 +770,7 @@ Mi cuenta y Acerca de («Sin permiso» en las demás).
 - **Se ve:** las guías (`docs/guia-*.md` y la lista de puesta en marcha) por grupos con su título: «Para empezar»
   (la lista de puesta en marcha, en `/ayuda/puesta-en-marcha`, y la publicación), «Canales» (WhatsApp con la API de
   Meta, con YCloud y por código QR, correo y Telegram), «Agentes y conocimiento» (agentes y conocimiento, y agentes
-  internos) y «Agenda»; y cada guía con el índice de sus apartados. Van incluidas en la app al compilar ([AJU-17]). La plantilla de contrato de encargo del
+  internos), «Agenda» y, desde la fase 14, «Envíos»; y cada guía con el índice de sus apartados. Van incluidas en la app al compilar ([AJU-17]). La plantilla de contrato de encargo del
   tratamiento es un documento para el abogado del negocio y se queda en `docs/`.
 - **Acciones:** abrir un apartado; los «¿Dónde lo encuentro?» de los asistentes llegan aquí con su ancla.
 - **Áreas:** Ajustes (Acerca de), asistentes de WhatsApp y correo.
@@ -633,6 +783,15 @@ Mi cuenta y Acerca de («Sin permiso» en las demás).
   fase 3, con los datos del negocio y textos por defecto, porque Meta pide sus direcciones para publicar la app
   ([WA-21]); desde la fase 7, con los textos de Ajustes › Privacidad ([CUM-08]).
 - **Áreas:** Cumplimiento, WhatsApp (Meta pide estas URLs para publicar la app).
+
+### Darme de baja · `/baja/[token]` · fase 14
+
+- **Se ve:** el nombre del negocio, «¿No quieres recibir más novedades ni publicidad de … por correo?» y el botón
+  «Darme de baja»; después, «Listo: ya no recibirás novedades ni publicidad … Los avisos de tus citas seguirán
+  llegando». Un enlace que no es de la app dice solo que no es válido ([ENV-11]).
+- **Acciones:** «Darme de baja» (abrir la página no cambia nada: así un programa de correo que revisa los enlaces no da
+  de baja a nadie). Gmail y Yahoo usan además la baja en un clic, `POST /api/baja/[token]`, sin abrir la página.
+- **Áreas:** Envíos, Cumplimiento (límite de intentos por IP).
 
 ### Prueba del chat web · `/widget-demo` · fase 2
 

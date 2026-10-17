@@ -55,6 +55,10 @@ momento los mensajes llegan al instante.
 - Los demás tipos (documentos, vídeos, stickers, ubicaciones…) aparecen en la bandeja como «Tipo de mensaje no
   admitido» y el agente no los contesta.
 - El agente responde con texto. Desde la bandeja, una persona puede enviar también una imagen.
+- **Los botones de los recordatorios:** un recordatorio por Telegram (guía de la agenda) lleva «Confirmo» y
+  «Necesito cambiarla». Al pulsar «Confirmo», la cita queda «Confirmada por el cliente»; «Necesito cambiarla» llega a
+  la bandeja como su mensaje sobre esa cita. Los recordatorios solo salen a quien ha escrito al bot, tiene el permiso
+  «Avisos de sus citas» y no lo ha bloqueado. Si alguien bloquea el bot, la app lo anota y deja de intentarlo.
 
 ## Dar el bot a tus clientes
 
@@ -68,7 +72,8 @@ En el panel del canal tienes el «Enlace para tus clientes» y su código QR. Po
 - **Token**: verde si Telegram lo acepta.
 - **Recepción**: verde si los mensajes llegan (por avisos o en modo local).
 - **Último mensaje**: cuándo llegó el último.
-- **Revalidar**: comprueba todo otra vez y vuelve a traer el bot a esta instalación.
+- **Revalidar**: comprueba todo otra vez y vuelve a traer el bot a esta instalación (también pide a Telegram los
+  avisos de los botones y de los bloqueos si faltaban, por ejemplo en un bot conectado antes de la fase 12).
 - **Cambiar token**: para poner uno nuevo del mismo bot.
 - **Desconectar**: Telegram deja de avisar a la app y se borra el token. El canal conserva sus conversaciones.
 

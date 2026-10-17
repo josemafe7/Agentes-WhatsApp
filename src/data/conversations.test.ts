@@ -107,6 +107,12 @@ describe("Bandeja: who sees what [BAN-01] [PER-02] [PER-03]", () => {
       lastMessage: { preview: "Quiero cambiar mi cita del martes", direction: "inbound", senderType: "contact" },
     });
   });
+
+  it("a last message the customer deleted says so in the list [IG-07]", async () => {
+    await createMessage(inA, { text: null, metadata: { deletedByContact: true }, createdAt: new Date(Date.now() + 60_000) });
+    const item = (await listConversations(users.owner.actor)).items.find((row) => row.id === inA.id);
+    expect(item?.lastMessage?.preview).toBe("El cliente borró este mensaje");
+  });
 });
 
 describe("filters, search and counts [BAN-02] [BAN-03]", () => {

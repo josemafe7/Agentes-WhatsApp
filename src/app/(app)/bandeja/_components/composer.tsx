@@ -29,9 +29,12 @@ type Mode = "reply" | "note";
 type ComposerProps = {
   conversationId: string;
   channelDisabled: boolean;
-  /** WhatsApp 24 h window ([BAN-08]); null when the channel has none. Closed = no free text, only templates. */
+  /**
+   * The 24 h window of WhatsApp ([BAN-08]) or Instagram ([BAN-18]); null when the channel has none. Closed = no free text:
+   * on WhatsApp only templates, on Instagram nothing until the customer writes again.
+   */
   window: { open: boolean; closesAt: Date | null } | null;
-  /** WhatsApp: the window notice and, when closed, «Elegir plantilla» (from ../[id]/_whatsapp, [WA-43]). */
+  /** Notices over the composer: WhatsApp's window with «Elegir plantilla» ([WA-43]), Instagram's window ([BAN-18])… */
   whatsapp?: ReactNode;
   ai: { aiMode: "ai" | "human"; aiPausedUntil: Date | null };
   aiPauseHours: number;

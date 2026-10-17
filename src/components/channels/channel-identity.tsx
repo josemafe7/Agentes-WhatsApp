@@ -1,4 +1,4 @@
-import { Globe, Mail, MessageCircle, Send, type LucideIcon } from "lucide-react";
+import { Camera, Globe, Mail, MessageCircle, Send, type LucideIcon } from "lucide-react";
 import type { ChannelType } from "@/lib/enums";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,7 @@ export const CHANNEL_IDENTITY: Record<ChannelType, ChannelIdentity> = {
   email_imap: { label: "Correo", icon: Mail, iconClassName: "text-channel-email" },
   webchat: { label: "Chat web", icon: Globe, iconClassName: "text-channel-web" },
   telegram: { label: "Telegram", icon: Send, iconClassName: "text-channel-telegram" },
+  instagram: { label: "Instagram", icon: Camera, iconClassName: "text-channel-instagram" },
 };
 
 /** «Activo en:» chip: channel icon in its colour and the channel's name in --foreground. */

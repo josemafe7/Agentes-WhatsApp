@@ -6,7 +6,8 @@
 // - a conversation handed off, answered and resolved by a person, with an internal note (WhatsApp);
 // - an image with its description, answered by the AI (web chat);
 // - frequent questions answered by the AI and resolved (web chat, anonymous visitor);
-// - a formal email thread: an AI reply approved and sent, and a new draft waiting for review.
+// - a formal email thread: an AI reply approved and sent, and a new draft waiting for review;
+// - a direct message answered by the AI, with its 24 h window still open (Instagram, [IG-13]).
 // Every AI answer has its ai_runs row with tokens and cost, so the reports have data. Rows look as the live app would
 // leave them (ingest, engine, hand-off service), but nothing is scheduled: the seed never calls the AI.
 import { createHash } from "node:crypto";
@@ -176,6 +177,8 @@ type ContactSpec = {
   email?: string;
   /** Web chat visitor id. */
   visitorId?: string;
+  /** Instagram: the customer's id (IGSID, digits), never the @username ([IG-08]). */
+  instagramId?: string;
   labels?: string[];
   customFields?: Record<string, string>;
 };
@@ -214,6 +217,7 @@ function contactSpecs(): ContactSpec[] {
     // Web chat visitors are anonymous until they give their data ([WEB-04], [WEB-05]).
     { key: "visitante", name: null, channel: "webchat", visitorId: crypto.randomUUID() },
     { key: "isabel", name: "Isabel Prieto", channel: "email", email: "isabel.prieto@correo.example", labels: ["empresa"] },
+    { key: "celia", name: "Celia Navas", channel: "instagram", instagramId: randomDigits(16) },
   ];
 }
 
@@ -337,6 +341,20 @@ function conversationSpecs(input: DemoConversationsInput, script: SectorScript, 
         { by: "ai", after: 20, text: script.email.draft, usage: EMAIL_USAGE, draft: true },
       ],
     },
+    {
+      // Recent, so its 24 h window shows open when the demo is loaded ([BAN-18]).
+      key: "instagram",
+      contact: "celia",
+      channel: "instagram",
+      startsAgoMs: 35 * MINUTE_MS,
+      status: "open",
+      unread: 1,
+      labels: [],
+      steps: [
+        { by: "contact", after: 0, text: "¡Hola! Os he visto en Instagram. ¿Dónde estáis y qué horario tenéis?" },
+        { by: "ai", after: 8, text: `¡Hola, Celia! Estamos en ${input.business.address} y abrimos ${hours}. ¿Te ayudo con algo más?`, usage: c3 },
+      ],
+    },
   ];
 }
 
@@ -426,6 +444,8 @@ export function buildDemoConversations(input: DemoConversationsInput): DemoConve
       });
     } else if (spec.channel === "email" && contactSpec.email) {
       identity("email_gmail", contactSpec.email);
+    } else if (spec.channel === "instagram" && contactSpec.instagramId) {
+      identity("instagram", contactSpec.instagramId);
     }
 
     // ── Messages.
@@ -673,10 +693,11 @@ export function demoMediaRef(file: DemoFile, durationSec?: number): DemoMediaRef
   };
 }
 
-/** Message ids as each channel gives them: WhatsApp wamid, the widget's random id, an email Message-ID. */
+/** Message ids as each channel gives them: WhatsApp wamid, the widget's random id, an email Message-ID, an Instagram mid. */
 function inboundExternalId(channel: DemoChannelKey): string {
   if (channel === "whatsapp") return `wamid.DEMO${hex(12).toUpperCase()}`;
   if (channel === "email") return `<${hex(12)}@correo.example>`;
+  if (channel === "instagram") return `aWdfZGVtbw${hex(16)}`;
   return crypto.randomUUID();
 }
 
@@ -694,6 +715,10 @@ function outboundDelivery(channel: DemoChannelKey, id: string, at: Date, options
       pricingCategory: "service",
       costEstimate: 0,
     };
+  }
+  // Instagram only says when the customer read it, never «delivered» (docs/integracion-instagram.md §6.1).
+  if (channel === "instagram") {
+    return { status: (options.seen ? "read" : "sent") as MessageStatus, externalId: `demo-${id}`, sentAt, statusUpdatedAt: new Date(at.getTime() + (options.seen ? 30 : 1) * SECOND_MS) };
   }
   // The web chat keeps what it sends for the widget to read; email is sent through the (demo) mailbox.
   return { status: "sent" as MessageStatus, externalId: channel === "email" ? `demo-${id}` : null, sentAt, statusUpdatedAt: sentAt };
@@ -763,7 +788,7 @@ export const conversationsStep: SeedStep = {
         now: ctx.now,
         timeZone: ctx.timeZone,
         aiDisclosureText: settings.aiDisclosureText?.trim() || DEFAULT_AI_DISCLOSURE_TEXT,
-        channelIds: { webchat: channelId("webchat"), whatsapp: channelId("whatsapp"), email: channelId("email") },
+        channelIds: { webchat: channelId("webchat"), whatsapp: channelId("whatsapp"), email: channelId("email"), instagram: channelId("instagram") },
         agents: await loadAgentRefs(tx, agentIds),
         people: { supervisor: demoPerson(ctx, "supervisor"), agent: demoPerson(ctx, "agent") },
         models: {
@@ -781,7 +806,8 @@ export const conversationsStep: SeedStep = {
 
 /** Parents before children: foreign keys are enforced and nothing relies on cascades. */
 export async function insertDemoConversations(tx: Transaction, rows: DemoConversationRows): Promise<void> {
-  await tx.insert(contacts).values(rows.contacts.map((row) => ({ ...row, searchText: contactSearchText(row) })));
+  // Contacts of the demo: never reached through a channel that is not a demo one ([ENV-14]).
+  await tx.insert(contacts).values(rows.contacts.map((row) => ({ ...row, isDemo: true, searchText: contactSearchText(row) })));
   await tx.insert(contactIdentities).values(rows.identities);
   if (rows.consents.length > 0) await tx.insert(consents).values(rows.consents);
   await tx.insert(conversations).values(rows.conversations);

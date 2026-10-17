@@ -13,6 +13,7 @@ import type { WhatsAppInboxTemplate } from "@/data/whatsapp-send";
 import { requestRealtimePoll } from "@/hooks/use-realtime";
 import { ACTION_FAILED } from "../../_components/use-inbox-action";
 import { sendTemplateAction } from "./actions";
+import { RecordPermission } from "./record-permission";
 import { isChargedTemplateCategory, pricingCategoryLabel } from "./presentation";
 import { MAX_TEMPLATE_VALUE, templateForm, templatePreview, templateValueErrors, templateValuesToSend } from "./template-form";
 
@@ -20,8 +21,8 @@ type TemplateDialogProps = { conversationId: string; templates: WhatsAppInboxTem
 
 /**
  * «Elegir plantilla» ([WA-42], [WA-43], [BAN-08]): an APPROVED template of the number, with its language and category
- * (and whether Meta charges it), a field for each variable and the message as the customer will read it. The server
- * checks everything again. What was written stays if the dialog is closed or the send fails.
+ * (and whether Meta charges it), a field for each variable and the message as the customer will read it. Without the
+ * permission the template needs, it says so and lets it be recorded first ([WA-61]). The server checks everything again. What was written stays if the dialog is closed or the send fails.
  */
 export function TemplateDialog({ conversationId, templates }: TemplateDialogProps) {
   const id = useId();
@@ -126,6 +127,13 @@ export function TemplateDialog({ conversationId, templates }: TemplateDialogProp
                 ) : null}
               </Field>
 
+              {template?.blocked ? (
+                <div role="alert" className="flex flex-col gap-3">
+                  <p className="rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">{template.blocked.message}</p>
+                  {template.blocked.permission ? <RecordPermission conversationId={conversationId} permission={template.blocked.permission} /> : null}
+                </div>
+              ) : null}
+
               {form?.headerMedia ? (
                 <p role="alert" className="rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">
                   {templateValueErrors(form, values).header}
@@ -184,7 +192,7 @@ export function TemplateDialog({ conversationId, templates }: TemplateDialogProp
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={!template || Boolean(form?.headerMedia) || pending}>
+              <Button type="submit" disabled={!template || Boolean(template.blocked) || Boolean(form?.headerMedia) || pending}>
                 {pending ? <LoaderCircle aria-hidden className="animate-spin motion-reduce:animate-none" /> : <SendHorizontal aria-hidden />}
                 Enviar plantilla
               </Button>

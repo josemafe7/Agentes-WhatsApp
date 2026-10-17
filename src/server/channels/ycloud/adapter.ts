@@ -8,8 +8,9 @@ import { z } from "zod";
 import type { FileStorage } from "@/server/adapters/file-storage";
 import { DEFAULT_CAPABILITIES } from "../capabilities";
 import { ChannelSendError, type ChannelAdapter, type ChannelRecord, type NormalizedEvent, type OutboundMessage } from "../types";
-import { recordMetaFailure, WINDOW_CLOSED_CODE } from "../whatsapp/failures";
+import { recordMetaFailure } from "../whatsapp/failures";
 import { chooseDestination, loadDestination } from "../whatsapp/send";
+import { firstContactDestination } from "../whatsapp/first-contact";
 import { readYCloudConfig, readYCloudSecrets, ycloudClientFor, ycloudNumberOf, YCloudNotConnectedError, type YCloudDeps } from "./config";
 import { validateYCloudKey } from "./connect";
 import { checkYCloudHealth } from "./health";
@@ -68,14 +69,17 @@ export function createYCloudAdapter(deps: YCloudAdapterDeps = {}): ChannelAdapte
       const phoneNumber = readYCloudConfig(channel.config).ycloudPhoneNumber;
       if (!phoneNumber) throw new ChannelSendError("El número de WhatsApp no está conectado.", false);
       const destination =
-        (await loadDestination(message.conversationId)) ?? chooseDestination(message.recipient.externalIds.map((externalId) => ({ externalId, phone: null })));
+        (await loadDestination(message.conversationId)) ??
+        firstContactDestination(message.metadata) ??
+        chooseDestination(message.recipient.externalIds.map((externalId) => ({ externalId, phone: null })));
       if (!destination) throw new ChannelSendError("El contacto no tiene un identificador de WhatsApp al que escribir.", false);
       try {
         return await sendYCloudMessage(client, phoneNumber, destination, message, deps);
       } catch (error) {
-        // Meta closing the window (131047) wins over our own count, as with the direct connection ([WA-43]).
-        if (error instanceof ChannelSendError && error.channelCode === WINDOW_CLOSED_CODE) {
-          await recordMetaFailure(channel, { conversationId: message.conversationId, code: WINDOW_CLOSED_CODE, serviceMessage: message.contentType !== "template", now: deps.now?.() ?? new Date() });
+        // Meta's codes leave the same as with the direct connection: the window closed by Meta (131047, [WA-43]), the
+        // payment alerts and a baja of publicidad (131050, [YC-11]).
+        if (error instanceof ChannelSendError && typeof error.channelCode === "number") {
+          await recordMetaFailure(channel, { conversationId: message.conversationId, code: error.channelCode, serviceMessage: message.contentType !== "template", now: deps.now?.() ?? new Date() });
         }
         throw error;
       }

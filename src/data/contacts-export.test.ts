@@ -4,7 +4,7 @@
 import { eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
-import { auditLog, contactIdentities, contacts } from "@/db/schema";
+import { auditLog, bookingReminderSends, bookings, consents, contactIdentities, contacts } from "@/db/schema";
 import type { Role } from "@/lib/enums";
 import { createHairdresser, NOW } from "@/server/booking/test-helpers";
 import { CONTACT_EXPORT_FORMAT, type ContactExport } from "@/server/compliance/contact-data-export";
@@ -75,6 +75,44 @@ describe("exportar los datos de un contacto [CTO-06] [CUM-07]", () => {
     expect(data.bookings).toHaveLength(1);
     expect(data.bookings[0]).toMatchObject({ id: rich.bookingId, service: "Corte", resource: "Laura", status: "confirmed", notes: "José Pérez es alérgica al tinte." });
     expect(data.bookings[0].history.map((event) => event.action)).toEqual(["created"]);
+  });
+
+  it("[HER-15] [AGD-25] brings its permissions with how they were given (the AI's question and the answer) and each reminder of its bookings: when, by which channel and how it went", async () => {
+    const [permission] = await db
+      .insert(consents)
+      .values({
+        contactId: rich.contact.id,
+        channelKind: "whatsapp",
+        type: "reminders_granted",
+        source: "ai",
+        method: "conversation",
+        actorType: "ai",
+        evidence: { question: "¿Quieres que Peluquería Prueba te avise por WhatsApp antes de tus citas?", answer: "Sí" },
+        createdAt: new Date(NOW.getTime() + 1_000),
+      })
+      .returning({ id: consents.id });
+    const [booking] = await db.select({ startsAt: bookings.startsAt }).from(bookings).where(eq(bookings.id, rich.bookingId));
+    const [send] = await db
+      .insert(bookingReminderSends)
+      .values({ bookingId: rich.bookingId, ruleId: "dia-antes", startsAt: booking.startsAt, dueAt: new Date(booking.startsAt.getTime() - 86_400_000), status: "sent", channel: "whatsapp", sentAt: NOW })
+      .returning({ id: bookingReminderSends.id });
+    try {
+      const data = parse((await exportContactData(users.owner.actor, rich.contact.id, { now: NOW })).content);
+      expect(data.permissions).toEqual({ reminders: true, marketing: false });
+      expect(data.consents.at(-1)).toMatchObject({
+        type: "reminders_granted",
+        channelKind: "whatsapp",
+        source: "ai",
+        method: "conversation",
+        evidence: { question: "¿Quieres que Peluquería Prueba te avise por WhatsApp antes de tus citas?", answer: "Sí" },
+      });
+      expect(data.bookings[0].reminders).toEqual([
+        { forStartsAt: booking.startsAt.toISOString(), dueAt: new Date(booking.startsAt.getTime() - 86_400_000).toISOString(), status: "sent", channel: "whatsapp", sentAt: NOW.toISOString(), reason: null },
+      ]);
+    } finally {
+      await db.delete(bookingReminderSends).where(eq(bookingReminderSends.id, send.id));
+      await db.delete(consents).where(eq(consents.id, permission.id));
+    }
   });
 
   it("brings nothing of other contacts", async () => {

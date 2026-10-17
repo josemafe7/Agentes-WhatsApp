@@ -5,21 +5,7 @@ import "server-only";
 import { and, asc, count, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor } from "@/db";
-import {
-  agents,
-  channelMembers,
-  channels,
-  consents,
-  conversations,
-  notifications,
-  oauthStates,
-  user,
-  userRoles,
-  webhookEvents,
-  whatsappQrKeys,
-  whatsappTemplates,
-  type ChannelHealth,
-} from "@/db/schema";
+import { agents, campaignRules, channelMembers, channels, consents, conversations, notifications, oauthStates, type ChannelHealth, user, userRoles, webhookEvents, whatsappQrKeys, whatsappTemplates } from "@/db/schema";
 import { OFF_HOURS_BEHAVIORS, REPLY_MODES, type ChannelStatus, type ChannelType, type OffHoursBehavior, type ReplyMode } from "@/lib/enums";
 import { channelFilter, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema, optionalText } from "@/lib/validation";
@@ -29,6 +15,7 @@ import { isValidFileKey } from "@/server/adapters/file-storage";
 import { defaultCapabilitiesOf } from "@/server/channels/capabilities";
 import { isEmailChannelType } from "@/server/channels/email/config";
 import { cancelEmailJobs, ensureEmailPolling } from "@/server/channels/email/jobs";
+import { cancelInstagramJobs, requestInstagramHealthCheckSoon } from "@/server/channels/instagram/schedule";
 import { cancelTelegramJobs, requestTelegramHealthCheckSoon } from "@/server/channels/telegram/schedule";
 import type { ChannelCapabilities } from "@/server/channels/types";
 import { requestHealthCheckSoon } from "@/server/channels/whatsapp/schedule";
@@ -241,6 +228,11 @@ export async function updateChannel(actor: Actor, channelId: string, input: unkn
   if (status === "connecting" && telegramBot && !channel.secretsEnc) {
     throw new ConflictError("Este bot está desconectado: vuelve a conectarlo con el asistente de Telegram.");
   }
+  // And for an Instagram account whose token and keys were erased ([IG-10]).
+  const instagramAccount = channel.type === "instagram" && !channel.isDemo;
+  if (status === "connecting" && instagramAccount && !channel.secretsEnc) {
+    throw new ConflictError("Esta cuenta de Instagram está desconectada: vuelve a conectarla con el asistente de Instagram.");
+  }
   const values = {
     ...data,
     ...(testAllowlist !== undefined ? { testAllowlist: [...new Set(testAllowlist)] } : {}),
@@ -260,6 +252,8 @@ export async function updateChannel(actor: Actor, channelId: string, input: unkn
   if (status === "disabled" && whatsappViaOf(channel) === "qr") await existingQrSupervisor()?.stop(channel.id);
   // A bot switched on again goes back to «conectado» (or «error») once Telegram is checked ([TG-08]).
   if (status === "connecting" && channel.status === "disabled" && telegramBot) await requestTelegramHealthCheckSoon(channel.id);
+  // The same for an Instagram account, once its token is checked ([IG-10]).
+  if (status === "connecting" && channel.status === "disabled" && instagramAccount) await requestInstagramHealthCheckSoon(channel.id);
   // A mailbox switched on again is read at its next poll, which puts it back in «conectado» ([CAN-16]).
   if (status === "connecting" && channel.status === "disabled" && isEmailChannelType(channel.type) && !channel.isDemo) await ensureEmailPolling(channel.id);
   await writeAudit({ actor, action: "channel.updated", targetType: "channel", targetId: channel.id, metadata: { fields: Object.keys(values) } });
@@ -388,6 +382,9 @@ export async function deleteChannel(actor: Actor, channelId: string): Promise<Ch
     const channel = await loadChannel(tx, channelId);
     const [{ n }] = await tx.select({ n: count() }).from(conversations).where(eq(conversations.channelId, channel.id));
     if (n > 0) throw new ConflictError("Este canal tiene conversaciones: desactívalo en lugar de borrarlo, así conservas su historial.");
+    // [ENV-16] A repeated envío that chooses by this channel would widen to everyone without it.
+    const [rule] = await tx.select({ name: campaignRules.name }).from(campaignRules).where(eq(campaignRules.filterChannelId, channel.id)).limit(1);
+    if (rule) throw new ConflictError(`El envío repetido «${rule.name}» elige a quién escribe por este canal: cámbialo o bórralo antes de borrar el canal.`);
     const members = await tx.select({ userId: channelMembers.userId }).from(channelMembers).where(eq(channelMembers.channelId, channel.id));
     // Children first: nothing relies on cascades.
     await tx.delete(channelMembers).where(eq(channelMembers.channelId, channel.id));
@@ -401,9 +398,10 @@ export async function deleteChannel(actor: Actor, channelId: string): Promise<Ch
     await writeAudit({ actor, action: "channel.deleted", targetType: "channel", targetId: channel.id, metadata: { type: channel.type } }, tx);
     return { id: channel.id, type: channel.type, via: whatsappViaOf(channel), channel, leftWithout: await agentsWithoutChannels(tx, members.map((row) => row.userId)) };
   });
-  // A deleted mailbox is not polled any more, nor a deleted bot.
+  // A deleted mailbox is not polled any more, nor a deleted bot or Instagram account checked.
   if (isEmailChannelType(deleted.type)) await cancelEmailJobs(deleted.id);
   if (deleted.type === "telegram") await cancelTelegramJobs(deleted.id);
+  if (deleted.type === "instagram") await cancelInstagramJobs(deleted.id);
   // A number connected through YCloud stops being told about by YCloud; its key went with the row ([YC-10]).
   if (deleted.via === "ycloud") {
     await cancelYCloudJobs(deleted.id);

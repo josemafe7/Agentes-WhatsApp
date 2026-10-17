@@ -12,6 +12,7 @@ import { DEFAULT_CAPABILITIES } from "./capabilities";
 import { buildSimulatedEvent, demoAdapter, DEMO_STATUS_JOB, type DemoStatusJobPayload } from "./demo-adapter";
 import { ChannelAdapterMissingError, getChannelAdapter, getSendAdapter, registerChannelAdapter, unregisterChannelAdapter } from "./registry";
 import { encryptChannelSecrets, readChannelSecrets } from "./secrets";
+import { instagramAdapter } from "./instagram/adapter";
 import { telegramAdapter } from "./telegram/adapter";
 import type { ChannelRecord } from "./types";
 import { webchatAdapter, widgetMessageToEvent } from "./webchat-adapter";
@@ -33,6 +34,14 @@ describe("adapters by channel type [CAN-02] [CAN-14]", () => {
     expect(getChannelAdapter({ type: "telegram", isDemo: true })).toBe(demoAdapter);
     expect(getSendAdapter({ type: "telegram", isDemo: false }, true)).toBe(demoAdapter);
     expect(telegramAdapter.capabilities(null as never)).toEqual(DEFAULT_CAPABILITIES.telegram);
+  });
+
+  it("an Instagram account has its own adapter, text only within 24 h; a demo one never reaches Instagram [IG-03] [IG-04] [ARR-11]", () => {
+    expect(getChannelAdapter({ type: "instagram", isDemo: false })).toBe(instagramAdapter);
+    expect(getChannelAdapter({ type: "instagram", isDemo: true })).toBe(demoAdapter);
+    expect(getSendAdapter({ type: "instagram", isDemo: false }, true)).toBe(demoAdapter);
+    expect(instagramAdapter.capabilities(null as never)).toEqual(DEFAULT_CAPABILITIES.instagram);
+    expect(DEFAULT_CAPABILITIES.instagram).toMatchObject({ window24h: true, templates: false, images: false, audio: false, documents: false });
   });
 
   it("a type whose adapter is not installed fails with a clear error", () => {

@@ -1,6 +1,7 @@
 "use client";
 
-import { Download, GitMerge, LoaderCircle, Trash2, X } from "lucide-react";
+import { Download, GitMerge, LoaderCircle, Send, Trash2, X } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
@@ -8,11 +9,13 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { formatNumber } from "@/lib/format";
 import { eraseContactsAction, exportContactsCsvAction } from "../actions";
+import { BulkPermissionsDialog } from "./bulk-permissions-dialog";
 import { saveTextFile } from "../_lib/download";
 import { mergePath } from "../_lib/search-params";
+import { newCampaignHref } from "../../envios/_lib/view";
 
 /** What the person may do with the selected contacts; the server checks it again. */
-export type BulkActions = { merge: boolean; export: boolean; erase: boolean };
+export type BulkActions = { merge: boolean; export: boolean; erase: boolean; consents: boolean; campaign: boolean };
 
 type ContactsBulkBarProps = {
   selected: { id: string; displayName: string }[];
@@ -22,7 +25,8 @@ type ContactsBulkBarProps = {
 
 /**
  * The bar that appears on selecting contacts (DESIGN.md «Tablas y listas»): «Fusionar» two of them ([CTO-05]),
- * «Exportar» the selected ones as CSV ([CTO-06]) or «Borrar» them with all their data, typing how many ([CTO-07]).
+ * «Permisos» on all of them ([CTO-09]), «Programar envío» to them ([ENV-02]), «Exportar» the selected ones as CSV
+ * ([CTO-06]) or «Borrar» them with all their data, typing how many ([CTO-07]).
  */
 export function ContactsBulkBar({ selected, actions, onClear }: ContactsBulkBarProps) {
   const router = useRouter();
@@ -61,6 +65,15 @@ export function ContactsBulkBar({ selected, actions, onClear }: ContactsBulkBarP
         <Button type="button" size="sm" disabled={count !== 2} title={count === 2 ? undefined : "Elige exactamente dos contactos para fusionarlos"} onClick={() => router.push(mergePath(selected[0].id, selected[1].id))}>
           <GitMerge aria-hidden />
           Fusionar
+        </Button>
+      ) : null}
+      {actions.consents ? <BulkPermissionsDialog ids={selected.map((contact) => contact.id)} /> : null}
+      {actions.campaign ? (
+        <Button asChild size="sm" variant="outline">
+          <Link href={newCampaignHref({ ids: selected.map((contact) => contact.id) })}>
+            <Send aria-hidden />
+            Programar envío
+          </Link>
         </Button>
       ) : null}
       {actions.export ? (

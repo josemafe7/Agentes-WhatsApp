@@ -36,7 +36,7 @@ describe("start-up checks of every server process", () => {
     vi.stubEnv("APP_URL", "http://localhost:3000");
     vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
     vi.stubEnv("E2E_ALLOW_BASE_URL_OVERRIDES", "");
-    for (const name of ["OPENROUTER_BASE_URL", "META_GRAPH_BASE_URL", "GOOGLE_OAUTH_BASE_URL", "GOOGLE_API_BASE_URL", "MS_LOGIN_BASE_URL", "MS_GRAPH_BASE_URL", "MISTRAL_BASE_URL", "TELEGRAM_API_BASE_URL", "YCLOUD_API_BASE_URL", "ALLOW_LOCAL_HTTP_TOOLS"]) {
+    for (const name of ["OPENROUTER_BASE_URL", "META_GRAPH_BASE_URL", "GOOGLE_OAUTH_BASE_URL", "GOOGLE_API_BASE_URL", "MS_LOGIN_BASE_URL", "MS_GRAPH_BASE_URL", "MISTRAL_BASE_URL", "TELEGRAM_API_BASE_URL", "YCLOUD_API_BASE_URL", "INSTAGRAM_GRAPH_BASE_URL", "ALLOW_LOCAL_HTTP_TOOLS"]) {
       vi.stubEnv(name, "");
     }
     expect(checkStartupConfig()).toEqual([expect.stringMatching(/solo se puede usar en este ordenador/)]);

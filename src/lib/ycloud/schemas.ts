@@ -53,6 +53,9 @@ export const ycloudTemplateSchema = z.object({
   status: text(40).nullish(),
   reason: text(200).nullish(),
   components: z.array(z.unknown()).nullish(),
+  previousCategory: text(40).nullish(),
+  /** The template's own time-to-live, when it has one ([WA-59]). */
+  messageSendTtlSeconds: z.number().int().nullish(),
 });
 export type YCloudTemplate = z.infer<typeof ycloudTemplateSchema>;
 
@@ -121,5 +124,15 @@ export const ycloudEventSchema = z.object({
   whatsappTemplate: z.unknown().optional(),
   whatsappPhoneNumber: z.unknown().optional(),
   whatsappBusinessAccount: z.unknown().optional(),
+  whatsappUserPreference: z.unknown().optional(),
 });
 export type YCloudEvent = z.infer<typeof ycloudEventSchema>;
+
+/** `whatsapp.user.preferences` (docs/integracion-whatsapp-plantillas.md §6): the customer stops or resumes marketing. */
+export const ycloudUserPreferenceSchema = z.object({
+  businessPhoneNumber: text(40).nullish(),
+  contactPhoneNumber: text(40).nullish(),
+  userId: text(200).nullish(),
+  category: text(60).nullish(),
+  value: text(20).nullish(),
+});

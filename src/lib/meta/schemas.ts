@@ -124,8 +124,14 @@ export const templateSchema = z.object({
   parameter_format: z.string().nullish(),
   components: z.array(z.unknown()).nullish(),
   rejected_reason: z.string().nullish(),
+  /** The template's own time-to-live, when it has one ([WA-59]). */
+  message_send_ttl_seconds: z.number().int().nullish(),
 });
 export type MetaTemplate = z.infer<typeof templateSchema>;
+
+/** Answer to POST /{WABA_ID}/message_templates: the category may already be another than the one asked for. */
+export const createdTemplateSchema = z.object({ id: metaId, status: z.string().min(1).max(40), category: z.string().max(40).nullish() });
+export type CreatedTemplate = z.infer<typeof createdTemplateSchema>;
 
 export const templatesPageSchema = z.object({
   data: z.array(z.unknown()),

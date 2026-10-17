@@ -40,6 +40,8 @@ export async function upsertContactForSender(tx: Executor, channelType: ChannelT
   const matched = ids.map((id) => existing.find((row) => row.externalId === id)).find((row) => row !== undefined);
   let contactId: string;
   let created = false;
+  // An answer to an email the system mail sent to a contact goes to that contact ([AGD-24]).
+  const [answered] = !matched && sender.answersContact ? await tx.select({ id: contacts.id }).from(contacts).where(eq(contacts.id, sender.answersContact.contactId)) : [];
   if (matched) {
     contactId = matched.contactId;
     const [contact] = await tx.select({ name: contacts.name, phone: contacts.phone, email: contacts.email }).from(contacts).where(eq(contacts.id, contactId));
@@ -57,6 +59,10 @@ export async function upsertContactForSender(tx: Executor, channelType: ChannelT
       };
       if (Object.keys(changes).length > 0) await tx.update(contactIdentities).set({ ...changes, updatedAt: now }).where(eq(contactIdentities.id, row.id));
     }
+  } else if (answered) {
+    contactId = answered.id;
+    // Without a vouched sender it gets no identity: the next email of that address starts its own contact.
+    if (!sender.answersContact?.withIdentity) return { contactId, created };
   } else {
     const [contact] = await tx
       .insert(contacts)
@@ -76,6 +82,8 @@ export async function upsertContactForSender(tx: Executor, channelType: ChannelT
         externalId,
         phone,
         displayName,
+        // Made by the app from an answer, not by the contact writing first: a person confirms it ([AGD-24], [WA-63]).
+        ...(answered ? { unconfirmedSince: now } : {}),
         createdAt: now,
         updatedAt: now,
       })

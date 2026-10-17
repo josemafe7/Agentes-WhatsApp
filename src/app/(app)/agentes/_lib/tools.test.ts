@@ -8,7 +8,10 @@ describe("Herramientas del agente [AGE-08] [HER-10]", () => {
     expect(rows.map((row) => row.name)).toEqual([...SYSTEM_TOOL_NAMES]);
     const handoff = rows.find((row) => row.name === "transferir_a_humano");
     expect(handoff).toMatchObject({ availability: "always", enabled: true, label: "Pasar a una persona" });
-    expect(rows.filter((row) => row.availability === "soon")).toHaveLength(SYSTEM_TOOL_NAMES.length - 1);
+    // «Dar de baja» is always on as well ([HER-16]); «anotar el permiso de avisos» goes with «Crear citas» ([HER-15]).
+    expect(rows.find((row) => row.name === "dar_de_baja")).toMatchObject({ availability: "always", enabled: true });
+    expect(rows.find((row) => row.name === "anotar_permiso_avisos")).toMatchObject({ availability: "with_bookings", enabled: false });
+    expect(rows.filter((row) => row.availability === "soon")).toHaveLength(SYSTEM_TOOL_NAMES.length - 3);
   });
 
   it("a tool registered by a later phase becomes switchable, and shows whether the agent has it on", () => {

@@ -31,6 +31,8 @@ export type BookingView = {
   createdByUserId: string | null;
   createdByName: string | null;
   reminderSentAt: Date | null;
+  /** «Confirmada por el cliente» with a reminder's button, for its current time ([AGD-33]). */
+  customerConfirmedAt: Date | null;
   cancelledAt: Date | null;
   cancelReason: string | null;
   createdAt: Date;
@@ -59,6 +61,7 @@ const viewColumns = {
   createdByUserId: bookings.createdByUserId,
   createdByName: bookings.createdByName,
   reminderSentAt: bookings.reminderSentAt,
+  customerConfirmedAt: bookings.customerConfirmedAt,
   cancelledAt: bookings.cancelledAt,
   cancelReason: bookings.cancelReason,
   createdAt: bookings.createdAt,
@@ -99,6 +102,7 @@ export async function selectBookingViews(
     createdByUserId: row.createdByUserId,
     createdByName: row.createdByName,
     reminderSentAt: row.reminderSentAt,
+    customerConfirmedAt: row.customerConfirmedAt,
     cancelledAt: row.cancelledAt,
     cancelReason: row.cancelReason,
     createdAt: row.createdAt,

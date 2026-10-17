@@ -19,7 +19,10 @@ export const verCitasDelCliente = defineTool({
   async execute(_args, context) {
     const scope = bookingScopeOf(context);
     if (!scope) return { result: { ok: false, error: "No hay cliente en esta conversación." } };
-    const owner: SQL[] = "testOnly" in scope ? [eq(bookings.isTest, true), isNull(bookings.contactId)] : [eq(bookings.isTest, false), eq(bookings.contactId, scope.contactId)];
+    const owner: SQL[] =
+      "testOnly" in scope
+        ? [eq(bookings.isTest, true), isNull(bookings.contactId)]
+        : [eq(bookings.isTest, false), eq(bookings.contactId, scope.contactId), ...(scope.bookingId ? [eq(bookings.id, scope.bookingId)] : [])];
     const { timezone } = await loadAgendaSettings();
     const views = await selectBookingViews(and(...owner, inArray(bookings.status, [...OCCUPYING_STATUSES]), gt(bookings.startsAt, context.now)), timezone, { limit: MAX_BOOKINGS });
     return {

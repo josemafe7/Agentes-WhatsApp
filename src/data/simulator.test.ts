@@ -192,6 +192,26 @@ describe("simulador: the same path as a real message [AJU-12]", () => {
     const [firstMessage] = await db.select().from(messages).where(eq(messages.id, first.messageId));
     expect(firstMessage.metadata).toEqual({ subject: "Consulta de horario" });
   });
+
+  it("[IG-13] Instagram: a new customer gets an id like Instagram's (digits), never the @username, and the reply opens the 24 h window", async () => {
+    const instagram = await createChannel({ type: "instagram", name: "Instagram", isDemo: true, activeAgentId: agent.id, config: { username: "peluqueria_lola.demo" } });
+    const first = await send(owner, { channelId: instagram.id, contact: { mode: "new", name: "Nuria" }, contentType: "text", text: "¿Hacéis precio a estudiantes?" });
+    expect(first).toMatchObject({ channelName: "Instagram", contactName: "Nuria", duplicate: false });
+    const [identity] = await db.select().from(contactIdentities).where(eq(contactIdentities.contactId, first.contactId));
+    expect(identity).toMatchObject({ channelType: "instagram", phone: null });
+    expect(identity.externalId).toMatch(/^sim:\d{16}$/);
+    // The customer just wrote: the AI may answer ([IG-04]); here only the missing key stops it.
+    expect(first.aiReply).toEqual({ expected: false, reason: "falta la clave de OpenRouter (Ajustes › IA)" });
+    const [conversation] = await db.select().from(conversations).where(eq(conversations.id, first.conversationId));
+    expect(conversation.lastInboundAt?.getTime()).toBe(NOW.getTime());
+    // Replies are text only, but a customer still sends voice notes, images and PDF ([IG-03]).
+    const image = await send(owner, { channelId: instagram.id, contact: { mode: "existing", contactId: first.contactId }, contentType: "image" });
+    expect(image.conversationId).toBe(first.conversationId);
+    const [stored] = await db.select().from(messages).where(eq(messages.id, image.messageId));
+    expect(stored).toMatchObject({ contentType: "image", simulated: true });
+    const options = await loadSimulatorOptions(owner.actor);
+    expect(options.channels.find((channel) => channel.id === instagram.id)?.capabilities).toEqual({ audio: true, images: true, documents: true });
+  });
 });
 
 describe("simulador: voice notes, images and documents [AJU-12] [SEG-13]", () => {

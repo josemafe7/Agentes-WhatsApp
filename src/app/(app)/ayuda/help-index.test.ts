@@ -33,9 +33,10 @@ describe("the list of guides", () => {
 
     expect(groups.map((group) => [group.title, group.guides.map((guide) => guide.href)])).toEqual([
       ["Para empezar", ["/ayuda/puesta-en-marcha", "/ayuda/despliegue"]],
-      ["Canales", ["/ayuda/whatsapp", "/ayuda/whatsapp-ycloud", "/ayuda/whatsapp-qr", "/ayuda/correo", "/ayuda/telegram"]],
+      ["Canales", ["/ayuda/whatsapp", "/ayuda/whatsapp-ycloud", "/ayuda/whatsapp-qr", "/ayuda/correo", "/ayuda/telegram", "/ayuda/instagram"]],
       ["Agentes y conocimiento", ["/ayuda/agentes-y-conocimiento", "/ayuda/asistentes-internos"]],
       ["Agenda", ["/ayuda/agenda"]],
+      ["Envíos", ["/ayuda/envios"]],
     ]);
 
     // Each guide keeps the title of its file and its line.

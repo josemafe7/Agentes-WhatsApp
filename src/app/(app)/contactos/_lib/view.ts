@@ -1,8 +1,9 @@
-// How Contactos shows a contact ([CTO-02], [CTO-08]): its name, an identity's phone (data, never a key, [CAN-13]),
-// the conversation states of DESIGN.md and the bajas still in force. Server components only: the display name comes
-// from src/data/contacts.ts, which also checks it when a contact is erased.
+// How Contactos shows a contact ([CTO-02], [CTO-08], [CUM-13]): its name, an identity's phone (data, never a key,
+// [CAN-13]), the conversation states of DESIGN.md, its consents in words and the bajas still in force. Server
+// components only: the display name comes from src/data/contacts.ts, which also checks it when a contact is erased.
 import { CircleCheck, CircleDot, Hand, type LucideIcon } from "lucide-react";
-import type { ConsentType, ConversationStatus } from "@/lib/enums";
+import type { ConsentState, OptOutScope } from "@/lib/consents";
+import type { ChannelKind, ConsentType, ConversationStatus } from "@/lib/enums";
 
 export { contactDisplayName } from "@/data/contacts";
 
@@ -23,22 +24,43 @@ export const CONSENT_TYPE_LABELS: Record<ConsentType, string> = {
   legal_acceptance: "Aceptó los textos legales",
   opt_out: "Baja",
   opt_in: "Alta",
+  marketing_opt_out: "Baja de novedades y publicidad",
+  marketing_opt_in: "Alta de novedades y publicidad",
+  reminders_granted: "Dio permiso de avisos de sus citas",
+  reminders_withdrawn: "Retiró el permiso de avisos de sus citas",
+  marketing_granted: "Dio permiso de novedades y publicidad",
+  marketing_withdrawn: "Retiró el permiso de novedades y publicidad",
+  marketing_resumed: "Reanudó la publicidad desde WhatsApp (la baja sigue)",
 };
 
-type ConsentEntry = { type: ConsentType; channelId: string | null; channelName: string | null; createdAt: Date };
-export type ActiveOptOut = { channelId: string | null; channelName: string | null; since: Date };
+/** Where a consent came from, in words ([CUM-13]); an unknown one shows as it is. */
+const SOURCE_LABELS: Record<string, string> = {
+  keyword: "Escribió «BAJA» o «STOP»",
+  widget: "Chat web",
+  person: "Lo anotó una persona",
+  ai: "Lo anotó la IA en la conversación",
+  import: "Importación",
+  bulk: "Marcado a varios a la vez",
+  merge: "Fusión de contactos",
+  template_button: "Botón de baja de una plantilla",
+  whatsapp_app: "Desde la app de WhatsApp",
+  meta_131050: "WhatsApp rechazó un envío de publicidad",
+  telegram_button: "Botón de Telegram",
+  email_link: "Enlace de baja de un correo",
+};
 
-/** Channels where the latest choice is a baja ([CTO-08]); an «alta» after it lifts it. Newest first. */
-export function activeOptOuts(consents: ConsentEntry[]): ActiveOptOut[] {
-  const latest = new Map<string, ConsentEntry>();
-  for (const consent of consents) {
-    if (consent.type === "legal_acceptance") continue;
-    const key = consent.channelId ?? "";
-    const current = latest.get(key);
-    if (!current || consent.createdAt > current.createdAt) latest.set(key, consent);
+export function consentSourceLabel(source: string): string {
+  return SOURCE_LABELS[source] ?? source;
+}
+
+export type ActiveOptOut = { kind: ChannelKind; scope: OptOutScope; since: Date };
+
+/** The bajas in force, newest first ([CTO-08]): of everything, or only of novedades y publicidad, on each kind. */
+export function activeOptOuts(state: ConsentState): ActiveOptOut[] {
+  const found: ActiveOptOut[] = [];
+  for (const [kind, scopes] of Object.entries(state.optOuts) as [ChannelKind, ConsentState["optOuts"][ChannelKind]][]) {
+    if (scopes.all) found.push({ kind, scope: "all", since: scopes.all.createdAt });
+    else if (scopes.marketing) found.push({ kind, scope: "marketing", since: scopes.marketing.createdAt });
   }
-  return [...latest.values()]
-    .filter((consent) => consent.type === "opt_out")
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    .map((consent) => ({ channelId: consent.channelId, channelName: consent.channelName, since: consent.createdAt }));
+  return found.sort((a, b) => b.since.getTime() - a.since.getTime());
 }

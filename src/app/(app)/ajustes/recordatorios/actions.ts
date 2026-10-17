@@ -1,8 +1,8 @@
 "use server";
-// Ajustes › Recordatorios ([AGD-24], [AGD-25]): thin action. src/data/agenda-config.ts validates with Zod (approved
+// Ajustes › Recordatorios ([AGD-24], [AGD-25]): thin action. src/data/reminder-settings.ts validates with Zod (approved
 // utility template, a booking field for each variable) and checks the permission again (owner and admin).
 import { revalidatePath } from "next/cache";
-import { updateReminderSettings } from "@/data/agenda-config";
+import { updateReminderSettings } from "@/data/reminder-settings";
 import { ok, type ActionResult } from "@/lib/action-result";
 import { PERMISSIONS } from "@/lib/permissions";
 import { toActionFailure } from "@/server/errors";

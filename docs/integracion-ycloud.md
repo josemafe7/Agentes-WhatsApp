@@ -81,8 +81,14 @@ que no es un número de YCloud conectado: 401 y no se guarda nada ([YC-05]).
 | `whatsapp.message.updated` | `whatsappMessage`: estado de un mensaje enviado por la API | Actualiza el mensaje |
 | `whatsapp.smb.message.echoes` | `whatsappMessage`: lo que el negocio escribió desde el móvil | Lo añade a la conversación y pausa la IA |
 | `whatsapp.template.reviewed` | `whatsappTemplate` | Pide una sincronización de plantillas |
+| `whatsapp.template.category_updated` | `whatsappTemplate` (`previousCategory`, `category`) | Pide una sincronización, que anota el cambio y avisa ([WA-60], [YC-11]) |
+| `whatsapp.template.quality_updated` | `whatsappTemplate` (`qualityRating`) | Pide una sincronización |
+| `whatsapp.user.preferences` | `whatsappUserPreference` (`userId`, `contactPhoneNumber`, `value`) | `stop`: baja de publicidad por WhatsApp; `resume`: solo se anota ([WA-62], [YC-11]) |
 
 Cualquier otro tipo, si llega firmado, se contesta con 200 y se ignora: YCloud añade tipos y campos sin avisar.
+Las direcciones creadas antes de la fase 12 solo tenían los cuatro primeros: la app manda la lista entera con
+`PATCH /webhookEndpoints/{id}` (`enabledEvents`) al revalidar y en la revisión de cada 6 horas si le falta alguno (no
+consta si `PATCH` sustituye o amplía la lista, por eso va entera).
 El historial (`whatsapp.smb.history`) y los grupos no se piden.
 
 ### Mensajes de clientes
@@ -135,6 +141,9 @@ Si el mensaje ya está guardado (lo envió la propia app), no hace nada.
 
 `GET /whatsapp/templates?filter.wabaId=…`. Se guardan en la misma tabla que las de Meta
 (`whatsapp_templates`), así la bandeja y los recordatorios funcionan igual. Solo se envían las `APPROVED`.
+«Nueva plantilla» las crea con `POST /whatsapp/templates`, con parámetros numerados, y sus botones de respuesta rápida
+llevan `index` como número: ver `docs/integracion-whatsapp-plantillas.md` §2 y §5. El envío directo no mira la lista de
+bajas de YCloud: la app comprueba permisos y bajas antes de cada plantilla ([YC-11]).
 
 ## Semáforos
 

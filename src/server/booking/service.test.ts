@@ -1,7 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
-import { bookingEvents, bookings, consents, messages, notifications, reminderSettings } from "@/db/schema";
+import { bookingEvents, bookings, consents, messages, notifications } from "@/db/schema";
 import { NotFoundError, ValidationError } from "@/server/errors";
 import { createChannel, createContactWithIdentity, createConversation, createUser, type TestUser } from "@/test/factories";
 import { sendBookingNotice } from "./notices";
@@ -242,15 +242,17 @@ describe("moving, cancelling and statuses [AGD-09] [AGD-15] [AGD-17]", () => {
     expect((await changeBookingStatus({ bookingId: booking.id, status: "no_show", actor: person, now: NOW })).status).toBe("no_show");
   });
 
-  it("a moved booking whose reminder was sent gets a new one only when the new moment is still ahead [AGD-25]", async () => {
+  it("a moved booking keeps when its new time was set, so each reminder is worked out again for it; the customer's confirmation goes [AGD-25] [AGD-33]", async () => {
     const { cut, laura } = await createHairdresser();
-    await db.insert(reminderSettings).values({ enabled: true, leadMinutes: 24 * 60, channel: "email" });
     const booking = await createBooking({ serviceId: cut.id, resourceId: laura.id, start: at("2026-09-28T10:00"), contactId: null, source: "human", actor: person, now: NOW });
-    await db.update(bookings).set({ reminderSentAt: at("2026-09-27T10:00") }).where(eq(bookings.id, booking.id));
-    const soon = await rescheduleBooking({ bookingId: booking.id, start: at("2026-09-28T09:00"), actor: person, now: at("2026-09-27T10:00") });
-    expect(soon.reminderSentAt).not.toBeNull();
-    const later = await rescheduleBooking({ bookingId: booking.id, start: at("2026-10-01T10:00"), actor: person, now: at("2026-09-27T10:00") });
-    expect(later.reminderSentAt).toBeNull();
+    await db.update(bookings).set({ reminderSentAt: at("2026-09-27T10:00"), customerConfirmedAt: at("2026-09-27T10:05") }).where(eq(bookings.id, booking.id));
+    const stored = async () => (await db.select({ startsAtSetAt: bookings.startsAtSetAt, customerConfirmedAt: bookings.customerConfirmedAt, reminderSentAt: bookings.reminderSentAt }).from(bookings).where(eq(bookings.id, booking.id)))[0];
+    // Only the details: the time and what goes with it stay.
+    await updateBookingDetails({ bookingId: booking.id, notes: "Trae su champú", actor: person, now: at("2026-09-27T10:10") });
+    expect(await stored()).toEqual({ startsAtSetAt: null, customerConfirmedAt: at("2026-09-27T10:05"), reminderSentAt: at("2026-09-27T10:00") });
+    // A new time: the job sends again what is still ahead of it and leaves out what had passed (src/server/booking/reminders.test.ts).
+    await rescheduleBooking({ bookingId: booking.id, start: at("2026-09-28T09:00"), actor: person, now: at("2026-09-27T11:00") });
+    expect(await stored()).toEqual({ startsAtSetAt: at("2026-09-27T11:00"), customerConfirmedAt: null, reminderSentAt: null });
   });
 
   it("details (notes, contact) change without touching availability, and the history keeps the fields, not the text", async () => {

@@ -4,13 +4,15 @@
 // in their channels, and only those conversations ([PER-02]). Merging is in contacts-merge.ts, exporting in
 // contacts-export.ts and erasing in contacts-erase.ts.
 import "server-only";
-import { and, asc, count, desc, eq, exists, inArray, isNotNull, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, exists, inArray, isNotNull, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { channels, consents, contactIdentities, contacts, conversations } from "@/db/schema";
-import { CHANNEL_TYPES, type ChannelType, type ConsentType, type ConversationStatus } from "@/lib/enums";
-import { channelFilter, PERMISSIONS, type Actor } from "@/lib/permissions";
+import { channels, contactIdentities, contacts, conversations } from "@/db/schema";
+import { consentStateOf, type ConsentRecord, type ConsentState } from "@/lib/consents";
+import { CHANNEL_KIND_OF, CHANNEL_TYPES, type ChannelType, type ConversationStatus } from "@/lib/enums";
+import { channelFilter, PERMISSIONS, type Action, type Actor } from "@/lib/permissions";
 import { emailSchema, idSchema, labelSchema, MAX_LABELS, optionalText } from "@/lib/validation";
+import { loadConsentRows, type ConsentRow } from "@/server/compliance/consent-state";
 import { AuthError, parseInput, ValidationError } from "@/server/errors";
 import { ascNullsFirst, descNullsLast, jsonTextContains } from "@/server/sql-helpers";
 import { writeAudit } from "./audit";
@@ -77,8 +79,7 @@ export function contactListWhere(actor: Actor, filters: ContactListFilters): { w
   if (scoped) conditions.push(visibleThrough(scope));
   // Without accents or case: «jose» finds «José» (contacts-search.ts).
   if (filters.search) conditions.push(contactSearchCondition(filters.search));
-  // Labels are a JSON array of strings: the label in quotes inside it is exactly that label.
-  if (filters.label) conditions.push(jsonTextContains(contacts.labels, JSON.stringify(filters.label)));
+  conditions.push(...labelAndChannel(filters));
   if (filters.channelType) {
     conditions.push(
       exists(
@@ -89,12 +90,29 @@ export function contactListWhere(actor: Actor, filters: ContactListFilters): { w
       ),
     );
   }
+  return { where: conditions.length > 0 ? and(...conditions) : undefined };
+}
+
+/** A label (exactly that one) and a channel the contact wrote by. */
+function labelAndChannel(filters: { label?: string | null; channelId?: string | null }): SQL[] {
+  const conditions: SQL[] = [];
+  // Labels are a JSON array of strings: the label in quotes inside it is exactly that label.
+  if (filters.label) conditions.push(jsonTextContains(contacts.labels, JSON.stringify(filters.label)));
   if (filters.channelId) {
     conditions.push(
       exists(db.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.contactId, contacts.id), eq(conversations.channelId, filters.channelId)))),
     );
   }
-  return { where: conditions.length > 0 ? and(...conditions) : undefined };
+  return conditions;
+}
+
+/**
+ * Contactos' filter by label and channel for the system, without anyone's scope: the contacts of a repeated envío at
+ * its time ([ENV-16]). Without label nor channel, every contact.
+ */
+export function contactFilterWhere(filters: { label: string | null; channelId: string | null }): SQL | undefined {
+  const conditions = labelAndChannel(filters);
+  return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
 /** Contactos: one page with search by name, phone or email and filters by label and channel ([CTO-01]). */
@@ -193,7 +211,10 @@ export type ContactDetail = {
   customFields: Record<string, string>;
   notes: string | null;
   identities: { id: string; channelType: ChannelType; externalId: string; phone: string | null; displayName: string | null }[];
-  consents: { id: string; type: ConsentType; channelId: string | null; channelName: string | null; source: string; recordedByName: string | null; createdAt: Date }[];
+  /** Newest first. */
+  consents: (ConsentRecord & { channelName: string | null })[];
+  /** Its permissions and the bajas in force ([CTO-09]). */
+  consentState: ConsentState;
   conversations: { id: string; channel: { id: string; name: string; type: ChannelType }; status: ConversationStatus; lastMessageAt: Date | null }[];
   createdAt: Date;
 };
@@ -206,8 +227,8 @@ async function contactChannelIds(contactId: string): Promise<string[]> {
   return [...new Set(rows.map((row) => row.channelId).filter((id): id is string => id !== null))];
 }
 
-/** Checks the action on this contact: Agents only through a conversation in their channels ([PER-02]). */
-async function loadContactFor(actor: Actor, action: typeof PERMISSIONS.contacts.view | typeof PERMISSIONS.contacts.edit, contactId: unknown) {
+/** The contact, if the person may do `action` on it: an Agent only through a conversation in their channels ([PER-02]). */
+export async function loadContactFor(actor: Actor, action: Action, contactId: unknown) {
   assertCan(actor, action);
   const id = idSchema.safeParse(contactId);
   if (!id.success) throw new AuthError("forbidden");
@@ -221,8 +242,8 @@ async function loadContactFor(actor: Actor, action: typeof PERMISSIONS.contacts.
 export async function getContact(actor: Actor, contactId: string): Promise<ContactDetail> {
   const contact = await loadContactFor(actor, PERMISSIONS.contacts.view, contactId);
   const scope = conversationScope(actor) ?? [];
-  // An Agent limited to some channels sees only what belongs to them: identities of their channels' types and the
-  // consents given in their channels ([PER-02]).
+  // An Agent limited to some channels sees only what belongs to them: identities of their channels' types and, of the
+  // consents, the permissions (which are for the contact) and the bajas of their channels' kinds ([PER-02]).
   const scopedChannels = channelFilter(actor);
   const scopedTypes = scopedChannels
     ? [...new Set((await db.select({ type: channels.type }).from(channels).where(inArray(channels.id, [...scopedChannels]))).map((row) => row.type))]
@@ -233,20 +254,7 @@ export async function getContact(actor: Actor, contactId: string): Promise<Conta
       .from(contactIdentities)
       .where(and(eq(contactIdentities.contactId, contact.id), ...(scopedTypes ? [inArray(contactIdentities.channelType, scopedTypes)] : [])))
       .orderBy(asc(contactIdentities.createdAt)),
-    db
-      .select({
-        id: consents.id,
-        type: consents.type,
-        channelId: consents.channelId,
-        channelName: channels.name,
-        source: consents.source,
-        recordedByName: consents.recordedByName,
-        createdAt: consents.createdAt,
-      })
-      .from(consents)
-      .leftJoin(channels, eq(channels.id, consents.channelId))
-      .where(and(eq(consents.contactId, contact.id), ...(scopedChannels ? [inArray(consents.channelId, [...scopedChannels])] : [])))
-      .orderBy(desc(consents.createdAt)),
+    loadConsentRows([contact.id]),
     db
       .select({ id: conversations.id, channelId: channels.id, channelName: channels.name, channelType: channels.type, status: conversations.status, lastMessageAt: conversations.lastMessageAt })
       .from(conversations)
@@ -263,9 +271,29 @@ export async function getContact(actor: Actor, contactId: string): Promise<Conta
     customFields: contact.customFields,
     notes: contact.notes,
     identities,
-    consents: consentRows,
+    ...visibleConsents(consentRows, scopedTypes),
     conversations: conversationRows.map((row) => ({ id: row.id, channel: { id: row.channelId, name: row.channelName, type: row.channelType }, status: row.status, lastMessageAt: row.lastMessageAt })),
     createdAt: contact.createdAt,
+  };
+}
+
+function consentRecordOf(row: ConsentRow): ConsentRecord {
+  const { id, type, kind, createdAt, givenAt, method, source, recordedByName, note, evidence } = row;
+  return { id, type, kind, createdAt, givenAt, method, source, recordedByName, note, evidence };
+}
+
+function visibleConsents(rows: ConsentRow[], scopedTypes: ChannelType[] | null): Pick<ContactDetail, "consents" | "consentState"> {
+  const kinds = scopedTypes ? new Set(scopedTypes.map((type) => CHANNEL_KIND_OF[type])) : null;
+  const visible = kinds ? rows.filter((row) => row.kind === null || kinds.has(row.kind)) : rows;
+  // The two permissions are the contact's whatever channel they were recorded in ([CTO-09]): an Agent of other
+  // channels sees them as they are, without what was said in a conversation they cannot open.
+  const { permissions } = consentStateOf(rows);
+  const shown = (record: ConsentRecord | null) => (record && kinds && record.kind && !kinds.has(record.kind) ? { ...record, evidence: null } : record);
+  return {
+    consents: visible
+      .map((row) => ({ ...consentRecordOf(row), channelName: row.channelName }))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
+    consentState: { permissions: { reminders: shown(permissions.reminders), marketing: shown(permissions.marketing) }, optOuts: consentStateOf(visible).optOuts },
   };
 }
 

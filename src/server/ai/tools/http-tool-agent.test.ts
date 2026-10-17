@@ -227,7 +227,7 @@ describe("runAgent offers the attached tools, also in «Probar agente» [AGE-08]
 
     const chats = openRouter.calls.filter((item) => item.path === "/chat/completions");
     const offered = (chats[0].body as { tools: { function: { name: string } }[] }).tools.map((tool) => tool.function.name);
-    expect(offered).toEqual(["transferir_a_humano", "consultar_pedido"]);
+    expect(offered).toEqual(["transferir_a_humano", "dar_de_baja", "consultar_pedido"]);
     expect(result.text).toBe("Tu pedido 42 está en reparto.");
     expect(result.toolCalls).toMatchObject([{ name: "consultar_pedido", ok: true, arguments: { numero: "42" }, result: { estado: 200 } }]);
     expect(crm.calls).toHaveLength(1);

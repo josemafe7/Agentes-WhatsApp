@@ -1,8 +1,8 @@
-// Channels of the demo ([ARR-06], [ARR-11], [CAN-01]–[CAN-08]): a real web chat (it works in /widget-demo) and a
-// WhatsApp and an email channel marked «Demo», which never call Meta, Google, Microsoft or a mail server: what
-// they receive comes from the simulator and what they «send» is only stored. Each one has an active agent from the
-// agents step with the AI on, automatic replies (drafts in email, [CAN-07]) and test mode off. Later steps find
-// them in ctx.refs.channelIds by key.
+// Channels of the demo ([ARR-06], [ARR-11], [CAN-01]–[CAN-08], [IG-13]): a real web chat (it works in /widget-demo)
+// and a WhatsApp, an email and an Instagram channel marked «Demo», which never call Meta, Google, Microsoft or a mail
+// server: what they receive comes from the simulator and what they «send» is only stored. Each one has an active agent
+// from the agents step with the AI on, automatic replies (drafts in email, [CAN-07]) and test mode off. Later steps
+// find them in ctx.refs.channelIds by key.
 import { channels, type ChannelHealth } from "@/db/schema";
 import type { ChannelType, ReplyMode } from "@/lib/enums";
 import { webchatConfigSchema, type WebchatConfig } from "@/lib/webchat-config";
@@ -10,7 +10,7 @@ import type { DemoBusiness } from "../businesses";
 import type { SeedStep } from "../types";
 import type { DemoAgentKey } from "./agents";
 
-export const DEMO_CHANNEL_KEYS = ["webchat", "whatsapp", "email"] as const;
+export const DEMO_CHANNEL_KEYS = ["webchat", "whatsapp", "email", "instagram"] as const;
 export type DemoChannelKey = (typeof DEMO_CHANNEL_KEYS)[number];
 
 /** The Graph API version new WhatsApp channels start with ([WA-49]). */
@@ -44,7 +44,21 @@ export function demoWebchatConfig(business: DemoBusiness): WebchatConfig {
   });
 }
 
-/** The three demo channels. Pure: the same business gives the same channels. */
+/**
+ * The demo's Instagram user name: the business's name as Instagram writes them (letters, digits and «_») plus «.demo»,
+ * so it never looks like a real account. «Peluquería Aurora» → «peluqueria_aurora.demo».
+ */
+export function demoInstagramUsername(business: DemoBusiness): string {
+  const base = business.name
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return `${base || "negocio"}.demo`;
+}
+
+/** The four demo channels. Pure: the same business gives the same channels. */
 export function buildDemoChannels(business: DemoBusiness): DemoChannelPlan[] {
   return [
     { key: "webchat", type: "webchat", name: "Chat de la web", isDemo: false, agentKey: "recepcion", replyMode: "auto", config: demoWebchatConfig(business) },
@@ -60,6 +74,17 @@ export function buildDemoChannels(business: DemoBusiness): DemoChannelPlan[] {
     },
     // Gmail as it is the most common mailbox of a small business; being a demo, it never talks to Google.
     { key: "email", type: "email_gmail", name: "Correo", isDemo: true, agentKey: "correo", replyMode: "draft", config: { emailAddress: business.contactEmail } },
+    // Its account's name only, never an account id: no Instagram webhook can ever match it ([ARR-11], [IG-13]).
+    {
+      key: "instagram",
+      type: "instagram",
+      // Named as its account, like a real one left with the default name: «Instagram · @cuenta» in the inbox ([BAN-17]).
+      name: `@${demoInstagramUsername(business)}`,
+      isDemo: true,
+      agentKey: "recepcion",
+      replyMode: "auto",
+      config: { username: demoInstagramUsername(business), accountName: business.name },
+    },
   ];
 }
 

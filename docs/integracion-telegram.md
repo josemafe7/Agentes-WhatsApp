@@ -96,7 +96,8 @@ Mientras haya un webhook activo, `getUpdates` no funciona: los dos modos de reci
 
 ## Forma de los datos
 
-- `Update`: `update_id` y como mucho uno de los campos opcionales; aquí solo interesa `message`.
+- `Update`: `update_id` y como mucho uno de los campos opcionales; aquí interesan `message`, `callback_query` y
+  `my_chat_member` (ver «Botones del recordatorio y bloqueo del bot»).
 - `Message`: `message_id`, `from` (el usuario), `chat` (`id`, `type`, `first_name`, `username`…), `date`
   (Unix, en segundos) y, según el tipo, `text`, `caption`, `photo`, `voice`, `audio`, `document`, `video`,
   `sticker`, `location` o `contact`. Lo que no sea texto, voz o foto se guarda como mensaje de sistema «Tipo de
@@ -136,6 +137,33 @@ primeros bytes del archivo (una imagen o un audio) y, si no se reconoce, el que 
   luego llegan errores 429) y unos 30 por segundo en total. Un 429 trae `parameters.retry_after`, los
   segundos que hay que esperar antes de reintentar: la app espera eso y reintenta, sin pasar de 10 segundos en
   total.
+
+## Botones del recordatorio y bloqueo del bot
+
+Para los recordatorios con «Confirmo» y «Necesito cambiarla» ([TG-13], [AGD-32]) y para saber si el cliente ha
+bloqueado el bot ([TG-12]). Comprobado en la Bot API 10.3 el 2026-10-16.
+
+- **Qué avisos se piden.** `allowed_updates` es `["message", "callback_query", "my_chat_member"]`, en `setWebhook` y
+  en cada `getUpdates`. Si no se manda, Telegram sigue con la lista anterior, así que un bot conectado antes con
+  `["message"]` no recibiría ni los toques ni los bloqueos: la app vuelve a llamar a `setWebhook` con la lista nueva
+  cuando `getWebhookInfo.allowed_updates` no coincide (en la revisión de cada 6 horas y al revalidar).
+- **Enviar con botones.** `sendMessage` con `reply_markup: {inline_keyboard: [[{text, callback_data}, …]]}`.
+  `callback_data` tiene de 1 a 64 bytes: la app manda un código corto con el recordatorio y la acción, nunca datos
+  del cliente.
+- **El toque.** Llega un `Update` con `callback_query`: `id`, `from` (quien pulsó), `message` (el mensaje con el
+  botón; si ya no existe llega `date: 0`) y `data`. `data` viene del cliente: la app comprueba que el recordatorio
+  existe, que es de ese bot y que la cita es del contacto que pulsa ([HER-04]). El `external_id` del toque es
+  `cb:<id>`, para ignorar repetidos.
+- **Responder al toque.** Hay que llamar siempre a `answerCallbackQuery` con `callback_query_id` (y un `text` de 0 a
+  200 caracteres, opcional): si no, el cliente ve una barra de carga. La app lo hace desde la cola, enseguida; si
+  Telegram contesta 400 porque la consulta es demasiado antigua, no es un error grave.
+- **Bloqueo.** En un chat privado, `my_chat_member` solo llega cuando el cliente bloquea o desbloquea el bot:
+  `new_chat_member.status` pasa a `"kicked"` al bloquearlo y vuelve a `"member"` al desbloquearlo (la página de la
+  API no lo dice con esas palabras; lo confirma el código oficial de TDLib y del servidor de la Bot API). La app trata
+  `kicked` o `left` como bloqueado y `member` como desbloqueado. Un 403 al enviar también lo marca como bloqueado.
+
+No comprobado: el plazo para contestar a `answerCallbackQuery` (la app contesta enseguida desde la cola) y la
+longitud máxima del texto de un botón (los de la app son cortos).
 
 ## Errores
 

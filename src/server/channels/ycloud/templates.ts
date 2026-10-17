@@ -16,7 +16,16 @@ export async function syncYCloudTemplates(channel: ChannelRecord, deps: YCloudDe
   const templates = await ycloudClientFor(channel, deps).listTemplates(channel.wabaId);
   return storeWhatsAppTemplates(
     channel.id,
-    templates.map((template) => ({ id: template.officialTemplateId, name: template.name, language: template.language, category: template.category, status: template.status, components: template.components, rejectedReason: template.reason })),
+    templates.map((template) => ({
+      id: template.officialTemplateId,
+      name: template.name,
+      language: template.language,
+      category: template.category,
+      status: template.status,
+      components: template.components,
+      rejectedReason: template.reason,
+      ttlSeconds: template.messageSendTtlSeconds,
+    })),
     deps.now?.() ?? new Date(),
   );
 }

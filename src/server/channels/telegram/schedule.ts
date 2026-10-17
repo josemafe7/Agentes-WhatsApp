@@ -70,3 +70,17 @@ export async function cancelTelegramJobs(channelId: string, queue: JobQueue = ge
   await queue.cancel({ dedupeKey: healthCheckSoonKey(channelId) });
   await cancelTelegramPolling(channelId, queue);
 }
+
+export const TELEGRAM_ANSWER_CALLBACK_JOB = "tg.answer_callback";
+export const telegramAnswerCallbackPayload = z.object({ channelId: z.uuid(), callbackQueryId: z.string().min(1).max(200) });
+
+/** Every tap on a button is answered right away, or the customer sees a progress bar ([TG-13]). */
+export async function enqueueTelegramCallbackAnswer(payload: z.infer<typeof telegramAnswerCallbackPayload>, options: { queue?: JobQueue; now?: Date } = {}) {
+  return (options.queue ?? getJobQueue()).enqueue({
+    type: TELEGRAM_ANSWER_CALLBACK_JOB,
+    payload,
+    runAt: options.now,
+    dedupeKey: `tg.answer_callback:${payload.callbackQueryId}`,
+    maxAttempts: 2,
+  });
+}

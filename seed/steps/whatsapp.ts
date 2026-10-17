@@ -1,13 +1,17 @@
-// WhatsApp of the demo ([ARR-06], [ARR-11], [WA-22], [WA-43], [AJU-09]):
-// - the templates of the demo number as «Sincronizar plantillas» would leave them: two APPROVED (a reminder with named
-//   variables and a follow-up with a positional one), one PENDING and one REJECTED. A conversation whose 24 h window is
-//   closed can send an approved one from the inbox; being a demo channel, the DemoAdapter only stores it;
+// WhatsApp of the demo ([ARR-06], [ARR-11], [ARR-25], [WA-22], [WA-43], [WA-59], [AJU-09]):
+// - the templates of the demo number: the two models of the app, approved as «Nueva plantilla» leaves them on a demo
+//   channel — «Recordatorio de cita» (without the service in the sectors with health data, [CUM-14]) and «Novedades y
+//   publicidad» with its baja button —, and as «Sincronizar plantillas» would leave the others: one more APPROVED (a
+//   follow-up with a positional variable), one PENDING and one REJECTED. A conversation whose 24 h window is closed can
+//   send an approved one from the inbox; being a demo channel, the DemoAdapter only stores it;
 // - example per-message rates for Spain, flagged «ejemplo» ([AJU-09]): they are NOT Meta's prices (the app never has
 //   prices in its code) but made-up round numbers so the demo shows an estimated cost. A business copies its own from
 //   Meta's rate table in Ajustes › WhatsApp, which clears the flag.
 import { pricingRates, whatsappTemplates } from "@/db/schema";
 import type { WhatsAppPricingCategory } from "@/lib/meta/pricing";
 import { templateVariableNames } from "@/lib/meta/templates";
+import type { TemplateButtonRole } from "@/lib/enums";
+import { buildTemplateRequest, templateModels } from "@/lib/whatsapp-template-draft";
 import type { SectorPreset } from "@/lib/sectors";
 import type { DemoBusiness } from "../businesses";
 import type { SeedStep } from "../types";
@@ -20,35 +24,28 @@ export type DemoTemplatePlan = {
   rejectedReason: string | null;
   /** As Meta returns them: HEADER, BODY and FOOTER, with their examples. */
   components: Record<string, unknown>[];
+  /** The models of the app remember their data, buttons and time-to-live ([WA-58], [WA-59]). */
+  model?: { bindings: Record<string, string>; buttonRoles: Record<string, TemplateButtonRole>; ttlSeconds: number | null };
 };
 
-/** Four templates in the business's words. Pure: the same business gives the same templates. */
+/** Five templates in the business's words. Pure: the same business gives the same templates. */
 export function buildDemoTemplates(business: DemoBusiness, preset: SectorPreset): DemoTemplatePlan[] {
   const booking = preset.terminology.booking.toLowerCase();
   const footer = { type: "FOOTER", text: business.name };
   return [
-    {
-      name: "recordatorio_cita",
-      language: "es",
-      category: "UTILITY",
-      status: "APPROVED",
-      rejectedReason: null,
-      components: [
-        { type: "HEADER", format: "TEXT", text: `Recordatorio de tu ${booking}` },
-        {
-          type: "BODY",
-          text: `Hola, {{nombre}}. Te recordamos tu ${booking} en ${business.name} el {{fecha}} a las {{hora}}. Si no puedes venir, responde a este mensaje y te ayudamos a cambiarla.`,
-          example: {
-            body_text_named_params: [
-              { param_name: "nombre", example: "Laura" },
-              { param_name: "fecha", example: "3 de octubre" },
-              { param_name: "hora", example: "10:30" },
-            ],
-          },
-        },
-        footer,
-      ],
-    },
+    ...templateModels({ healthData: preset.healthData, language: "es" }).map((model): DemoTemplatePlan => {
+      const draft = model.id === "reminder" ? { ...model.draft, name: "recordatorio_cita", header: `Recordatorio de tu ${booking}` } : model.draft;
+      const built = buildTemplateRequest(draft, { provider: "meta", businessName: business.name });
+      return {
+        name: draft.name,
+        language: draft.language,
+        category: draft.category,
+        status: "APPROVED",
+        rejectedReason: null,
+        components: built.components,
+        model: { bindings: built.bindings, buttonRoles: built.buttonRoles, ttlSeconds: draft.ttlSeconds },
+      };
+    }),
     {
       name: "retomar_conversacion",
       language: "es",
@@ -110,6 +107,16 @@ export const whatsappStep: SeedStep = {
         components: template.components,
         variables: templateVariableNames(template.components),
         rejectedReason: template.rejectedReason,
+        ...(template.model
+          ? {
+              createdInApp: true,
+              requestedCategory: template.category,
+              parameterFormat: "NAMED",
+              variableBindings: template.model.bindings,
+              buttonRoles: template.model.buttonRoles,
+              ttlSeconds: template.model.ttlSeconds,
+            }
+          : {}),
         lastSyncedAt: ctx.now,
         createdAt: ctx.now,
         updatedAt: ctx.now,

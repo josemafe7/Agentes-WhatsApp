@@ -1,5 +1,5 @@
 // `pnpm seed [--sector=<sector>] [--force-demo]`: loads the demo of a sector ([ARR-10]), replacing the demo
-// already there ("instead of the hair salon"). Refuses an unknown sector before opening the database, refuses
+// already there ("instead of the physiotherapy clinic", the default, [ARR-06]). Refuses an unknown sector before opening the database, refuses
 // outside local demos unless --force-demo ([ARR-18]) and always refuses real business data ([ARR-19]).
 import { DemoRefusedError, loadDemo } from "../../seed";
 import { migrateDatabase } from "../../src/db/migrate";

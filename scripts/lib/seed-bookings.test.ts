@@ -13,6 +13,7 @@ import {
   agents,
   aiRuns,
   bookingEvents,
+  bookingReminderSends,
   bookings,
   businessSettings,
   channels,
@@ -541,18 +542,27 @@ describe("demo agenda (pnpm seed)", () => {
     expect(notices[0].title).toMatch(/pendiente de confirmar/);
   });
 
-  it("[AGD-24] the reminder is prepared with the demo's approved template but off, so nothing is scheduled", async () => {
+  it("[AGD-24] [ARR-25] the reminders come on with the demo's approved template: the day before at 10:00 by WhatsApp or else email, and 2 hours before by WhatsApp; nothing sent while loading", async () => {
     const [settings] = await db.select().from(reminderSettings);
     const [whatsapp] = await db.select().from(channels).where(eq(channels.type, "whatsapp"));
-    expect(settings).toMatchObject({ enabled: false, leadMinutes: 1440, channel: "whatsapp_template", whatsappChannelId: whatsapp.id, templateLanguage: "es" });
-    const [template] = await db
-      .select()
-      .from(whatsappTemplates)
-      .where(and(eq(whatsappTemplates.channelId, whatsapp.id), eq(whatsappTemplates.name, settings.templateName ?? "")));
-    expect(template).toMatchObject({ status: "APPROVED", category: "UTILITY" });
-    expect(Object.keys(settings.templateVariables).sort()).toEqual([...template.variables].sort());
-    expect(Object.values(settings.templateVariables).every(isReminderFieldKey)).toBe(true);
+    expect(settings.enabled).toBe(true);
+    expect(settings.rules.map((rule) => [rule.id, rule.lead, rule.routes])).toEqual([
+      ["dia-antes", { kind: "days", days: 1, at: "10:00" }, ["whatsapp", "email"]],
+      ["dos-horas", { kind: "hours", minutes: 120 }, ["whatsapp"]],
+    ]);
+    for (const rule of settings.rules) {
+      expect(rule.whatsapp).toMatchObject({ channelId: whatsapp.id, templateName: "recordatorio_cita", confirmButton: "Confirmo", changeButton: "Necesito cambiarla" });
+      const [template] = await db
+        .select()
+        .from(whatsappTemplates)
+        .where(and(eq(whatsappTemplates.channelId, whatsapp.id), eq(whatsappTemplates.name, rule.whatsapp?.templateName ?? "")));
+      expect(template).toMatchObject({ status: "APPROVED", category: "UTILITY" });
+      expect(Object.keys(rule.whatsapp?.variables ?? {}).sort()).toEqual([...template.variables].sort());
+      expect(Object.values(rule.whatsapp?.variables ?? {}).every(isReminderFieldKey)).toBe(true);
+    }
+    // The recurring job starts with the app ([AGD-24]), not while loading.
     expect(await db.select().from(jobs)).toEqual([]);
+    expect(await db.select().from(bookingReminderSends)).toEqual([]);
     expect(await db.select().from(bookings).where(isNotNull(bookings.reminderSentAt))).toEqual([]);
   });
 

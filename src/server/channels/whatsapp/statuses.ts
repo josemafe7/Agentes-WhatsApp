@@ -9,12 +9,15 @@ import { db } from "@/db";
 import { contactIdentities, conversations, messages } from "@/db/schema";
 import { isBsuid, phoneDigits, resolveMarket } from "@/lib/meta/markets";
 import { estimateMessageCost, type CostEstimate } from "@/lib/meta/pricing";
+import { enqueueReminderFallback, reminderSendOf } from "@/server/booking/reminder-buttons";
+import { applyCampaignDelivery, applyCampaignFailure, recordCampaignCost } from "@/server/campaigns/statuses";
 import { handoffService } from "@/server/handoff/service";
 import { applyStatusUpdate } from "@/server/inbound/status";
 import { notify } from "@/server/notifications/notify";
 import type { ChannelRecord, StatusUpdateEvent } from "../types";
 import { readWhatsAppConfig } from "./config";
 import { countFreeServiceDelivery, recordMetaFailure } from "./failures";
+import { FIRST_CONTACT_UNDELIVERED, firstContactPhoneOf, linkFirstContactIdentity, UNDELIVERABLE_CODE, undoFirstContactIdentity } from "./first-contact";
 
 const DELIVERY_FAILED_REASON = "No se ha podido entregar la respuesta de la IA";
 
@@ -44,18 +47,32 @@ export async function storeCostEstimate(messageId: string): Promise<CostEstimate
   const regular = row.pricingType.toLowerCase() === "regular";
   const rate = regular && market && row.pricingCategory ? await findPricingRate(market, row.pricingCategory) : null;
   const estimate = estimateMessageCost(pricing, market, () => rate);
-  if (estimate.cost !== null) await db.update(messages).set({ costEstimate: estimate.cost, updatedAt: new Date() }).where(eq(messages.id, messageId));
+  if (estimate.cost !== null) {
+    await db.update(messages).set({ costEstimate: estimate.cost, updatedAt: new Date() }).where(eq(messages.id, messageId));
+    await recordCampaignCost(messageId, estimate.cost);
+  }
   return estimate;
 }
 
 async function onFailed(channel: ChannelRecord, messageId: string, status: StatusUpdateEvent, now: Date): Promise<void> {
   const [message] = await db
-    .select({ conversationId: messages.conversationId, senderType: messages.senderType, agentId: messages.agentId, contentType: messages.contentType })
+    .select({ conversationId: messages.conversationId, senderType: messages.senderType, agentId: messages.agentId, contentType: messages.contentType, metadata: messages.metadata })
     .from(messages)
     .where(eq(messages.id, messageId));
   if (!message) return;
   const code = typeof status.error?.code === "number" ? status.error.code : null;
+  // A first message to a phone that WhatsApp could not deliver creates nothing and, when that is the reason, says it in
+  // its own words ([WA-63]).
+  const firstContact = Boolean(firstContactPhoneOf(message.metadata));
+  if (firstContact) await undoFirstContactIdentity(messageId, status.recipient?.userId ?? null);
+  const undeliverable = firstContact && (code === null || code === UNDELIVERABLE_CODE);
+  if (undeliverable) await db.update(messages).set({ error: { ...(status.error ?? {}), message: FIRST_CONTACT_UNDELIVERED }, updatedAt: now }).where(eq(messages.id, messageId));
   await recordMetaFailure(channel, { conversationId: message.conversationId, code, serviceMessage: message.contentType !== "template", now });
+  // A reminder Meta could not deliver goes by its next channel, through the queue ([AGD-24], [CAN-10]).
+  const sendId = reminderSendOf(message.metadata);
+  if (sendId) await enqueueReminderFallback({ sendId, messageId, reason: undeliverable ? FIRST_CONTACT_UNDELIVERED : (status.error?.message ?? null) });
+  // An envío's message too, by the next channel marked ([ENV-03]).
+  await applyCampaignFailure(message.metadata, messageId, { code, reason: undeliverable ? FIRST_CONTACT_UNDELIVERED : (status.error?.message ?? null) });
   if (message.senderType !== "ai") return;
   // An AI reply Meta could not deliver ([WA-46]): a person takes over if the channel says so; else the team is told.
   const reason = `${DELIVERY_FAILED_REASON}: ${status.error?.message ?? "error desconocido"}`;
@@ -89,11 +106,14 @@ export async function applyWhatsAppStatuses(channel: ChannelRecord, statuses: re
     }
     outcome.applied += 1;
     if (applied.changed) outcome.changed += 1;
+    // A first message to a phone: Meta's id of whoever got it becomes the contact's identity, «sin confirmar» ([WA-63]).
+    if (status.recipient && status.status !== "failed") await linkFirstContactIdentity(applied.messageId, status, now);
     if (status.pricing) {
       const estimate = await storeCostEstimate(applied.messageId);
       if (estimate?.reason === "free" && status.pricing.type === "free_customer_service") await countFreeServiceDelivery(channel.id, now);
     }
     if (status.status === "failed" && applied.changed) await onFailed(channel, applied.messageId, status, now);
+    else if (applied.changed) await applyCampaignDelivery(applied.messageId, status.status, now);
   }
   return outcome;
 }

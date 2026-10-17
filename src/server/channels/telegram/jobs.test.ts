@@ -205,7 +205,7 @@ describe("tg.poll: a bot without a public address [TG-06]", () => {
     const { calls, deps } = telegram(connectedBotRoutes({ getUpdates: () => tgOk([textUpdate("Hola", { updateId: 200, messageId: 1 }), voiceUpdate({ updateId: 201, messageId: 2 })]) }));
     const outcome = await runTelegramPoll(channel.id, {}, deps);
     expect(outcome).toMatchObject({ kind: "polled", updates: 2 });
-    expect(calls[0]).toMatchObject({ method: "getUpdates", body: { limit: 100, timeout: 0, allowed_updates: ["message"] } });
+    expect(calls[0]).toMatchObject({ method: "getUpdates", body: { limit: 100, timeout: 0, allowed_updates: ["message", "callback_query", "my_chat_member"] } });
     expect(await db.select().from(messages)).toHaveLength(2);
     expect(await db.select().from(jobs).where(and(eq(jobs.type, REPLY_JOB), eq(jobs.status, "pending")))).toHaveLength(1);
     expect(await db.select().from(jobs).where(eq(jobs.type, TELEGRAM_MEDIA_DOWNLOAD_JOB))).toHaveLength(1);

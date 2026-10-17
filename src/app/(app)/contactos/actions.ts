@@ -1,12 +1,14 @@
 "use server";
-// Server Actions of Contactos ([CTO-01], [CTO-02], [CTO-05]–[CTO-07]). Thin: session and permission here, then
+// Server Actions of Contactos ([CTO-01], [CTO-02], [CTO-05]–[CTO-07], [CTO-09]). Thin: session and permission here, then
 // src/data/contacts*.ts, which checks the permission again (an Agent only on contacts of their channels, [PER-02]) and
 // validates every field with Zod ([SEG-04], [SEG-05]). Exports go through actions, never GET links: each one writes the
 // activity log, and actions only take POST from the app itself ([SEG-06]).
 import { revalidatePath } from "next/cache";
+import { markPermissionForContacts, type BulkPermissionResult } from "@/data/consents";
 import { createContact, updateContact } from "@/data/contacts";
 import { eraseContact, eraseContacts } from "@/data/contacts-erase";
 import { exportContactData, exportContactsCsv, type ExportFile } from "@/data/contacts-export";
+import { importTemplateFile } from "@/data/contacts-import";
 import { mergeContacts } from "@/data/contacts-merge";
 import { ok, type ActionResult } from "@/lib/action-result";
 import { PERMISSIONS } from "@/lib/permissions";
@@ -105,6 +107,28 @@ export async function mergeContactsAction(input: unknown): Promise<ActionResult<
     revalidatePath(INBOX_PATH, "layout");
     revalidatePath(AGENDA_PATH);
     return ok({ keepId: outcome.keepId }, "Contactos fusionados.");
+  } catch (error) {
+    return toActionFailure(error);
+  }
+}
+
+/** «Permisos» on the contacts selected in the list ([CTO-09]): those with a baja are skipped and listed ([CTO-10]). */
+export async function markPermissionsAction(input: unknown): Promise<ActionResult<BulkPermissionResult>> {
+  try {
+    const actor = await requirePermission(PERMISSIONS.contacts.consents);
+    const result = await markPermissionForContacts(actor, input);
+    revalidatePath(CONTACTS_PATH, "layout");
+    return ok(result, result.marked === 1 ? "Permiso marcado en 1 contacto." : `Permiso marcado en ${result.marked} contactos.`);
+  } catch (error) {
+    return toActionFailure(error);
+  }
+}
+
+/** «Descargar plantilla» of «Importar contactos» ([CTO-11]): an Excel with the titles the app recognises. */
+export async function downloadImportTemplateAction(): Promise<ActionResult<{ fileName: string; mimeType: string; base64: string }>> {
+  try {
+    const actor = await requirePermission(PERMISSIONS.contacts.import);
+    return ok(importTemplateFile(actor));
   } catch (error) {
     return toActionFailure(error);
   }
