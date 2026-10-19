@@ -624,11 +624,31 @@ Meta las rechaza.
 
 ### 7. Publicar una versión nueva
 
-1. **Copia de seguridad** de la base (apartado 10).
+1. **Copia de seguridad** de la base (apartado 10). Con «Desplegar solo» (abajo), subir a `main` ya publica: si el
+   cambio trae migraciones, haz la copia antes de subirlo.
 2. Sube los cambios a `main` y espera a que el flujo «Imagen para el servidor» termine en verde en **Actions**.
-3. En Dokploy, **Deploy**: descarga la imagen nueva, `migrate` pone la base al día y después arrancan `web` y
-   `worker`. Como las migraciones solo añaden, mientras tanto no se rompe nada.
+3. En Dokploy, **Deploy** (con «Desplegar solo», lo pide el propio flujo al terminar): descarga la imagen nueva,
+   `migrate` pone la base al día y después arrancan `web` y `worker`. Como las migraciones solo añaden, mientras
+   tanto no se rompe nada.
 4. Comprueba `/api/health` (con la versión nueva en `"version"`).
+
+**Desplegar solo:** el flujo «Imagen para el servidor» puede pedirle a Dokploy que despliegue en cuanto la imagen
+nueva está construida y probada, con la API de Dokploy (`POST /api/compose.deploy`). Necesita que el panel de Dokploy
+se abra desde internet con HTTPS (su dominio propio, paso 5 de «3. El servidor») y tres secretos en GitHub:
+
+1. En Dokploy, **Settings › Profile › API/CLI**, genera una clave. Da el mismo control que tu usuario de Dokploy:
+   guárdala solo en GitHub y en tu gestor de contraseñas.
+2. Abre el servicio Compose de la app: su número es el último trozo de la dirección del navegador, tras
+   `/services/compose/`.
+3. En GitHub, en el repositorio, **Settings › Secrets and variables › Actions › New repository secret**, crea:
+   `DOKPLOY_URL` (la dirección del panel, por ejemplo `https://panel.tudominio.com`), `DOKPLOY_API_KEY` (la clave) y
+   `DOKPLOY_COMPOSE_ID` (el número del servicio).
+
+Desde la siguiente subida a `main`, el último paso del flujo, «Desplegar en Dokploy», lanza el despliegue; sin los tres
+secretos, se salta y todo sigue como antes. Si falla (la dirección no responde o la clave no vale), el flujo sale en
+rojo con lo que contestó Dokploy, pero la imagen ya está publicada: pulsa **Deploy** a mano. No actives el «Auto
+Deploy» de Dokploy: despliega en el momento de la subida, antes de que exista la imagen nueva, y vuelve a instalar la
+anterior.
 
 **Volver a la versión anterior:** cada imagen queda también con el código de su commit (`sha-…`, en **Packages** de
 GitHub). Añade en **Environment** `APP_IMAGE=ghcr.io/josemafe7/agentes-whatsapp:sha-<código>` y pulsa **Deploy**.

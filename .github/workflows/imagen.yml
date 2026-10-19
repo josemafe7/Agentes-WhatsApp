@@ -1,7 +1,8 @@
 # The app's image for an own server with Dokploy (docs/guia-despliegue.md, «Servidor propio con Dokploy»).
 # On every push to main: it builds the image, tries it with the real docker-compose.yml against a Postgres with pgvector
 # (migrations, the app answering /api/health and the worker running) and, only if all of that works, publishes it in
-# GitHub's registry (ghcr.io) as «latest» and with the commit. A tag v1.2.3 publishes it also as 1.2.3.
+# GitHub's registry (ghcr.io) as «latest» and with the commit. A tag v1.2.3 publishes it also as 1.2.3. With the three
+# secrets of «Desplegar solo» (docs/guia-despliegue.md), a push to main then asks Dokploy to deploy it.
 name: Imagen para el servidor
 
 on:
@@ -22,6 +23,10 @@ jobs:
   imagen:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      # A secret cannot be read in an «if»: this only says whether the three of «Desplegar solo» are there. Without them,
+      # the image is published and Dokploy waits for «Deploy», as before.
+      DOKPLOY_READY: ${{ secrets.DOKPLOY_URL != '' && secrets.DOKPLOY_API_KEY != '' && secrets.DOKPLOY_COMPOSE_ID != '' }}
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -119,3 +124,21 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
+
+      # Only now, with «latest» published: Dokploy downloads it, migrates and starts web and worker. Its own «Auto
+      # Deploy» would start at the push, before this image exists, and install the previous one.
+      - name: Desplegar en Dokploy
+        if: github.ref == 'refs/heads/main' && env.DOKPLOY_READY == 'true'
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+        run: |
+          set -euo pipefail
+          # POST /api/compose.deploy with the key in x-api-key (https://docs.dokploy.com/docs/api/reference-compose).
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            -X POST "${DOKPLOY_URL%/}/api/compose.deploy" \
+            -H "accept: application/json" \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: ${DOKPLOY_API_KEY}" \
+            --data "{\"composeId\":\"${DOKPLOY_COMPOSE_ID}\",\"title\":\"GitHub ${GITHUB_SHA::7}\"}"

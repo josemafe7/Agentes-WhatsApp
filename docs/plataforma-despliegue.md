@@ -392,6 +392,13 @@ sobre las contraseñas públicas de la demo).
   que pueda editar un Compose puede ejecutar órdenes en el servidor a través de su comando personalizado
   (GHSA-qh6h-669j-77rw). Quien entra en el panel puede acabar siendo root del servidor: **el panel nunca se
   da al negocio**. Solo lo usa quien implanta, con verificación en dos pasos o passkeys.
+- Desplegar desde GitHub al terminar la imagen (`docs/guia-despliegue.md`, «Desplegar solo») usa la API de Dokploy:
+  `POST https://<panel>/api/compose.deploy` con la clave en la cabecera `x-api-key` y `{"composeId": "…"}`; la clave
+  se genera en `/settings/profile`, apartado API/CLI (https://docs.dokploy.com/docs/api,
+  https://docs.dokploy.com/docs/api/reference-compose, comprobado el 2026-10-19). Esa clave tiene el poder de su
+  usuario, así que vale lo mismo que entrar en el panel: solo como secreto de GitHub, que el flujo pasa únicamente a
+  ese paso, y se cambia si se filtra. El «Auto Deploy» de Dokploy no sirve aquí: se dispara con la subida, antes de
+  que exista la imagen nueva (https://docs.dokploy.com/docs/core/auto-deploy).
 - La guía de producción de Dokploy pide, entre otras cosas:
   - cortafuegos que solo abra 22, 80 y 443, con `ufw-docker`, porque Docker salta las reglas de UFW para los
     puertos publicados;
