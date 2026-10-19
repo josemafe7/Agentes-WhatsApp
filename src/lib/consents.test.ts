@@ -27,13 +27,24 @@ describe("Permisos y bajas de un contacto [CTO-09] [CTO-10]", () => {
     expect(hasPermission(withdrawn, "reminders")).toBe(false);
   });
 
-  it("a reminder by WhatsApp or Telegram needs «Avisos de sus citas»; by email it does not [AGD-24]", () => {
+  it("«Avisos de sus citas» se da por hecho: with no record it is given, until a withdrawal; publicidad is not (decision 0030)", () => {
     const none = consentStateOf([]);
-    expect(blockReason(none, "whatsapp", "reminder")).toBe("no_reminders_permission");
-    expect(blockReason(none, "telegram", "reminder")).toBe("no_reminders_permission");
+    expect(hasPermission(none, "reminders")).toBe(true);
+    expect(hasPermission(none, "marketing")).toBe(false);
+    expect(hasPermission(consentStateOf([record("reminders_withdrawn", "2026-09-02T10:00:00Z")]), "reminders")).toBe(false);
+    const back = consentStateOf([record("reminders_withdrawn", "2026-09-02T10:00:00Z"), record("reminders_granted", "2026-09-03T10:00:00Z")]);
+    expect(hasPermission(back, "reminders")).toBe(true);
+  });
+
+  it("a reminder by WhatsApp or Telegram goes unless «Avisos de sus citas» was withdrawn; email does not look at it [AGD-24]", () => {
+    const none = consentStateOf([]);
+    expect(blockReason(none, "whatsapp", "reminder")).toBeNull();
+    expect(blockReason(none, "telegram", "reminder")).toBeNull();
     expect(blockReason(none, "email", "reminder")).toBeNull();
-    const given = consentStateOf([record("reminders_granted", "2026-09-01T10:00:00Z")]);
-    expect(blockReason(given, "whatsapp", "reminder")).toBeNull();
+    const withdrawn = consentStateOf([record("reminders_withdrawn", "2026-09-02T10:00:00Z")]);
+    expect(blockReason(withdrawn, "whatsapp", "reminder")).toBe("no_reminders_permission");
+    expect(blockReason(withdrawn, "telegram", "reminder")).toBe("no_reminders_permission");
+    expect(blockReason(withdrawn, "email", "reminder")).toBeNull();
   });
 
   it("novedades y publicidad needs its permission on every channel, and a baja of it stops only that [WA-61] [CTO-10]", () => {

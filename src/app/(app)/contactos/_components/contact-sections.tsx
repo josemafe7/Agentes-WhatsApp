@@ -70,15 +70,15 @@ export function OptOutNotice({ optOuts, timezone, liftFor }: { optOuts: ActiveOp
 }
 
 /**
- * Permisos ([CTO-09]): «Avisos de sus citas» (WhatsApp and Telegram reminders) and «Novedades y publicidad», each with
- * since when, how it was given and who recorded it; with the AI, its question and the answer ([HER-15]). With
- * `editFor`, «Marcar» and «Quitar».
+ * Permisos ([CTO-09]): «Avisos de sus citas» (WhatsApp and Telegram reminders, «Sí, por defecto» until the customer
+ * says no, decision 0030) and «Novedades y publicidad», each with since when, how it was given or withdrawn and who
+ * recorded it; with the AI, what was said ([HER-15]). With `editFor`, «Marcar» and «Quitar».
  */
 export function PermissionsSection({ state, timezone, editFor }: { state: ConsentState; timezone: string; editFor?: { contactId: string } }) {
   return (
     <ContactSection
       title="Permisos"
-      description="Avisos de sus citas vale para WhatsApp y Telegram (el correo no lo necesita); Novedades y publicidad, para todos los canales."
+      description="Avisos de sus citas se da por hecho mientras no diga que no, y vale para WhatsApp y Telegram (el correo no lo necesita); Novedades y publicidad, solo si lo da, para todos los canales."
     >
       <ul className="grid gap-4">
         {(["reminders", "marketing"] as const).map((permission) => {
@@ -88,7 +88,7 @@ export function PermissionsSection({ state, timezone, editFor }: { state: Consen
             <li key={permission} className="grid gap-1 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-medium">{PERMISSION_LABELS[permission]}</span>
-                <span className={cn("text-xs font-medium", granted ? "text-success" : "text-muted-foreground")}>{granted ? "Sí" : "No"}</span>
+                <span className={cn("text-xs font-medium", granted ? "text-success" : "text-muted-foreground")}>{granted ? (record ? "Sí" : "Sí, por defecto") : "No"}</span>
               </div>
               {record ? (
                 <span className="text-xs text-muted-foreground">
@@ -97,7 +97,7 @@ export function PermissionsSection({ state, timezone, editFor }: { state: Consen
                   {record.recordedByName ? ` · Anotado por ${record.recordedByName}` : record.source === "ai" ? " · Anotado por la IA" : ""}
                 </span>
               ) : (
-                <span className="text-xs text-muted-foreground">Sin anotar.</span>
+                <span className="text-xs text-muted-foreground">{granted ? "Se da por hecho mientras no diga que no." : "Sin anotar."}</span>
               )}
               {record?.note ? <span className="text-xs text-muted-foreground">Nota: {record.note}</span> : null}
               {record?.evidence ? <EvidenceLines evidence={record.evidence} /> : null}

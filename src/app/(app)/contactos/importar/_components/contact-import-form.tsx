@@ -215,7 +215,8 @@ export function ContactImportForm({ maxMegabytes, defaultPrefix }: { maxMegabyte
           <p>
             Para cada permiso, <strong>Avisos de sus citas</strong> y <strong>Novedades y publicidad</strong>, «sí» o «no»; y si quieres, su fecha (<strong>Fecha avisos</strong>,{" "}
             <strong>Fecha novedades</strong>, como 15/09/2026) y cómo lo dio (<strong>Cómo dio avisos</strong>, <strong>Cómo dio novedades</strong>: en persona, por escrito, en la web…).
-            Sin fecha se pone la de hoy y, sin cómo, «importado».
+            Sin fecha se pone la de hoy y, sin cómo, «importado». <strong>Avisos de sus citas</strong> se da por hecho: déjalo vacío o pon «sí» para avisarles, y «no»
+            solo para quien no quiere avisos.
           </p>
         </div>
         <div>

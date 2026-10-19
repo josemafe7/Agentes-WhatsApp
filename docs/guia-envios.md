@@ -35,10 +35,11 @@ Se consigue así:
   selecciónalos en Contactos y pulsa «Permisos». Solo si el cliente lo ha dado de verdad: queda anotado quién lo
   marca, cuándo y cómo.
 - **Al importar tus clientes**, con las columnas del permiso (apartado 2).
-- **La IA no lo pide sola** para publicidad: cuando reserva una cita solo pregunta por «Avisos de sus citas».
+- **La IA no lo pide nunca.**
 
-Pídelo aparte de los avisos de las citas: Meta recomienda un permiso separado para las promociones, y quien acepta
-recibir avisos de su cita no ha aceptado recibir ofertas.
+No es como «Avisos de sus citas», que se da por hecho mientras el cliente no diga que no (guía de la agenda,
+apartado 11): Meta recomienda un permiso aparte para las promociones, y quien recibe avisos de su cita no ha aceptado
+recibir ofertas.
 
 **Las bajas son por canal.** Si el cliente se da de baja de la publicidad en un canal, ya no recibe envíos por ese
 canal, pero sí los recordatorios de sus citas y las respuestas de la IA. Se da de baja:

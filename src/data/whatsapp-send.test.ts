@@ -230,12 +230,15 @@ describe("templates offered by the inbox [BAN-08] [WA-22] [CAN-14]", () => {
     expect(state?.optedOut).toBe(false);
   });
 
-  it("[WA-61] says which permission a template needs when the customer lacks it, and refuses to send it until it is recorded", async () => {
+  it("[WA-61] a utility template goes with «Avisos de sus citas» por defecto; once the customer says no, it is refused until recorded again", async () => {
     const template = await addTemplate();
-    const { contact } = await createContactWithIdentity("whatsapp", { name: "Sin permiso", externalId: "US.10000000000000000099", phone: "15550009999" });
+    const { contact } = await createContactWithIdentity("whatsapp", { name: "Sin anotar", externalId: "US.10000000000000000099", phone: "15550009999" });
     const conversation = await createConversation(channel.id, contact.id, { lastInboundAt: hoursAgo(30) });
+    expect((await getWhatsAppInboxState(owner.actor, conversation.id))?.templates[0].blocked).toBeNull();
+
+    await db.insert(consents).values({ contactId: contact.id, type: "reminders_withdrawn", source: "person", method: "in_person", createdAt: hoursAgo(1) });
     const state = await getWhatsAppInboxState(owner.actor, conversation.id);
-    expect(state?.templates[0].blocked).toEqual({ message: "Falta el permiso «Avisos de sus citas» del cliente: anótalo antes, diciendo cómo lo dio.", permission: "reminders" });
+    expect(state?.templates[0].blocked).toEqual({ message: "Este cliente dijo que no quiere «Avisos de sus citas»: vuelve a anotarlo solo si te lo pide, diciendo cómo.", permission: "reminders" });
     await expect(sendHumanTemplateMessage(owner.actor, { conversationId: conversation.id, templateId: template.id, values: REMINDER_VALUES })).rejects.toMatchObject({ status: 409 });
     expect(sentToMeta()).toHaveLength(0);
 

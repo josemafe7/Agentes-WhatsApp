@@ -38,13 +38,8 @@ test("[WA-43][BAN-08][CAN-14][WA-22][WA-42][WA-61] outside the 24 h window only 
     // [WA-22][WA-43] Only the approved ones, never the pending or the rejected one.
     expect((await offeredTemplates(page)).sort()).toEqual([...APPROVED].sort());
 
-    // [WA-61] A utility template needs «Avisos de sus citas», which this new customer has not given yet.
-    await sendTemplate(
-      page,
-      "recordatorio_cita",
-      { nombre: "Pedro", fecha: "3 de octubre", hora: "10:30" },
-      { recordPermission: { blocked: "Falta el permiso «Avisos de sus citas» del cliente: anótalo antes, diciendo cómo lo dio.", how: "En persona" } },
-    );
+    // [WA-61] A utility template goes to this new customer: «Avisos de sus citas» se da por hecho (decision 0030).
+    await sendTemplate(page, "recordatorio_cita", { nombre: "Pedro", fecha: "3 de octubre", hora: "10:30" });
     await expect(conversationLog(page)).toContainText("Hola Pedro, te recordamos tu cita el 3 de octubre a las 10:30.");
     await expect.poll(async () => (await sentMessages(mock, number)).length).toBe(1);
     const [sent] = await sentMessages(mock, number);

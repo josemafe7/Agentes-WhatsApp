@@ -253,7 +253,7 @@ Cuando han pasado más de 24 horas desde el último mensaje del cliente, WhatsAp
 
 - Solo se pueden enviar las **aprobadas**.
 - **Categorías:** marketing, utilidad (por ejemplo, un recordatorio de cita) y autenticación. Cada una tiene su tarifa (apartado «Método de pago»). Si pides utilidad y el texto suena a publicidad, Meta la aprueba como marketing: la app te avisa al crearla de lo que suele cambiarla y, si pasa, lo dice en la plantilla.
-- **El permiso del cliente:** Meta pide su permiso antes de cualquier plantilla. La app solo envía una de utilidad a quien tiene el permiso **«Avisos de sus citas»** y una de marketing a quien tiene **«Novedades y publicidad»** y no se ha dado de baja de ella, y solo si la plantilla tiene un botón de baja. Si falta, el diálogo de la bandeja te deja anotarlo diciendo cómo lo dio (guía de la agenda, apartado 11).
+- **El permiso del cliente:** Meta pide su permiso antes de cualquier plantilla y deja que cada negocio decida cómo conseguirlo. La app da por hecho el de **«Avisos de sus citas»**: envía una de utilidad a quien no ha dicho que no lo quiere. Una de marketing solo va a quien tiene **«Novedades y publicidad»** y no se ha dado de baja de ella, y solo si la plantilla tiene un botón de baja. Si falta, el diálogo de la bandeja te deja anotarlo diciendo cómo lo dio (guía de la agenda, apartado 11).
 - **La baja de publicidad:** si el cliente pulsa el botón de baja de una plantilla de marketing, o se lo pide a WhatsApp, queda dado de baja de novedades y publicidad por WhatsApp (sus recordatorios siguen llegando).
 - Sin verificar la empresa, cada cuenta puede tener hasta **250 plantillas**.
 - En la bandeja, al elegir una plantilla, rellenas sus datos y ves cómo queda antes de enviarla.

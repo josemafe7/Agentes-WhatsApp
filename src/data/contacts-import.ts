@@ -218,21 +218,21 @@ export async function importContacts(actor: Actor, file: ImportFile, input: unkn
           }),
         )
         .returning({ id: contacts.id });
-      // New contacts have no consents yet: their permissions go in one statement per chunk. A «no» of a new contact is
-      // what it already has: nothing to record.
+      // New contacts have no consents yet: their permissions go in one statement per chunk. A «no» to publicidad is what
+      // a new contact already has; a «no» to «Avisos de sus citas», given by default (decision 0030), is recorded.
       const given = chunk.flatMap((row, index) =>
         (Object.entries(row.permissions) as [ContactPermission, NonNullable<ImportRow["permissions"][ContactPermission]>][])
-          .filter(([, permission]) => permission.granted)
-          .map(([permission, permissionGiven], order) => ({
+          .filter(([permission, answer]) => answer.granted || permission === "reminders")
+          .map(([permission, answer], order) => ({
             contactId: inserted[index].id,
-            type: permissionTypes(permission).granted,
+            type: answer.granted ? permissionTypes(permission).granted : permissionTypes(permission).withdrawn,
             source: "import",
-            method: permissionGiven.method,
-            givenAt: permissionGiven.givenAt ?? now,
+            method: answer.method,
+            givenAt: answer.givenAt ?? now,
             actorType: "user" as const,
             recordedByUserId: actor.userId,
             recordedByName: actor.name,
-            note: [importedNote, permissionGiven.note].filter(Boolean).join(" · "),
+            note: [importedNote, answer.note].filter(Boolean).join(" · "),
             // One millisecond apart: the newest record of each permission decides ([CTO-09]).
             createdAt: new Date(now.getTime() + order),
             updatedAt: now,

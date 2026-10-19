@@ -12,8 +12,7 @@
 //   2. Confirm an offer: «Me va bien la primera» (confirmo, me va bien, me viene bien, perfecto, de acuerdo or vale; «la
 //      segunda», «la tercera» or the slot's time pick another) right after an offer → crear_cita with that slot, the
 //      offer's service, professional and group, and the name and email the customer gave (a message «a nombre de …»;
-//      else the name of the prompt's «Cliente:» line) → the reply is the tool's «confirmar_al_cliente» ([AGD-23]), followed
-//      by its «preguntar_permiso_avisos» when it brings one ([HER-15]). A slot
+//      else the name of the prompt's «Cliente:» line) → the reply is the tool's «confirmar_al_cliente» ([AGD-23]). A slot
 //      that is gone gets the tool's error and its alternatives, offered the same way ([AGD-13], [HER-06]).
 //   3. Book straight away: «Confirmo <servicio> [con <profesional>|en <sala>] el AAAA-MM-DD a las HH:MM [para N
 //      personas], a nombre de <nombre>» → listar_servicios, then crear_cita with that start (no offer first).
@@ -188,8 +187,7 @@ function afterAvailability(messages, toolMessage, textOf) {
 function afterCreate(messages, toolMessage, textOf) {
   const result = parseResult(textOf(toolMessage.content));
   const args = callArguments(messages, toolMessage.tool_call_id);
-  // [HER-15] With the question for reminders when the tool brings it, as the prompt asks.
-  if (result?.ok) return { text: [String(result.confirmar_al_cliente ?? "Reserva hecha."), result.preguntar_permiso_avisos].filter(Boolean).join(" ") };
+  if (result?.ok) return { text: String(result.confirmar_al_cliente ?? "Reserva hecha.") };
   const error = String(result?.error ?? "No he podido reservar.");
   const alternatives = Array.isArray(result?.alternativas) ? result.alternativas : [];
   if (alternatives.length === 0) return { text: error };

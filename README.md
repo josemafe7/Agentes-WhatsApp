@@ -319,8 +319,9 @@ La guía completa es [`docs/guia-agenda.md`](docs/guia-agenda.md), también en *
 9. **Recordatorios** (**Ajustes › Recordatorios**, propietario y administrador): desactivados por defecto en una
    instalación nueva; la demo los trae encendidos: el día antes a las 10:00 por WhatsApp (o, si no puede, por correo) y
    2 horas antes por WhatsApp, con la plantilla «recordatorio_cita» del WhatsApp de demo. Hasta tres por cita, cada uno
-   con su antelación y sus canales en orden (WhatsApp, Telegram o correo). Por WhatsApp y Telegram solo salen a quien
-   tiene el permiso «Avisos de sus citas» (en la demo, los clientes de WhatsApp menos uno, dado de baja). Cada
+   con su antelación y sus canales en orden (WhatsApp, Telegram o correo). Por WhatsApp y Telegram salen a todos
+   menos a quien ha dicho que no quiere «Avisos de sus citas», que se da por hecho (decisión 0030; en la demo, a los
+   clientes de WhatsApp menos uno, dado de baja). Cada
    recordatorio sale una vez por cada hora de la cita, nunca si está cancelada o el cliente se ha dado de baja, y se
    recalcula si la cita se mueve. En la demo, los de correo se guardan en `data/outbox/` y los de WhatsApp salen por el
    canal de demo, que nunca llama a Meta: se ven en la conversación de cada cliente y en la ficha de la cita

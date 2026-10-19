@@ -101,10 +101,10 @@ async function enableReminders(...rules: ReminderRule[]) {
 
 const enableWhatsApp = (overrides: Partial<ReminderRule> = {}) => enableReminders(whatsappRule(overrides));
 
-/** A customer with «Avisos de sus citas», which WhatsApp and Telegram reminders need ([CTO-09]); `permission: false`, without. */
+/** A customer with «Avisos de sus citas» por defecto ([CTO-09], decision 0030); `permission: false`, one who said no to it. */
 async function bookFor(options: { email?: string; start?: string; now?: Date; isTest?: boolean; permission?: boolean } = {}) {
   const { contact } = await createContactWithIdentity("whatsapp", { name: "Lucía", email: options.email ?? null });
-  if (options.permission !== false) await db.insert(consents).values({ contactId: contact.id, type: "reminders_granted", source: "person" });
+  if (options.permission === false) await db.insert(consents).values({ contactId: contact.id, type: "reminders_withdrawn", source: "person" });
   const booking = await createBooking({
     serviceId: cutId,
     resourceId: "any",
@@ -167,27 +167,27 @@ describe("booking reminders [AGD-24] [AGD-25]", () => {
     expect(event.changes).toMatchObject({ reason: "Se reservó después de su momento" });
   });
 
-  it("never by a channel the customer opted out of, nor by WhatsApp without «Avisos de sus citas»: the history says why [CUM-03] [CTO-09]", async () => {
+  it("never by a channel the customer opted out of, nor by WhatsApp to whoever said no to «Avisos de sus citas»: the history says why [CUM-03] [CTO-09]", async () => {
     await enableWhatsApp();
     const { contact, booking } = await bookFor();
     await db.insert(consents).values({ contactId: contact.id, channelId: whatsapp.id, channelType: "whatsapp", type: "opt_out", source: "keyword" });
-    const { booking: withoutPermission } = await bookFor({ start: "2026-09-29T10:30", permission: false });
+    const { booking: saidNo } = await bookFor({ start: "2026-09-29T10:30", permission: false });
     expect(await runBookingReminders({ now: at("2026-09-28T10:35") })).toEqual({ ...NONE, notSent: 2 });
     expect(await templatesSent()).toHaveLength(0);
     const reason = async (bookingId: string) =>
       (await db.select().from(bookingEvents).where(and(eq(bookingEvents.bookingId, bookingId), eq(bookingEvents.action, "reminder_not_sent"))))[0]?.changes.reason;
     expect(await reason(booking.id)).toBe("Se ha dado de baja de WhatsApp");
-    expect(await reason(withoutPermission.id)).toBe("Sin permiso de avisos");
+    expect(await reason(saidNo.id)).toBe("No quiere avisos de sus citas");
     // Once is once.
     expect(await runBookingReminders({ now: at("2026-09-28T10:40") })).toEqual(NONE);
   });
 
-  it("without «Avisos de sus citas» it goes by the next channel marked: the email, which needs no permission [AGD-24]", async () => {
+  it("to whoever said no to «Avisos de sus citas» it goes by the next channel marked: the email, which does not depend on it [AGD-24]", async () => {
     await enableWhatsApp({ routes: ["whatsapp", "email"] });
     const { booking } = await bookFor({ permission: false, email: "lucia@example.com" });
     expect(await runBookingReminders({ now: at("2026-09-28T10:05"), mailer })).toEqual({ ...NONE, sent: 1 });
     expect(await templatesSent()).toHaveLength(0);
-    expect(await sendsOf(booking.id)).toEqual([expect.objectContaining({ status: "sent", channel: "email", attempts: [expect.objectContaining({ channel: "whatsapp", outcome: "skipped", reason: "Sin permiso de avisos" }), expect.objectContaining({ channel: "email", outcome: "sent" })] })]);
+    expect(await sendsOf(booking.id)).toEqual([expect.objectContaining({ status: "sent", channel: "email", attempts: [expect.objectContaining({ channel: "whatsapp", outcome: "skipped", reason: "No quiere avisos de sus citas" }), expect.objectContaining({ channel: "email", outcome: "sent" })] })]);
   });
 
   it("[ENV-14] a contact of the demo or of the simulator never gets one through a channel that is not a demo one: it goes by the next channel", async () => {

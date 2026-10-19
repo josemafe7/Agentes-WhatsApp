@@ -57,7 +57,7 @@ test("[AGD-24][AGD-25] with a single reminder by email, the job sends a booking'
   }
 });
 
-test("[HER-15] booking with the AI by WhatsApp, the customer is asked about reminders and a clear «Sí» is recorded as their permission", async ({ page, request, openRouterKey }, testInfo) => {
+test("[HER-15] booking with the AI by WhatsApp never asks about reminders: «Sí, por defecto» in the card, and «no quiero avisos» is recorded", async ({ page, request, openRouterKey }, testInfo) => {
   test.setTimeout(180_000);
   expect(openRouterKey).toBeTruthy();
   const day = agendaTestDate(testInfo, 1, WEEKDAYS.WED);
@@ -77,16 +77,26 @@ test("[HER-15] booking with the AI by WhatsApp, the customer is asked about remi
   expect(offeredSlots(await replyWith("tengo estos huecos").first().innerText()).length).toBeGreaterThan(0);
 
   await simulateNextMessage(page, PICK_FIRST);
-  const question = "¿Quieres que Peluquería Aurora te avise por WhatsApp antes de tus citas?";
-  await untilWithQueue(request, async () => (await replyWith(question).count()) > 0, "the confirmation asks about reminders");
+  await untilWithQueue(request, async () => (await replyWith("Tu cita de Corte de hombre").count()) > 0, "the agent confirms the booking");
+  // «Avisos de sus citas» se da por hecho (decision 0030): no question about it.
+  await expect(replyWith("antes de tus citas?")).toHaveCount(0);
 
-  await simulateNextMessage(page, "Sí, por favor");
-  await untilWithQueue(request, async () => (await replyWith("Perfecto: te avisaremos antes de tus citas.").count()) > 0, "the agent confirms it");
   // The contact's card: a column when there is room, a side panel opened from the header when there is not.
+  const remindersLine = async () => {
+    await inbox.reload();
+    const column = inbox.getByRole("complementary", { name: "Ficha del contacto" });
+    if (!(await column.isVisible())) await inbox.getByRole("button", { name: "Ficha del contacto" }).click();
+    const card = column.or(inbox.getByRole("dialog", { name: "Ficha del contacto" }));
+    return card.getByRole("listitem").filter({ hasText: "Avisos de sus citas" });
+  };
+  await expect(await remindersLine()).toContainText("Sí, por defecto");
+  // Reloading closes the side panel: while it is open, the conversation behind it is hidden from the locators.
   await inbox.reload();
-  const column = inbox.getByRole("complementary", { name: "Ficha del contacto" });
-  if (!(await column.isVisible())) await inbox.getByRole("button", { name: "Ficha del contacto" }).click();
-  const card = column.or(inbox.getByRole("dialog", { name: "Ficha del contacto" }));
-  await expect(card.getByRole("listitem").filter({ hasText: "Avisos de sus citas" })).toContainText("Sí");
+
+  await simulateNextMessage(page, "No quiero avisos de mis citas");
+  await untilWithQueue(request, async () => (await replyWith("ya no te enviaremos avisos de tus citas").count()) > 0, "the agent confirms it");
+  const after = await remindersLine();
+  await expect(after).toContainText("No");
+  await expect(after).not.toContainText("Sí");
   await inbox.close();
 });

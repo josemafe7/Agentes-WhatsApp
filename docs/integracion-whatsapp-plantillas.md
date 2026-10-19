@@ -19,8 +19,9 @@ WhatsApp ([WA-62], [YC-11]). Completa `docs/integracion-whatsapp.md` (§5.8, sin
   `type: "button"` con `button.{payload, text}` y `context.id` = el wamid de la plantilla tocada.
 - La baja de publicidad que el cliente da desde WhatsApp llega en el webhook `user_preferences` (Meta) o
   `whatsapp.user.preferences` (YCloud). Si se le manda publicidad a quien la paró, el estado `failed` trae `131050`.
-- Meta pide el permiso del cliente antes de cualquier plantilla; la app lo comprueba ella misma, también con YCloud,
-  cuyo envío directo no mira su lista de bajas ([YC-11]).
+- Meta pide el permiso del cliente antes de cualquier plantilla y deja que cada negocio decida cómo conseguirlo; la
+  app da por hecho el de «Avisos de sus citas» (decisión 0030) y comprueba los permisos y las bajas ella misma, también
+  con YCloud, cuyo envío directo no mira su lista de bajas ([YC-11]).
 
 ## 1. Crear una plantilla con Meta
 

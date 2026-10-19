@@ -19,7 +19,7 @@ export const SYSTEM_TOOL_DESCRIPTIONS: Record<SystemToolName, string> = {
   cancelar_cita: "Cancela una cita del cliente de la conversación, con su confirmación.",
   reprogramar_cita: "Cambia de hora una cita del cliente, comprobando que el nuevo hueco sigue libre.",
   guardar_datos_contacto: "Guarda el nombre, el teléfono, el email y notas en la ficha del cliente.",
-  anotar_permiso_avisos: "Al reservar por WhatsApp o Telegram, pregunta si puede avisar antes de las citas y anota un sí claro, con la pregunta y la respuesta. Va con «Crear citas».",
+  anotar_permiso_avisos: "Los avisos antes de las citas se dan por hecho: si el cliente dice por WhatsApp o Telegram que no los quiere, lo anota con lo que dijo (y al revés, si vuelve a quererlos). Va con «Crear citas».",
   dar_de_baja: "Da de baja al cliente que pide con sus palabras que no le escribáis más o que no le mandéis publicidad. Siempre encendida.",
   transferir_a_humano: "Pasa la conversación a una persona del equipo con el motivo, un resumen y la urgencia.",
 };

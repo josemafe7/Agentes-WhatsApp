@@ -200,13 +200,13 @@ el conocimiento del negocio», apartado «5. Ponerlo a responder en un canal».
 - [ ] Si los quieres por WhatsApp: en el panel del número, **«Nueva plantilla» › «Recordatorio de cita»** y espera a
   que Meta la apruebe (o sincroniza una tuya y elige qué hace cada botón).
 - [ ] **Ajustes › Recordatorios** (vienen desactivados): hasta tres por cita, cada uno con cuándo y por dónde, en
-  orden. Por WhatsApp, con una plantilla de utilidad aprobada por Meta (cada recordatorio se cobra) y solo a quien
-  tiene el permiso «Avisos de sus citas»; por Telegram, a quien ha escrito al bot y tiene el permiso. Por email: si el
+  orden. Por WhatsApp, con una plantilla de utilidad aprobada por Meta (cada recordatorio se cobra) y nunca a quien
+  ha dicho que no quiere «Avisos de sus citas»; por Telegram, a quien ha escrito al bot. Por email: si el
   cliente ya escribió a un buzón conectado del negocio, sale por ese buzón en su mismo hilo y su respuesta llega a la
   Bandeja; si no, sale del correo del sistema y las respuestas van al buzón conectado o, si no hay ninguno, al email
   de contacto de Ajustes › Negocio.
-- [ ] **Permisos de tus clientes:** marca «Avisos de sus citas» a quien ya te lo dio (Contactos, seleccionar,
-  «Permisos», diciendo cómo lo dio). A los nuevos se lo pregunta la IA al reservar por WhatsApp o Telegram.
+- [ ] **Permisos de tus clientes:** «Avisos de sus citas» se da por hecho, así que no hay que marcarlo. Quítalo en la
+  ficha de quien te haya dicho que no quiere avisos («Permisos › Quitar permiso», diciendo cómo lo dijo).
 - [ ] Con la API de Meta conectada antes de la fase 12: añade el campo `user_preferences` a los avisos de la app de
   Meta (guía «Conectar WhatsApp», apartado «Webhook»).
 - [ ] Si no conectas ningún buzón, pon en Ajustes › Negocio un email de contacto que alguien lea: ahí llegan las

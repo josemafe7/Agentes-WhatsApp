@@ -243,9 +243,10 @@ describe("marking a permission on several contacts at once [CTO-09] [CTO-10]", (
     await createConversation(channelId, contactId);
     const stranger = (await createContactWithIdentity("whatsapp", { name: "Otro" })).contact.id;
     const agent = await createUser("agent", { channelIds: [channelId] });
-    expect((await markPermissionForContacts(agent.actor, { ids: [contactId, stranger], permission: "reminders", method: "in_person", confirmed: true })).marked).toBe(1);
-    expect(hasPermission(await loadConsentState(stranger), "reminders")).toBe(false);
+    // «Novedades y publicidad»: «Avisos de sus citas» is already given by default (decision 0030).
+    expect((await markPermissionForContacts(agent.actor, { ids: [contactId, stranger], permission: "marketing", method: "in_person", confirmed: true })).marked).toBe(1);
+    expect(hasPermission(await loadConsentState(stranger), "marketing")).toBe(false);
     const viewer = await createUser("viewer");
-    await expect(markPermissionForContacts(viewer.actor, { ids: [contactId], permission: "reminders", method: "in_person", confirmed: true })).rejects.toMatchObject({ status: 403 });
+    await expect(markPermissionForContacts(viewer.actor, { ids: [contactId], permission: "marketing", method: "in_person", confirmed: true })).rejects.toMatchObject({ status: 403 });
   });
 });

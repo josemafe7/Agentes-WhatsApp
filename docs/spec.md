@@ -352,12 +352,13 @@ Plantillas, permisos y bajas con la API oficial (Meta o YCloud; por código QR n
   cuando lo anuncia el día antes), la app lo enseña con el motivo en español y avisa al propietario y a los
   administradores ([AJU-08]). Una plantilla de utilidad que pasa a marketing deja de servir para los recordatorios:
   salen por el siguiente canal marcado ([AGD-24]) hasta que se elige otra, y su configuración lo avisa.
-- [WA-61] Ninguna plantilla sale sin el permiso que corresponde ([CTO-09]): las de utilidad, a quien tiene el permiso
-  «Avisos de sus citas»; las de marketing, a quien tiene el de «Novedades y publicidad» y no se ha dado de baja de ella
-  por WhatsApp. También desde la bandeja ([WA-43]): sin el permiso, la app lo explica y deja anotarlo, diciendo cómo
-  lo dio el cliente, antes de enviarla; una de marketing, además, solo si tiene un botón de baja ([ENV-06]). Meta
-  exige el permiso del cliente antes de enviar cualquier plantilla y no dice que haber escrito antes cuente como tal
-  (YCloud dice expresamente que no basta para la publicidad): por prudencia, la app no lo da por hecho.
+- [WA-61] Ninguna plantilla sale sin el permiso que corresponde ([CTO-09]): las de utilidad, a quien no ha dicho que no
+  quiere «Avisos de sus citas» (se da por hecho); las de marketing, a quien tiene el de «Novedades y publicidad» y no
+  se ha dado de baja de ella por WhatsApp. También desde la bandeja ([WA-43]): sin el permiso, la app lo explica y deja
+  anotarlo, diciendo cómo lo dio el cliente, antes de enviarla; una de marketing, además, solo si tiene un botón de
+  baja ([ENV-06]). Meta exige el permiso del cliente antes de enviar cualquier plantilla y deja que el negocio decida
+  cómo conseguirlo; para los avisos de sus citas, el propietario decidió darlo por hecho al ser cliente (decisión
+  0030), y la política de privacidad dice cómo dejar de recibirlos. Para la publicidad, nunca se da por hecho.
 - [WA-62] Cuando el cliente pulsa el botón de baja de una plantilla (el «No quiero publicidad» del modelo, o el que se
   eligió en una plantilla traída, [ENV-06]), o para la publicidad del negocio
   desde el propio WhatsApp (Meta lo avisa), queda de baja de novedades y publicidad por WhatsApp ([CTO-10]) y queda
@@ -738,7 +739,7 @@ Un bot de Telegram del propio negocio, creado con @BotFather (fase 9). Detalles 
   dice «No se pudo descargar el archivo».
 - [TG-12] Los recordatorios y los envíos por Telegram salen por el bot que se elige en su configuración y solo van a
   clientes que han escrito a ese bot (un bot no puede escribir primero, [TG-07]), que tienen el permiso que corresponde
-  ([CTO-09]) y que no se han dado de baja. Si el cliente ha bloqueado el bot, Telegram lo avisa (también al
+  ([CTO-09]: el de avisos se da por hecho mientras no digan que no) y que no se han dado de baja. Si el cliente ha bloqueado el bot, Telegram lo avisa (también al
   desbloquearlo): mientras siga bloqueado, no se le intenta enviar nada por ese bot y se pasa al siguiente canal
   marcado; si no hay otro, queda «No enviado: ha bloqueado el bot».
 - [TG-13] El recordatorio por Telegram lleva los mismos dos botones que el de WhatsApp, «Confirmo» y «Necesito
@@ -943,14 +944,12 @@ Detalles en `docs/integracion-openrouter.md`.
   un tamaño compacto.
 - [HER-14] Una herramienta HTTP solo puede llamar a direcciones públicas con HTTPS, nunca a la red interna del
   servidor.
-- [HER-15] Cuando la IA reserva una cita por WhatsApp o por Telegram a un cliente que aún no tiene el permiso «Avisos de
-  sus citas» ([CTO-09]) y los recordatorios están activados con WhatsApp o Telegram marcados ([AGD-24]), en el mensaje
-  de confirmación le pregunta, con el nombre del negocio y los canales por los que salen, si quiere que le avise antes
-  de sus citas (por ejemplo, «¿Quieres que Fisioterapia Movimiento te avise por WhatsApp antes de tus citas?»).
-  Solo con un sí claro lo anota con `anotar_permiso_avisos`; ante una respuesta dudosa, vuelve a preguntar. El
-  permiso guarda la fecha, el origen («en la conversación») y el texto de la pregunta y de la respuesta, que se
-  conservan mientras exista el permiso aunque la limpieza de [CUM-05] borre la conversación. Si dice que no, no se le
-  insiste en esa reserva y se le vuelve a preguntar cuando reserve otra cita. La IA nunca anota el permiso «Novedades y
+- [HER-15] Al reservar, la IA no pregunta por los avisos de sus citas: el permiso se da por hecho ([CTO-09]). Cuando el
+  cliente dice con sus palabras que no quiere avisos antes de sus citas, la IA lo anota con `anotar_permiso_avisos`
+  (acepta = false) y se lo confirma: desde entonces no le salen recordatorios por WhatsApp ni por Telegram. Si más
+  tarde dice que vuelve a quererlos, lo anota con acepta = true. Cada vez guarda la fecha, el origen («en la
+  conversación») y, como prueba, el último mensaje de la IA y el del cliente, que se conservan aunque la limpieza de
+  [CUM-05] borre la conversación. Ante una respuesta dudosa, le pregunta. La IA nunca anota el permiso «Novedades y
   publicidad». La herramienta solo está en las conversaciones de WhatsApp y de Telegram, y se enciende y se apaga con
   las de citas.
 - [HER-16] Cuando el cliente pide con sus palabras que no le escriban más («no me mandéis más mensajes», «no quiero
@@ -1147,8 +1146,8 @@ se da acceso. Nunca habla con clientes. Por qué está hecho así: `docs/decisio
   correo, un asunto y un texto. Cada recordatorio sale por el primero de los canales marcados, en ese orden, que el
   cliente puede recibir: tiene una vía en él (su WhatsApp o su teléfono, [WA-63]; haber escrito a ese bot, [TG-12]; su
   email), el canal está conectado, no se ha dado de baja en él, no ha bloqueado ese bot ([TG-12]), ningún otro contacto
-  tiene un WhatsApp con su teléfono si esa es la vía ([WA-63]) y, por WhatsApp y por Telegram, tiene el permiso «Avisos
-  de sus citas» ([CTO-09]). El correo no lo necesita, porque solo informa de su cita. Si el envío por un canal falla
+  tiene un WhatsApp con su teléfono si esa es la vía ([WA-63]) y, por WhatsApp y por Telegram, no ha dicho que no
+  quiere «Avisos de sus citas» ([CTO-09]). El correo no depende de ese permiso, porque solo informa de su cita. Si el envío por un canal falla
   (lo rechaza el canal, o Meta avisa de que no se pudo entregar, por ejemplo porque el teléfono no tiene WhatsApp), sale
   por el siguiente canal marcado que el cliente puede recibir, si la cita aún no ha empezado; que no llegue el aviso de
   «entregado» no cuenta como fallo, y uno que salió bien por un canal no sale por otro. Si la plantilla de WhatsApp
@@ -1177,8 +1176,8 @@ se da acceso. Nunca habla con clientes. Por qué está hecho así: `docs/decisio
   momento aún no ha llegado, vuelve a salir aunque ya hubiera salido para la hora anterior; si ya ha pasado, no sale.
   Uno que no salió a su hora porque la app no estaba en marcha sale al volver solo si aún no ha llegado el momento del
   siguiente recordatorio de esa cita y faltan más de 15 minutos para ella. Si un recordatorio no sale, queda en el
-  historial de la cita con el motivo (por ejemplo, «Sin permiso de avisos y sin email» o «La app no estaba en marcha a
-  su hora»).
+  historial de la cita con el motivo (por ejemplo, «No quiere avisos de sus citas y sin email» o «La app no estaba en
+  marcha a su hora»).
 - [AGD-26] El cliente puede cancelar respondiendo: la IA se lo confirma y cancela; con la IA apagada, la
   conversación espera a una persona. Si el recordatorio salió por email sin ningún buzón conectado, su respuesta
   llega al email de contacto del negocio y la atiende una persona ([AGD-24]).
@@ -1286,9 +1285,13 @@ se da acceso. Nunca habla con clientes. Por qué está hecho así: `docs/decisio
 - [CTO-08] Una baja se ve en la ficha; solo se quita si el cliente lo pide, y queda anotado quién y cuándo.
 - [CTO-09] Cada contacto tiene dos permisos: «Avisos de sus citas», que vale para WhatsApp y Telegram (el
   recordatorio por correo no lo necesita, [AGD-24]), y «Novedades y publicidad», que vale para WhatsApp, Telegram y
-  correo. Cada uno guarda la fecha, cómo lo dio el cliente (en persona, por escrito, en la web, en la conversación,
-  importado u otro) y una nota opcional. Se marcan en la ficha, a varios contactos a la vez desde Contactos (diciendo
-  cómo los dieron), al importar ([CTO-11]) o los anota la IA ([HER-15]). Cada cambio queda en sus consentimientos con
+  correo. «Avisos de sus citas» se da por hecho (decisión 0030): lo tiene todo contacto mientras no diga que no lo
+  quiere, y la ficha lo enseña como «Sí, por defecto»; se quita en la ficha, al importar con un «no» ([CTO-11]) o lo
+  anota la IA cuando el cliente dice que no quiere avisos ([HER-15]).
+  «Novedades y publicidad», en cambio, solo lo tiene quien lo da. Cada uno guarda la fecha, cómo lo dio o lo retiró el
+  cliente (en persona, por escrito, en la web, en la conversación, importado u otro) y una nota opcional. Se marcan en
+  la ficha, a varios contactos a la vez desde Contactos (diciendo cómo los dieron) o al importar ([CTO-11]); la IA
+  solo anota los avisos de sus citas ([HER-15]). Cada cambio queda en sus consentimientos con
   quién, cuándo y cómo ([CUM-13]). Las bajas, en cambio, son por canal ([CUM-03], [CTO-10], [WA-62]): «canal» es aquí
   el tipo (WhatsApp, Telegram o correo), y una baja en cualquier número, bot o buzón de ese tipo para todo lo de ese
   tipo. Marcar un permiso no quita una baja: mientras siga, no sale nada por ese canal y la ficha lo dice («Está dado
@@ -1309,7 +1312,8 @@ se da acceso. Nunca habla con clientes. Por qué está hecho así: `docs/decisio
   teléfono ni email (aunque tenga nombre: no se le podría escribir ni reconocer al importarla otra vez), un permiso que
   no dice «sí» ni «no» o la fecha de un permiso que no se entiende o aún no ha llegado. Si el archivo trae permisos,
   pide confirmar que esos contactos los dieron de verdad; a un permiso sin fecha se le pone la de la importación y, sin
-  cómo se dio, «importado», con una nota con el nombre del archivo y quién lo confirmó.
+  cómo se dio, «importado», con una nota con el nombre del archivo y quién lo confirmó. Como «Avisos de sus citas» se
+  da por hecho ([CTO-09]), un «no» en esa columna lo anota como retirado; vacía, el contacto lo tiene por defecto.
 - [CTO-12] Una fila con el mismo email o teléfono que un contacto que ya existe, o que una fila anterior del mismo
   archivo, no se importa: se comparan como en los posibles duplicados ([CTO-04]: el email sin distinguir mayúsculas y
   el teléfono por sus últimos 9 dígitos, así que «600 11 22 33» y «+34 600112233» son el mismo). Al terminar, la app

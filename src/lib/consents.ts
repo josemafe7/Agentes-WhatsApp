@@ -73,9 +73,14 @@ export function consentStateOf(rows: readonly ConsentRecord[]): ConsentState {
   return { permissions, optOuts };
 }
 
-/** Whether the permission is given now (its newest record is a «sí»). */
+/**
+ * Whether the permission is given now. «Avisos de sus citas» se da por hecho (decision 0030): given until its newest
+ * record withdraws it; «Novedades y publicidad», only when its newest record is a «sí» ([CTO-09]).
+ */
 export function hasPermission(state: ConsentState, permission: ContactPermission): boolean {
-  return state.permissions[permission]?.type === PERMISSION_TYPES[permission].granted;
+  const record = state.permissions[permission];
+  if (permission === "reminders") return record?.type !== PERMISSION_TYPES.reminders.withdrawn;
+  return record?.type === PERMISSION_TYPES[permission].granted;
 }
 
 /**
@@ -88,8 +93,9 @@ export type BlockReason = "opted_out" | "marketing_opted_out" | "no_reminders_pe
 
 /**
  * Why nothing of that purpose may go to the contact through that kind of channel, or null: a baja of everything stops
- * all of it; a baja of novedades y publicidad, only that; WhatsApp and Telegram reminders need «Avisos de sus citas»
- * (email does not, [AGD-24]); novedades y publicidad needs its permission on every channel ([CTO-09], [WA-61]).
+ * all of it; a baja of novedades y publicidad, only that; WhatsApp and Telegram reminders stop when «Avisos de sus
+ * citas» was withdrawn (email does not look at it, [AGD-24]); novedades y publicidad needs its permission on every
+ * channel ([CTO-09], [WA-61]).
  */
 export function blockReason(state: ConsentState, kind: ChannelKind, purpose: SendPurpose): BlockReason | null {
   if (state.optOuts[kind].all) return "opted_out";
@@ -104,7 +110,7 @@ export function blockReason(state: ConsentState, kind: ChannelKind, purpose: Sen
 export const BLOCK_REASON_TEXT: Record<BlockReason, string> = {
   opted_out: "Se ha dado de baja en este canal",
   marketing_opted_out: "Se ha dado de baja de novedades y publicidad en este canal",
-  no_reminders_permission: "Sin permiso de avisos",
+  no_reminders_permission: "No quiere avisos de sus citas",
   no_marketing_permission: "Sin permiso de novedades y publicidad",
 };
 

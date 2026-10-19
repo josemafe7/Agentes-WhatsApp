@@ -1,9 +1,10 @@
 // One reminder through one of its channels ([AGD-24], [TG-12], [CUM-03], [CTO-09], [ENV-14]): whether the customer can
 // receive it there and, if so, the message. WhatsApp: an approved utility template of that number to whoever has a
-// WhatsApp, «Avisos de sus citas» and no baja of WhatsApp. Telegram: the text with its two buttons through the bot,
-// to whoever has written to that bot, has not blocked it, has the permission and no baja. Email: by the customer's
-// thread in a connected mailbox (so the answer reaches the inbox) or by the system mail, without needing the
-// permission (it only informs of their booking), unless they opted out of email. A contact of the demo or the
+// WhatsApp, has not said no to «Avisos de sus citas» (given by default, decision 0030) and no baja of WhatsApp.
+// Telegram: the text with its two buttons through the bot, to whoever has written to that bot, has not blocked it,
+// has not said no to the permission and no baja. Email: by the customer's thread in a connected mailbox (so the
+// answer reaches the inbox) or by the system mail, whatever the permission says (it only informs of their booking),
+// unless they opted out of email. A contact of the demo or the
 // simulator gets nothing through a channel that is not a demo one. Each refusal says why, in a few words.
 import "server-only";
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
@@ -12,7 +13,7 @@ import { getSmtpConfig, loadBusinessSettings } from "@/data/settings";
 import { sendTemplateMessage } from "@/data/whatsapp-send";
 import { db } from "@/db";
 import { channels, contactIdentities, contacts, conversations, messages, whatsappTemplates } from "@/db/schema";
-import { blockReason } from "@/lib/consents";
+import { BLOCK_REASON_TEXT, blockReason } from "@/lib/consents";
 import { sameTemplateLanguage } from "@/lib/meta/templates";
 import type { ReminderRoute, ReminderRule } from "@/lib/reminder-rules";
 import { emailSchema } from "@/lib/validation";
@@ -60,7 +61,7 @@ function reminderMetadata(ctx: ReminderContext, buttons: { confirm: string | nul
 async function blockedByConsent(ctx: ReminderContext, kind: "whatsapp" | "telegram" | "email"): Promise<string | null> {
   const reason = blockReason(await loadConsentState(ctx.view.contactId), kind, "reminder");
   if (reason === "opted_out") return kind === "email" ? "Se ha dado de baja del correo" : `Se ha dado de baja de ${kind === "whatsapp" ? "WhatsApp" : "Telegram"}`;
-  if (reason === "no_reminders_permission") return "Sin permiso de avisos";
+  if (reason === "no_reminders_permission") return BLOCK_REASON_TEXT.no_reminders_permission;
   return null;
 }
 

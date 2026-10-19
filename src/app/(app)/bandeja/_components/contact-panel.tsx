@@ -73,7 +73,9 @@ export function ContactPanel({ conversation, contact, timezone, now, canOpenCont
             {(["reminders", "marketing"] as const).map((permission) => (
               <li key={permission} className="flex items-center justify-between gap-2">
                 <span>{PERMISSION_LABELS[permission]}</span>
-                <span className="text-xs font-medium text-muted-foreground">{hasPermission(contact.consentState, permission) ? "Sí" : "No"}</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  {hasPermission(contact.consentState, permission) ? (contact.consentState.permissions[permission] ? "Sí" : "Sí, por defecto") : "No"}
+                </span>
               </li>
             ))}
             {optOuts.map((optOut) => (

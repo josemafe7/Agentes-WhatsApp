@@ -57,8 +57,9 @@ momento los mensajes llegan al instante.
 - El agente responde con texto. Desde la bandeja, una persona puede enviar también una imagen.
 - **Los botones de los recordatorios:** un recordatorio por Telegram (guía de la agenda) lleva «Confirmo» y
   «Necesito cambiarla». Al pulsar «Confirmo», la cita queda «Confirmada por el cliente»; «Necesito cambiarla» llega a
-  la bandeja como su mensaje sobre esa cita. Los recordatorios solo salen a quien ha escrito al bot, tiene el permiso
-  «Avisos de sus citas» y no lo ha bloqueado. Si alguien bloquea el bot, la app lo anota y deja de intentarlo.
+  la bandeja como su mensaje sobre esa cita. Los recordatorios solo salen a quien ha escrito al bot y no lo ha
+  bloqueado, salvo que haya dicho que no quiere avisos de sus citas. Si alguien bloquea el bot, la app lo anota y deja
+  de intentarlo.
 
 ## Dar el bot a tus clientes
 

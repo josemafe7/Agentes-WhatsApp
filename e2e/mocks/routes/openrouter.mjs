@@ -31,10 +31,10 @@
 //          customer message with a date «AAAA-MM-DD» → listar_servicios, then consultar_disponibilidad and an offer of the
 //          suggested slots (each with its «[inicio]»), or crear_cita straight away for «Confirmo … a las HH:MM»; «Me va bien
 //          la primera» after an offer → crear_cita with that slot and a reply with its confirmation (or its alternatives);
-//        - permissions and bajas (fase 12): «Sí…» right after a question «… antes de tus citas?» with anotar_permiso_avisos
-//          offered → anotar_permiso_avisos {acepta: true} ([HER-15]); «no me mandéis más (mensajes)» → dar_de_baja {de:
-//          "todo"} and «no quiero (más) publicidad / ofertas / novedades» → dar_de_baja {de: "publicidad"} ([HER-16]);
-//          after either, a short confirmation;
+//        - permissions and bajas (fase 12): «no quiero (más / los) avisos / recordatorios» with anotar_permiso_avisos
+//          offered → anotar_permiso_avisos {acepta: false} ([HER-15]); «no me mandéis más (mensajes)» → dar_de_baja
+//          {de: "todo"} and «no quiero (más) publicidad / ofertas / novedades» → dar_de_baja {de: "publicidad"}
+//          ([HER-16]); after either, a short confirmation;
 //        - custom HTTP tools (fase 7, ./http-tools.mjs): a customer message naming an offered tool that is not a system one
 //          → a call to it with the «nombre=valor» pairs of the message; after its answer, «Resultado de <herramienta>: …»;
 //        - usage grows with the number of customer messages n: prompt 1400+50n, completion 24, cost (30+n)/100000 US$
@@ -509,29 +509,24 @@ function bookingAnswer(body, messages, step) {
 
 const PERMISSION_TOOL = "anotar_permiso_avisos";
 const OPT_OUT_TOOL = "dar_de_baja";
-const PERMISSION_QUESTION = /antes de tus citas\?/;
-// Not «\b»: without the «u» flag, «í» is not a word character for it.
-const CLEAR_YES = /^\s*s[ií](?:[\s,.!]|$)/i;
 const STOP_ALL = /no me (?:mand[eé]is|envi[eé]is|escrib[aá]is) m[aá]s/i;
 const STOP_MARKETING = /no quiero (?:m[aá]s )?(?:publicidad|ofertas|novedades)/i;
+const STOP_REMINDERS = /no quiero (?:(?:m[aá]s|los) )?(?:avisos|recordatorios)/i;
 
 /** The step of a conversation about permissions or a baja, in the shape of bookingAnswer's steps; null otherwise. */
 function consentStep(body, messages) {
   const last = messages.at(-1);
   if (last?.role === "tool") {
     const tool = toolNameFor(messages, last.tool_call_id);
-    if (tool === PERMISSION_TOOL) return { text: "Perfecto: te avisaremos antes de tus citas." };
+    if (tool === PERMISSION_TOOL) return { text: "Hecho: ya no te enviaremos avisos de tus citas." };
     if (tool === OPT_OUT_TOOL) return { text: "Hecho: no te enviaremos más novedades ni publicidad por aquí; los avisos de tus citas seguirán llegando." };
     return null;
   }
   if (last?.role !== "user") return null;
   const text = textOf(last.content);
   if (offersTool(body, OPT_OUT_TOOL) && STOP_MARKETING.test(text)) return { call: { name: OPT_OUT_TOOL, args: { de: "publicidad" } } };
+  if (offersTool(body, PERMISSION_TOOL) && STOP_REMINDERS.test(text)) return { call: { name: PERMISSION_TOOL, args: { acepta: false } } };
   if (offersTool(body, OPT_OUT_TOOL) && STOP_ALL.test(text)) return { call: { name: OPT_OUT_TOOL, args: { de: "todo" } } };
-  const asked = messages.findLast((message) => message?.role === "assistant" && textOf(message.content));
-  if (offersTool(body, PERMISSION_TOOL) && CLEAR_YES.test(text) && PERMISSION_QUESTION.test(textOf(asked?.content))) {
-    return { call: { name: PERMISSION_TOOL, args: { acepta: true } } };
-  }
   return null;
 }
 

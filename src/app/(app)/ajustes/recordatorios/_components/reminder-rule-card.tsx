@@ -272,7 +272,7 @@ export function ReminderRuleCard({ index, rule, options, errors, onChange, onRem
                   ))
                 : null}
               <p className="text-sm text-muted-foreground">
-                Meta cobra cada plantilla, también dentro de las 24 horas desde el 1-10-2026, y solo sale a quien tiene el permiso «Avisos de sus citas».
+                Meta cobra cada plantilla, también dentro de las 24 horas desde el 1-10-2026. No sale a quien ha dicho que no quiere avisos de sus citas.
               </p>
               {issues?.warnings.map((warning) => <Warning key={warning}>{warning}</Warning>)}
               <FieldError errors={errorList([...(issues?.errors ?? []), ...(key("whatsapp") ?? [])].filter((message, at, all) => all.indexOf(message) === at))} />
@@ -317,7 +317,7 @@ export function ReminderRuleCard({ index, rule, options, errors, onChange, onRem
                 />
                 {serviceWarning(rule.telegram?.text, options.healthData) ? <Warning>{serviceWarning(rule.telegram?.text, options.healthData)}</Warning> : null}
               </div>
-              <p className="text-sm text-muted-foreground">Solo llega a quien ha escrito a ese bot, tiene el permiso «Avisos de sus citas» y no lo ha bloqueado.</p>
+              <p className="text-sm text-muted-foreground">Solo llega a quien ha escrito a ese bot y no lo ha bloqueado, salvo que haya dicho que no quiere avisos de sus citas.</p>
               <FieldError errors={errorList(key("telegram"))} />
             </>
           )}

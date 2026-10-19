@@ -120,8 +120,8 @@ Qué se prueba y cómo, para demostrar que el código funciona.
     `transferir_a_humano` cuando el cliente pide «una persona» (argumentos en `e2e/mocks/openrouter-scenarios.json`)
     y devuelve tokens y coste que crecen con cada mensaje; las notas de voz reciben una transcripción fija. Cada prueba puede forzar errores con `mock.stub`.
     Desde la fase 12: «no me mandéis más (mensajes)» llama a `dar_de_baja` de todo y «no quiero (más) publicidad,
-    ofertas o novedades», de publicidad; un «Sí…» justo después de una pregunta «… antes de tus citas?» llama a
-    `anotar_permiso_avisos`; después de cada una, una confirmación corta.
+    ofertas o novedades», de publicidad; «no quiero (más / los) avisos o recordatorios» llama a
+    `anotar_permiso_avisos` con acepta = false; después de cada una, una confirmación corta.
   - Conocimiento en el OpenRouter simulado (fase 4): los embeddings son una «bolsa de palabras» fija
     (`e2e/mocks/routes/bag-of-words.mjs`: sin tildes ni palabras vacías, cada palabra repartida en las 1536
     posiciones con sha256), así un texto se parece a otro en la medida en que comparten palabras. `POST /rerank`

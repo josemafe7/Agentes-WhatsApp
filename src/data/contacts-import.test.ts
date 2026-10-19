@@ -73,8 +73,9 @@ describe("Importar contactos [CTO-11] [CTO-12]", () => {
     ]);
     expect(given[0].givenAt).toEqual(new Date("2026-09-15T12:00:00Z"));
     expect(given[1].note).toBe("Importado de «clientes.xlsx» · confirmado por Elena");
-    // «no» on a new contact: nothing to record.
-    expect(await db.select().from(consents).where(eq(consents.contactId, rows.find((contact) => contact.name === "Luis")?.id ?? ""))).toEqual([]);
+    // «no» to «Avisos de sus citas», which is given by default (decision 0030): recorded as withdrawn.
+    const luis = await db.select().from(consents).where(eq(consents.contactId, rows.find((contact) => contact.name === "Luis")?.id ?? ""));
+    expect(luis.map((consent) => [consent.type, consent.method, consent.source])).toEqual([["reminders_withdrawn", "imported", "import"]]);
 
     const again = await importContacts(owner.actor, file, { prefix: "+34", confirmPermissions: true });
     expect(again).toMatchObject({ imported: 0, toImport: 0 });

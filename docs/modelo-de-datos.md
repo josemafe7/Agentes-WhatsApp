@@ -202,7 +202,8 @@ Agentes internos (fase 10, migración 0004, que solo añade: `agents.audience`, 
   recordatorio. Un contacto importado ([CTO-11]) no tiene identidades: su teléfono y su email son solo datos.
 - `consents`: el historial de permisos y bajas de cada contacto, solo añadiendo filas: tipo (aceptación de los textos
   legales; baja o alta de todo, `opt_out` / `opt_in`; baja o vuelta de novedades y publicidad, `marketing_opt_out` /
-  `marketing_opt_in`; permiso «Avisos de sus citas» dado o retirado, `reminders_granted` / `reminders_withdrawn`;
+  `marketing_opt_in`; permiso «Avisos de sus citas» dado o retirado, `reminders_granted` / `reminders_withdrawn`, que
+  sin ninguna fila se da por hecho, decisión 0030;
   permiso «Novedades y publicidad» dado, retirado o reanudado), el tipo de canal al que se refiere (`channel_kind`:
   `whatsapp`, `email`, `webchat` o `telegram`; los permisos valen para todos), cómo lo dio (`method`: en persona, por
   escrito, en la web, en la conversación, importado u otro) y cuándo (`given_at`), la prueba (`evidence`: la pregunta

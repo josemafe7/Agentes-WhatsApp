@@ -35,7 +35,7 @@ export async function isDemoOrSimulatedContact(contactId: string, executor: Exec
 export const TEMPLATE_BLOCK_TEXT = {
   opted_out: "Este cliente se ha dado de baja en este canal: no se le pueden enviar plantillas.",
   marketing_opted_out: "Este cliente se ha dado de baja de novedades y publicidad por WhatsApp: no se le pueden enviar plantillas de marketing.",
-  no_reminders_permission: "Falta el permiso «Avisos de sus citas» del cliente: anótalo antes, diciendo cómo lo dio.",
+  no_reminders_permission: "Este cliente dijo que no quiere «Avisos de sus citas»: vuelve a anotarlo solo si te lo pide, diciendo cómo.",
   no_marketing_permission: "Falta el permiso «Novedades y publicidad» del cliente: anótalo antes, diciendo cómo lo dio.",
   no_opt_out_button: "Esta plantilla de marketing no tiene un botón de baja: elige cuál lo es en el panel del número o usa otra.",
   not_allowed_category: "Solo se envían plantillas de utilidad o de marketing.",

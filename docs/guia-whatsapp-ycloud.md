@@ -85,8 +85,9 @@ Como con cualquier conexión oficial: puedes escribir libremente a un cliente du
   «Novedades y publicidad» (como en la guía de WhatsApp con Meta). La app las manda a revisar a través de YCloud y
   quedan «En revisión» hasta que Meta responde.
 - También puedes crearlas en YCloud (o en WhatsApp Manager) y traerlas con «Sincronizar plantillas».
-- Solo salen a quien tiene el permiso que piden: «Avisos de sus citas» las de utilidad y «Novedades y publicidad» las
-  de marketing (con su botón de baja). La app lo comprueba antes de cada una, también aquí.
+- Solo salen a quien tiene el permiso que piden: las de utilidad, a quien no ha dicho que no quiere «Avisos de sus
+  citas» (se da por hecho); las de marketing, a quien tiene «Novedades y publicidad» (y con su botón de baja). La app
+  lo comprueba antes de cada una, también aquí.
 - Si el cliente le pide a WhatsApp no recibir marketing, YCloud lo avisa y la app lo anota como su baja de novedades
   y publicidad. Al revalidar, la app añade sola los avisos que falten a su dirección en YCloud.
 

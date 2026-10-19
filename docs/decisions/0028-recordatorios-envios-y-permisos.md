@@ -1,7 +1,8 @@
 # 0028 · Recordatorios, envíos y permisos: dos permisos por cliente, plantillas desde la app y correo por el del sistema
 
-- **Estado:** aceptada (entrevista del propietario del 2026-10-16; aprobada con la ampliación de las fases 11 a 15 de
-  `docs/spec.md` el mismo día)
+- **Estado:** sustituida en parte por 0030 (el permiso «Avisos de sus citas» se da por hecho y la IA ya no lo pregunta;
+  lo demás sigue). Aceptada en la entrevista del propietario del 2026-10-16, con la ampliación de las fases 11 a 15 de
+  `docs/spec.md` el mismo día
 - **Fecha:** 2026-10-16
 
 ## Contexto y problema

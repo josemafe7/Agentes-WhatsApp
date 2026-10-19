@@ -225,14 +225,15 @@ Configuración › General). Puedes poner **hasta tres por cita** (por ejemplo, 
    - **WhatsApp:** eliges el número y una **plantilla de utilidad aprobada por Meta** (solo aparecen esas). Si la
      creaste con «Nueva plantilla» en el panel del número (guía de WhatsApp), sus datos y sus botones ya vienen
      puestos; si no, asigna a cada variable un dato de la cita (nombre del cliente, servicio, día, hora, profesional o
-     recurso, personas o nombre del negocio) y di qué botón es «Confirmo» y cuál «Necesito cambiarla». Solo sale a
-     quien tiene el permiso **«Avisos de sus citas»** (apartado 11). **Cada recordatorio se cobra:** es una plantilla
+     recurso, personas o nombre del negocio) y di qué botón es «Confirmo» y cuál «Necesito cambiarla». No sale a
+     quien ha dicho que no quiere **«Avisos de sus citas»** (apartado 11). **Cada recordatorio se cobra:** es una plantilla
      de utilidad y, desde el 1-10-2026, Meta la cobra también dentro de la ventana de 24 horas. La plantilla tiene una
      caducidad (1 hora en el modelo de la app): si Meta no la entrega en ese tiempo, ya no la entrega, y la app lo
      intenta por el siguiente canal. Por eso un recordatorio por WhatsApp necesita al menos esa antelación.
    - **Telegram:** eliges el bot y el texto, que lleva los botones «Confirmo» y «Necesito cambiarla». Solo llega a
-     quien ha escrito a ese bot, tiene el permiso «Avisos de sus citas» y no lo ha bloqueado. Es gratis.
-   - **Correo:** no necesita permiso, porque solo informa de su cita. Sale de forma que el cliente pueda contestar:
+     quien ha escrito a ese bot y no lo ha bloqueado, salvo que haya dicho que no quiere avisos. Es gratis.
+   - **Correo:** no depende del permiso de avisos, porque solo informa de su cita; para no recibirlo, el cliente se da
+     de baja del correo. Sale de forma que el cliente pueda contestar:
      si ya ha escrito a un buzón conectado del negocio, por ese buzón y en su mismo hilo, y lo que conteste llega a
      la Bandeja; si no, con el correo del sistema (**Ajustes › Correo del sistema**; sin él, la app te avisa) y las
      respuestas van a tu buzón conectado o al email de contacto de **Ajustes › Negocio**. Puedes cambiar el asunto y
@@ -257,26 +258,33 @@ Cómo funcionan:
   **«Necesito cambiarla»**, llega a la conversación como su mensaje sobre esa cita y la IA (o una persona) le ayuda a
   cambiarla. Un botón de un recordatorio viejo (de una cita cancelada, movida o ya pasada) no cambia nada.
 - En la ficha de la cita, «Recordatorios» dice de cada uno si salió, por qué canal y cuándo, o por qué no salió (por
-  ejemplo, «Sin permiso de avisos» o «Sin email»).
+  ejemplo, «No quiere avisos de sus citas» o «Sin email»).
 
 [Captura: Ajustes › Recordatorios con dos recordatorios: el día antes por WhatsApp y correo, y 2 horas antes]
 
 ## 11. El permiso «Avisos de sus citas»
 
-Meta pide el permiso del cliente antes de mandarle una plantilla, aunque ya te haya escrito. Por eso un recordatorio
-por WhatsApp o por Telegram solo sale a quien tiene el permiso **«Avisos de sus citas»**. Se consigue así:
+**Se da por hecho:** todos tus clientes tienen el permiso «Avisos de sus citas» mientras no digan que no lo quieren,
+así que no tienes que marcar nada y la IA no lo pregunta al reservar. En la ficha del contacto aparece como «Sí, por
+defecto». Vale para los recordatorios por WhatsApp y Telegram y para las plantillas de utilidad que mandas desde la
+Bandeja.
 
-- **Lo pregunta la IA al reservar:** cuando el agente reserva una cita por WhatsApp o por Telegram a alguien sin el
-  permiso, en la confirmación le pregunta si quiere que le aviséis (por ejemplo, «¿Quieres que Peluquería Aurora te
-  avise por WhatsApp antes de tus citas?»). Solo con un sí claro lo anota, guardando la pregunta y la respuesta.
-- **Lo anotas tú:** en la ficha del contacto, «Permisos › Marcar permiso», diciendo cómo lo dio (en persona, por
-  escrito, en la web…). Para varios a la vez, selecciónalos en Contactos y pulsa «Permisos». Solo si el cliente lo ha
-  dado de verdad: queda anotado quién lo marca y cuándo.
-- **Al enviar una plantilla desde la Bandeja,** si falta, el diálogo te deja anotarlo allí mismo.
-- **Al importar tus clientes** (Contactos › Importar), con las columnas «Avisos de sus citas» («sí» o «no»), «Fecha
-  avisos» y «Cómo dio avisos». Antes de importar tienes que confirmar que esos clientes lo dieron de verdad.
+Se quita cuando el cliente dice que no quiere avisos:
 
-El cliente puede retirarlo cuando quiera; se quita en su ficha con «Quitar permiso».
+- **Si lo dice en la conversación** («no quiero recordatorios»), la IA lo anota con lo que dijo y se lo confirma. Si
+  más tarde dice que vuelve a quererlos, también lo anota.
+- **Si te lo dice a ti** (en persona, por teléfono…), quítalo en su ficha con «Permisos › Quitar permiso», diciendo
+  cómo lo pidió.
+- **Al importar tus clientes** (Contactos › Importar), con un «no» en la columna «Avisos de sus citas». Vacía o con
+  «sí», lo tienen.
+
+Si un cliente que lo quitó te pide volver a recibirlos, márcalo en su ficha con «Marcar permiso», diciendo cómo lo
+pidió. Una baja del canal («BAJA», «no me mandéis más mensajes») sigue parando todo lo de ese canal. Los recordatorios
+por correo no dependen de este permiso: para no recibirlos, el cliente se da de baja del correo.
+
+Meta pide que el cliente haya aceptado recibir mensajes de tu negocio y deja que cada negocio decida cómo conseguirlo.
+Darlo por hecho es lo más cómodo, pero si muchos clientes marcan los recordatorios como spam o bloquean el número,
+Meta puede limitarlo: respeta siempre cualquier «no».
 
 **Clientes importados que nunca te han escrito por WhatsApp:** su primer recordatorio por WhatsApp sale a su teléfono
 (sin prefijo, se entiende +34). Cuando WhatsApp lo entrega, su conversación aparece en la Bandeja con el aviso «Sin
@@ -302,9 +310,11 @@ duplicados» en Contactos.
   canal tiene la IA encendida y que hay clave de OpenRouter. Pruébalo en su pestaña Probar.
 - **No me llegan los avisos de citas pendientes:** revisa en Ajustes › Notificaciones que «Cita pendiente de
   confirmar» esté activado para tu rol, y tus preferencias en Mi cuenta.
-- **Un recordatorio no ha salido:** mira el motivo en la ficha de la cita. Lo habitual: el cliente no tiene el
-  permiso «Avisos de sus citas» (apartado 11), no tiene email o no escribe por WhatsApp, se ha dado de baja, la
-  plantilla ya no es de utilidad aprobada o falta el correo del sistema.
+- **Un recordatorio no ha salido:** mira el motivo en la ficha de la cita. Lo habitual: el cliente ha dicho que no
+  quiere avisos de sus citas (apartado 11), no tiene email o no escribe por WhatsApp, se ha dado de baja, el número de
+  WhatsApp no está conectado, la plantilla ya no es de utilidad aprobada o falta el correo del sistema. Cada
+  recordatorio se intenta una sola vez por cita: si después cambias su hora o su canal, no se repite para esa cita.
+  Para volver a probarlo, quítalo y añade uno nuevo, o cambia la cita de hora.
 - **Un cliente contestó a un recordatorio que le llegó por el correo del sistema y su respuesta entró como un contacto
   nuevo:** la app la reconoce por la marca que lleva cada correo (Message-ID). Algunos servicios de envío de correo la
   cambian; si el tuyo lo hace, la respuesta no se puede reconocer. Fusiona los dos contactos en «Posibles duplicados».

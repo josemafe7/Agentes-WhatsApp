@@ -223,7 +223,8 @@ describe("the pace [ENV-08]", () => {
     // Tomorrow, but its reminder already went.
     const done = await bookingIn(DAY_MS, ids[1]);
     await db.insert(bookingReminderSends).values({ bookingId: done.id, ruleId: "r", startsAt: done.startsAt, dueAt: NOW, status: "sent", createdAt: NOW, updatedAt: NOW });
-    // Tomorrow, without «Avisos de sus citas»: no reminder by WhatsApp.
+    // Tomorrow, but they said no to «Avisos de sus citas» (given by default, decision 0030): no reminder by WhatsApp.
+    await db.insert(consents).values({ contactId: ids[4], type: "reminders_withdrawn", source: "person", method: "in_person", actorType: "user", createdAt: new Date(NOW.getTime() - DAY_MS) });
     await bookingIn(DAY_MS + 60 * MINUTE_MS, ids[4]);
     // Tomorrow, with it: this one keeps its place.
     await bookingIn(DAY_MS + 2 * 60 * MINUTE_MS, ids[2]);

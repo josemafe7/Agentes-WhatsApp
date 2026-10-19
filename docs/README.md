@@ -104,5 +104,6 @@ Las decisiones de hoy:
 | 0025 | Telegram con el bot del propio negocio por su token, y «modo local» sin dirección pública |
 | 0026 | WhatsApp por tres vías: Meta directo, YCloud con coexistencia y código QR con Baileys |
 | 0027 | Agentes internos: un tipo de agente y un tipo de base, con sus conversaciones aparte |
-| 0028 | Recordatorios, envíos y permisos: dos permisos por cliente, plantillas desde la app y correo por el del sistema |
+| 0028 | Recordatorios, envíos y permisos: dos permisos por cliente, plantillas desde la app y correo por el del sistema (sustituida en parte por 0030) |
 | 0029 | Instagram: los mensajes directos con la app de Meta del propio negocio y su token, solo texto y dentro de las 24 h |
+| 0030 | El permiso «Avisos de sus citas» se da por hecho: solo se quita si el cliente dice que no |

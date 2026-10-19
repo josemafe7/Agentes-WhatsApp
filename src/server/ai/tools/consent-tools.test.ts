@@ -1,7 +1,8 @@
-// The two consent tools of the AI ([HER-15], [HER-16]): when booking by WhatsApp or Telegram, a customer without «Avisos
-// de sus citas» is asked, and a clear yes is recorded with the stored question and answer (never the model's words);
-// «no me mandéis más» records a baja of what the customer asks, on the conversation's kind of channel; always on, but
-// not for an email whose sender is not vouched for ([COR-25]); in «Probar agente» nothing changes.
+// The two consent tools of the AI ([HER-15], [HER-16]): «Avisos de sus citas» se da por hecho, so booking never asks;
+// a customer who says they do not want them is recorded with what was really said (never the model's words), and a
+// later yes gives it back; «no me mandéis más» records a baja of what the customer asks, on the conversation's kind of
+// channel; always on, but not for an email whose sender is not vouched for ([COR-25]); in «Probar agente» nothing
+// changes.
 import { and, eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
@@ -72,29 +73,45 @@ describe("anotar_permiso_avisos [HER-15]", () => {
     expect(toolsForAgent([], { channelKind: "whatsapp" }).has("anotar_permiso_avisos")).toBe(false);
   });
 
-  it("the booking's confirmation carries the question while reminders go by WhatsApp and the customer has no permission", async () => {
+  it("booking never asks about the reminders, even with them on by WhatsApp: «Avisos de sus citas» se da por hecho (decision 0030)", async () => {
     const who = await whatsappCustomer();
-    const book = (start: string) => call("crear_cita", { servicio: hair.cut.id, inicio: start, nombre: "Lucía" }, live(who));
-    expect((await book("2026-09-29T10:00")).preguntar_permiso_avisos).toBeUndefined();
     await db.insert(reminderSettings).values({ enabled: true, rules: [reminderByWhatsApp] });
-    expect((await book("2026-09-29T11:00")).preguntar_permiso_avisos).toBe("¿Quieres que Peluquería Prueba te avise por WhatsApp antes de tus citas?");
-    await db.insert(consents).values({ contactId: who.contactId, type: "reminders_granted", source: "person" });
-    expect((await book("2026-09-29T12:00")).preguntar_permiso_avisos).toBeUndefined();
+    const booked = await call("crear_cita", { servicio: hair.cut.id, inicio: "2026-09-29T11:00", nombre: "Lucía" }, live(who));
+    expect(booked).toMatchObject({ ok: true });
+    expect(booked.preguntar_permiso_avisos).toBeUndefined();
+    expect(hasPermission(await loadConsentState(who.contactId), "reminders")).toBe(true);
+    expect(await db.select().from(consents)).toHaveLength(0);
   });
 
-  it("a clear yes is recorded with the stored question and answer, the date and «en la conversación»; a no records nothing", async () => {
+  it("a no in the customer's words is recorded with what was really said and stops the reminders; a later yes gives them back", async () => {
     const who = await whatsappCustomer();
     const conversation = { id: who.conversationId, channelId: who.channelId };
-    await createMessage(conversation, { direction: "outbound", senderType: "ai", text: "Tu cita queda confirmada. ¿Quieres que Peluquería Prueba te avise por WhatsApp antes de tus citas?", createdAt: new Date(NOW.getTime() - 60_000) });
-    await createMessage(conversation, { text: "Sí, por favor", createdAt: NOW });
-    expect(await call("anotar_permiso_avisos", { acepta: false }, live(who))).toMatchObject({ ok: true, anotado: false });
-    expect(await db.select().from(consents)).toHaveLength(0);
+    await createMessage(conversation, { direction: "outbound", senderType: "ai", text: "Tu cita queda confirmada para el martes a las 10:00.", createdAt: new Date(NOW.getTime() - 120_000) });
+    await createMessage(conversation, { text: "No quiero que me mandéis recordatorios", createdAt: new Date(NOW.getTime() - 60_000) });
     // Whatever else the model sends is ignored: the proof is what was really said.
-    expect(await call("anotar_permiso_avisos", { acepta: true, pregunta: "inventada" }, live(who))).toMatchObject({ ok: true, anotado: true });
+    expect(await call("anotar_permiso_avisos", { acepta: false, pregunta: "inventada" }, live(who))).toMatchObject({ ok: true, anotado: false });
     const [row] = await db.select().from(consents);
-    expect(row).toMatchObject({ type: "reminders_granted", source: "ai", method: "conversation", actorType: "ai" });
-    expect(row.evidence).toEqual({ question: "Tu cita queda confirmada. ¿Quieres que Peluquería Prueba te avise por WhatsApp antes de tus citas?", answer: "Sí, por favor" });
+    expect(row).toMatchObject({ type: "reminders_withdrawn", source: "ai", method: "conversation", actorType: "ai" });
+    expect(row.evidence).toEqual({ question: "Tu cita queda confirmada para el martes a las 10:00.", answer: "No quiero que me mandéis recordatorios" });
+    expect(blockReason(await loadConsentState(who.contactId), "whatsapp", "reminder")).toBe("no_reminders_permission");
+    // Twice is once.
+    expect(await call("anotar_permiso_avisos", { acepta: false }, live(who))).toMatchObject({ ok: true, ya_estaba: true });
+    expect(await db.select().from(consents)).toHaveLength(1);
+
+    await createMessage(conversation, { direction: "outbound", senderType: "ai", text: "Hecho: ya no te enviaremos avisos de tus citas.", createdAt: new Date(NOW.getTime() - 30_000) });
+    await createMessage(conversation, { text: "Mejor sí, avisadme", createdAt: NOW });
+    expect(await call("anotar_permiso_avisos", { acepta: true }, { ...live(who), now: new Date(NOW.getTime() + 1_000) })).toMatchObject({ ok: true, anotado: true });
     expect(hasPermission(await loadConsentState(who.contactId), "reminders")).toBe(true);
+  });
+
+  it("a no is recorded even before the AI has written, without proof; a yes from whoever has it by default records nothing", async () => {
+    const who = await whatsappCustomer();
+    expect(await call("anotar_permiso_avisos", { acepta: true }, live(who))).toMatchObject({ ok: true, ya_estaba: true });
+    expect(await db.select().from(consents)).toHaveLength(0);
+    await createMessage({ id: who.conversationId, channelId: who.channelId }, { text: "No me mandéis recordatorios", createdAt: NOW });
+    expect(await call("anotar_permiso_avisos", { acepta: false }, live(who))).toMatchObject({ ok: true, anotado: false });
+    const [row] = await db.select().from(consents);
+    expect(row).toMatchObject({ type: "reminders_withdrawn", evidence: null });
   });
 
   it("in «Probar agente» nothing changes", async () => {

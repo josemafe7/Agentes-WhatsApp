@@ -211,7 +211,7 @@ async function portfolioRoom(channelId: string, now: Date): Promise<{ room: numb
 /**
  * The contacts that may get a reminder by WhatsApp through one of these numbers in the next 24 hours: the envíos never
  * take their room. Not a reminder already taken (it went, or it was decided), nor whoever cannot get it by WhatsApp (no
- * WhatsApp nor phone, no «Avisos de sus citas», a baja of WhatsApp).
+ * WhatsApp nor phone, said no to «Avisos de sus citas», a baja of WhatsApp).
  */
 async function upcomingReminderContacts(numbers: readonly string[], now: Date): Promise<string[]> {
   const config = await loadReminderConfig();

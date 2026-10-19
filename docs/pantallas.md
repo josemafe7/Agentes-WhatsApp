@@ -185,8 +185,9 @@ lateral: logo, stepper y una columna.
     aprobadas con «Elegir plantilla»: diálogo con idioma y categoría, un campo por variable y vista previa; bajo
     cada mensaje enviado, su coste estimado («≈ 0,02 US$ estimado · Utilidad», «Gratis · Servicio» o «Sin estimar»).
     Desde la fase 12, una plantilla que el cliente no puede recibir lo dice en el diálogo y no deja enviarla: sin
-    el permiso que pide («Falta el permiso «Avisos de sus citas» del cliente…»), con «Anotar permiso» (cómo lo dio y
-    una nota) allí mismo; dado de baja; o una de marketing sin botón de baja ([WA-61]).
+    el permiso que pide (el de «Novedades y publicidad», o el de «Avisos de sus citas» si el cliente dijo que no lo
+    quiere: «Este cliente dijo que no quiere «Avisos de sus citas»…»), con «Anotar permiso» (cómo lo dio y una nota)
+    allí mismo; dado de baja; o una de marketing sin botón de baja ([WA-61]).
   - Instagram (fase 16): la cabecera dice «Instagram · @cuenta»; ventana de 24 h como en WhatsApp, pero cerrada no
     ofrece plantillas: «Han pasado más de 24 horas desde el último mensaje del cliente: Instagram no deja responder
     hasta que vuelva a escribir.» y el cuadro de escribir se desactiva ([BAN-18]). Solo texto, de 1.000 bytes como
@@ -203,7 +204,8 @@ lateral: logo, stepper y una columna.
     respuesta a un recordatorio del correo del sistema), sobre el cuadro de escribir: «Sin confirmar: la app escribió
     a un teléfono o a un correo que nadie ha confirmado que sea de este cliente…» con «Confirmar» para quien puede
     editar el contacto ([WA-63]).
-  - Permisos y bajas (fase 12), en la ficha del lateral: «Avisos de sus citas» y «Novedades y publicidad» (Sí o No),
+  - Permisos y bajas (fase 12), en la ficha del lateral: «Avisos de sus citas» y «Novedades y publicidad» (Sí, «Sí,
+    por defecto» para los avisos mientras no diga que no, o No),
     las bajas vigentes con su fecha y «Anotar una baja» para la que el cliente pide por otra vía ([CTO-08], [CTO-09]).
   - Fuentes de la IA (fase 4): «Ver fuentes» / «¿Por qué respondió esto?».
   - Conservación (fase 7): un archivo que la limpieza diaria ya borró dice «El archivo se borró por la política de
@@ -257,8 +259,9 @@ Propietario y administrador ([CTO-11]–[CTO-13]); en Contactos, «Importar».
 
 - **Se ve:** datos, identidades por canal (nunca el teléfono como clave), etiquetas, campos personalizados,
   consentimientos y bajas por canal, citas (fase 5) e historial de conversaciones. Desde la fase 12, «Permisos»:
-  «Avisos de sus citas» y «Novedades y publicidad», cada uno con desde cuándo, cómo lo dio y quién lo anotó (si fue la
-  IA, su pregunta y la respuesta del cliente); el aviso «Dado de baja» dice de qué (de todo o de novedades y
+  «Avisos de sus citas» («Sí, por defecto» mientras no diga que no, [CTO-09]) y «Novedades y publicidad», cada uno
+  con desde cuándo, cómo lo dio o lo retiró y quién lo anotó (si fue la IA, su último mensaje y el del cliente); el
+  aviso «Dado de baja» dice de qué (de todo o de novedades y
   publicidad) y en qué tipo de canal; y los consentimientos, en español, con su tipo de canal y cómo.
 - **Acciones:** editar datos y etiquetas; «Nueva cita»; abrir una conversación; exportar sus datos y borrarlos
   (fase 7, con confirmación escribiendo el nombre); «Marcar permiso» / «Quitar permiso» (cómo y cuándo lo dio),
