@@ -2077,8 +2077,11 @@ instalar y compilar como la imagen, migrar dos veces, la app respondiendo `/api/
 parando bien. El 2026-10-17, con el conector de Supabase, el proyecto «agentes whatsapp pro» (Irlanda, plan gratuito,
 pgvector 0.8.2) quedó con las migraciones aplicadas por el usuario `dominia_app` y la demo cargada; la app de una
 copia limpia entró en ella y sirvió sus archivos. Sus usuarios de prueba conservan las contraseñas del README, por
-decisión del propietario: es su instalación de pruebas. Falta, y es del
-propietario: el primer despliegue en su servidor de Hostinger (`agentes.blunexai.com`).
+decisión del propietario: es su instalación de pruebas. Publicada en su servidor de Hostinger con Dokploy, en
+`https://appgestion.blunexai.com` (comprobado el 2026-10-19: `/api/health` en «ok», certificado de Let's Encrypt y el
+`worker` haciendo sus rondas). Desde el 2026-10-19, cada subida a `main` se despliega sola cuando la imagen está
+construida y probada: el último paso del flujo llama a la API de Dokploy con los secretos `DOKPLOY_*` de GitHub
+(«Desplegar solo» en `docs/guia-despliegue.md`).
 
 Después: publicación en Vercel (con Supabase) con la prueba del número de prueba de Meta; GitHub (versión,
 migraciones solo aditivas, changelog y aviso de versión nueva); respuestas con voz; Google Calendar e iCal;
