@@ -4,7 +4,7 @@
 import { eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@/db";
-import { auditLog, channelMembers, channels } from "@/db/schema";
+import { auditLog, channelMembers, channels, conversations } from "@/db/schema";
 import type { Role } from "@/lib/enums";
 import type { Actor } from "@/lib/permissions";
 import { readWebchatConfig } from "@/lib/webchat-config";
@@ -395,14 +395,15 @@ describe("Desactivar y borrar [CAN-16]", () => {
     expect((await channelRow(channel.id)).status).toBe("connected");
   });
 
-  it("only a channel without conversations can be deleted; the others are disabled instead", async () => {
+  it("deleting a channel deletes its conversations too; disabling it is what keeps them [CAN-16]", async () => {
     const empty = await createChannel();
     const used = await createChannel();
     const { contact } = await createContactWithIdentity("webchat");
     await createConversation(used.id, contact.id);
 
-    expect(await deleteChannelAction(used.id)).toMatchObject({ ok: false, error: expect.stringContaining("desactívalo") });
-    expect(await channelRow(used.id)).toBeDefined();
+    expect(await deleteChannelAction(used.id)).toMatchObject({ ok: true, message: "Canal borrado." });
+    expect(await channelRow(used.id)).toBeUndefined();
+    expect(await db.select().from(conversations).where(eq(conversations.channelId, used.id))).toEqual([]);
     expect(await deleteChannelAction(empty.id)).toMatchObject({ ok: true });
     expect(await channelRow(empty.id)).toBeUndefined();
   });

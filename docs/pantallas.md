@@ -673,7 +673,8 @@ apartado en Ayuda ([AJU-17]).
 
 - **Resumen** (`/canales/[id]`): arriba, lado a lado, «Estado» (estado, último mensaje y agente) y «Agente e IA» (el
   agente activo y el interruptor de IA, que es lo que más se cambia); después, los avisos que piden hacer algo y lo
-  propio de cada tipo de canal; al final, «Desactivar o borrar». Lo que es solo de consulta va plegado: «Límites de
+  propio de cada tipo de canal; al final, «Desactivar o borrar» (borrar dice cuántas conversaciones se borran con
+  el canal y pide escribir su nombre, [CAN-16]). Lo que es solo de consulta va plegado: «Límites de
   Meta que conviene conocer» en un número de WhatsApp y «Qué correos se ignoran» en un buzón (debajo de «Ignorados
   hasta ahora»). Semáforos (WhatsApp, en dos columnas: token, registro, suscripción, webhook, último mensaje,
   calidad, nombre, límite y versión; correo: conexión, permisos, última lectura y, en Outlook, caducidad del

@@ -403,7 +403,8 @@ Cómo lo hace (fase 7, `src/server/compliance/retention.ts`, sin cambiar el esqu
 - **Conversaciones, «Borrar»:** una conversación cuya última actividad (`last_message_at`) pasa del plazo se borra con
   sus mensajes, notas, traspasos y `message_retrievals`; `ai_runs` y `bookings` se quedan, sin el enlace. En las que
   siguen vivas se borran los mensajes, notas y traspasos más antiguos que el plazo, y su resumen acumulado se vacía
-  para rehacerlo con lo que queda ([MOT-13]).
+  para rehacerlo con lo que queda ([MOT-13]). Borrar un canal borra sus conversaciones de la misma forma
+  (`deleteConversationsWithFiles`), antes que el canal ([CAN-16]).
 - **Conversaciones, «Anonimizar»:** las filas se quedan para los informes (quién escribió, cuándo, estados, coste),
   pero los mensajes pierden texto (y su `search_text`), transcripción, archivo, `metadata` y reacciones; la conversación, su contacto
   (`contact_id` vacío), su resumen, su `metadata` y su hilo; los traspasos, su motivo y su resumen; y las notas se

@@ -1,14 +1,16 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db";
-import { agents, auditLog, channelMembers, channels, contactIdentities, contacts, conversations, jobs, userRoles } from "@/db/schema";
+import { agents, auditLog, channelMembers, channels, contactIdentities, contacts, conversations, internalNotes, jobs, messages, userRoles } from "@/db/schema";
 import { INSTAGRAM_HEALTH_CHECK_JOB } from "@/server/channels/instagram/schedule";
 import { HEALTH_CHECK_JOB } from "@/server/channels/whatsapp/schedule";
 import { encryptChannelSecrets } from "@/server/channels/secrets";
 import { AuthError, ConflictError, ValidationError } from "@/server/errors";
-import { createAgentRow, createBusiness, createChannel, createContactWithIdentity, createConversation, createUser, type TestUser } from "@/test/factories";
+import { createAgentRow, createBusiness, createChannel, createContactWithIdentity, createConversation, createMessage, createUser, type TestUser } from "@/test/factories";
+import { memoryFileStorage } from "@/test/fixtures/whatsapp/memory-storage";
 import { setAgentChannelActive } from "./agent-channels";
 import {
+  countChannelConversations,
   createWebchatChannel,
   deleteChannel,
   getChannel,
@@ -44,6 +46,8 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  await db.delete(internalNotes);
+  await db.delete(messages);
   await db.delete(conversations);
   await db.delete(contactIdentities);
   await db.delete(contacts);
@@ -191,15 +195,62 @@ describe("common settings [CAN-04] [CAN-06] [CAN-07] [CAN-08] [CAN-16]", () => {
     expect(pending.map((job) => job.status)).toEqual(["cancelled"]);
   });
 
-  it("only a channel without conversations can be deleted", async () => {
+  it("deleting a channel deletes its conversations with their messages, notes and files; the contact and other channels stay [CAN-16]", async () => {
+    const memory = memoryFileStorage();
     const empty = await createChannel({ name: "Vacío" });
     const used = await createChannel({ name: "Usado" });
-    await createConversation(used.id, (await createContactWithIdentity("webchat")).contact.id);
+    const other = await createChannel({ name: "Otro" });
+    const { contact } = await createContactWithIdentity("webchat");
+    const doomed = await createConversation(used.id, contact.id);
+    const kept = await createConversation(other.id, contact.id);
+    const fileKey = `media/2026/10/${crypto.randomUUID()}.bin`;
+    await memory.storage.put(fileKey, new Uint8Array([1, 2, 3]), "image/png");
+    await createMessage(doomed, { contentType: "image", media: { fileKey, mimeType: "image/png", size: 3, fileName: "foto.png" } });
+    await createMessage(doomed, { text: "Quería pedir cita" });
+    await createMessage(kept, { text: "Sigo aquí" });
+    await db.insert(internalNotes).values({ conversationId: doomed.id, authorName: "Olga", text: "Llamarle el lunes" });
+
     await forbidden(deleteChannel(users.viewer.actor, empty.id));
+    await forbidden(countChannelConversations(users.viewer.actor, used.id));
     await deleteChannel(users.owner.actor, empty.id);
     expect(await channelRow(empty.id)).toBeUndefined();
-    expect(await errorOf(deleteChannel(users.owner.actor, used.id))).toBeInstanceOf(ConflictError);
+
+    expect(await countChannelConversations(users.owner.actor, used.id)).toBe(1);
+    await deleteChannel(users.owner.actor, used.id, { storage: memory.storage });
+    expect(await channelRow(used.id)).toBeUndefined();
+    expect(await db.select().from(conversations).where(eq(conversations.channelId, used.id))).toEqual([]);
+    expect(await db.select().from(messages).where(eq(messages.conversationId, doomed.id))).toEqual([]);
+    expect(await db.select().from(internalNotes)).toEqual([]);
+    expect(await memory.storage.exists(fileKey)).toBe(false);
+    // The contact and what it has elsewhere stay.
+    expect(await db.select().from(contacts).where(eq(contacts.id, contact.id))).toHaveLength(1);
+    expect(await db.select().from(messages).where(eq(messages.conversationId, kept.id))).toHaveLength(1);
+    // The activity log counts what went, never what it said.
+    const [audit] = await db.select().from(auditLog).where(and(eq(auditLog.action, "channel.deleted"), eq(auditLog.targetId, used.id)));
+    expect(audit.metadata).toMatchObject({ conversations: 1, messages: 2 });
+  });
+
+  it("when a file of its conversations cannot be deleted, the channel and that conversation stay for another try [CAN-16]", async () => {
+    const memory = memoryFileStorage();
+    const used = await createChannel({ name: "Usado" });
+    const conversation = await createConversation(used.id, (await createContactWithIdentity("webchat")).contact.id);
+    const fileKey = `media/2026/10/${crypto.randomUUID()}.bin`;
+    await memory.storage.put(fileKey, new Uint8Array([1, 2, 3]), "image/png");
+    await createMessage(conversation, { contentType: "image", media: { fileKey, mimeType: "image/png", size: 3, fileName: "foto.png" } });
+    const failing = {
+      ...memory.storage,
+      delete: async () => {
+        throw new Error("Almacén caído");
+      },
+    };
+
+    expect(await errorOf(deleteChannel(users.owner.actor, used.id, { storage: failing }))).toBeInstanceOf(ConflictError);
     expect(await channelRow(used.id)).toBeDefined();
+    expect(await countChannelConversations(users.owner.actor, used.id)).toBe(1);
+
+    await deleteChannel(users.owner.actor, used.id, { storage: memory.storage });
+    expect(await channelRow(used.id)).toBeUndefined();
+    expect(await memory.storage.exists(fileKey)).toBe(false);
   });
 });
 

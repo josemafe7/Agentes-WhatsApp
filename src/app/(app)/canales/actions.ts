@@ -230,7 +230,7 @@ export async function setChannelMembersAction(input: unknown): Promise<ActionRes
   }
 }
 
-/** Only a channel without conversations; the others are disabled instead ([CAN-16]). */
+/** The channel with its conversations ([CAN-16]); disabling it is what keeps them. */
 export async function deleteChannelAction(channelId: unknown): Promise<ActionResult<ChannelAccessWarning>> {
   try {
     const actor = await requirePermission(PERMISSIONS.channels.manage);

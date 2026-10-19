@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { StatusLight, type StatusLightStatus } from "@/components/status-light";
 import { Button } from "@/components/ui/button";
 import { listAgents } from "@/data/agents";
-import type { ChannelDetail } from "@/data/channels";
+import { countChannelConversations, type ChannelDetail } from "@/data/channels";
 import { getBusinessProfile } from "@/data/settings";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { can, PERMISSIONS } from "@/lib/permissions";
@@ -105,9 +105,11 @@ export default async function ChannelSummaryPage({ params, searchParams }: PageP
   const page = await loadChannelPage(params);
   if (!page.allowed) return null;
   const { actor, channel, canManage } = page;
-  const [agents, profile] = await Promise.all([
+  const [agents, profile, conversationCount] = await Promise.all([
     can(actor, PERMISSIONS.agents.view) ? listAgents(actor) : Promise.resolve([]),
     getBusinessProfile(actor),
+    // For the confirmation of «Borrar canal», which deletes them too ([CAN-16]).
+    canManage ? countChannelConversations(actor, channel.id) : Promise.resolve(0),
   ]);
 
   return (
@@ -175,6 +177,7 @@ export default async function ChannelSummaryPage({ params, searchParams }: PageP
         <ChannelDangerZone
           channelId={channel.id}
           channelName={channel.name}
+          conversations={conversationCount}
           enabled={channel.status !== "disabled"}
           reconnectHref={reconnectHref(channel)}
         />

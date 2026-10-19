@@ -295,8 +295,12 @@ límites y sus fuentes) están en `docs/integracion-whatsapp.md`, `docs/integrac
   plantillas solo aparecen en WhatsApp.
 - [CAN-15] La app revisa cada canal conectado al conectarlo y cada cierto tiempo; si falla, lo pone en «error»
   con la explicación en español y avisa al propietario y a los administradores.
-- [CAN-16] Un canal desactivado no contesta ni envía, y conserva su historial. Solo se puede borrar un canal que
-  no tiene conversaciones; los demás se desconectan o se desactivan.
+- [CAN-16] Un canal desactivado no contesta ni envía, y conserva su historial. Borrar un canal borra también sus
+  conversaciones, con sus mensajes, notas internas y archivos, y no se puede deshacer: la confirmación dice cuántas
+  conversaciones se borran, recuerda que desactivarlo las conserva y pide escribir el nombre del canal. Se quedan los
+  contactos, sus citas (sin el enlace a la conversación) y los costes de la IA, como en la limpieza de [CUM-05]; el
+  registro de actividad anota cuántas se borraron. Si no se puede borrar algún archivo, no se borra el canal y la app
+  pide intentarlo de nuevo. No se deja borrar el canal por el que elige un envío repetido ([ENV-16]).
 - [CAN-17] Las credenciales de cada canal se guardan cifradas, aparte de su configuración no secreta.
 
 ### WhatsApp

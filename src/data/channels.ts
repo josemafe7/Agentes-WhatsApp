@@ -11,7 +11,7 @@ import { channelFilter, PERMISSIONS, type Actor } from "@/lib/permissions";
 import { idSchema, optionalText } from "@/lib/validation";
 import { readWebchatConfig, webchatConfigSchema, type WebchatConfig } from "@/lib/webchat-config";
 import { whatsappViaOf, type WhatsAppVia } from "@/lib/whatsapp-via";
-import { isValidFileKey } from "@/server/adapters/file-storage";
+import { getFileStorage, isValidFileKey, type FileStorage } from "@/server/adapters/file-storage";
 import { defaultCapabilitiesOf } from "@/server/channels/capabilities";
 import { isEmailChannelType } from "@/server/channels/email/config";
 import { cancelEmailJobs, ensureEmailPolling } from "@/server/channels/email/jobs";
@@ -22,6 +22,7 @@ import { requestHealthCheckSoon } from "@/server/channels/whatsapp/schedule";
 import { existingQrSupervisor, qrSupervisor } from "@/server/channels/whatsapp-qr/runtime";
 import { ycloudAdapter } from "@/server/channels/ycloud/adapter";
 import { cancelYCloudJobs, requestYCloudHealthCheckSoon } from "@/server/channels/ycloud/schedule";
+import { deleteConversationsWithFiles } from "@/server/compliance/retention";
 import { safeErrorMessage } from "@/server/redact";
 import { ConflictError, NotFoundError, parseInput, ValidationError } from "@/server/errors";
 import { assertAnswersCustomers } from "./agent-audience";
@@ -372,19 +373,57 @@ export async function setChannelMembers(actor: Actor, input: unknown): Promise<C
 
 // ─── Delete ([CAN-16]) ──────────────────────────────────────────────────────────────────────────────────
 
+/** Conversations deleted at a time when their channel goes ([CAN-16]). */
+const CONVERSATIONS_PER_ROUND = 200;
+
+/** How many conversations deleting this channel would delete ([CAN-16]), for its confirmation. */
+export async function countChannelConversations(actor: Actor, channelId: string): Promise<number> {
+  assertCan(actor, PERMISSIONS.channels.manage);
+  const channel = await loadChannel(db, channelId);
+  const [{ n }] = await db.select({ n: count() }).from(conversations).where(eq(conversations.channelId, channel.id));
+  return n;
+}
+
+/** [ENV-16] A repeated envío that chooses by this channel would widen to everyone without it. */
+async function assertNoRuleChoosesBy(executor: Executor, channelId: string): Promise<void> {
+  const [rule] = await executor.select({ name: campaignRules.name }).from(campaignRules).where(eq(campaignRules.filterChannelId, channelId)).limit(1);
+  if (rule) throw new ConflictError(`El envío repetido «${rule.name}» elige a quién escribe por este canal: cámbialo o bórralo antes de borrar el canal.`);
+}
+
 /**
- * Only a channel without conversations can be deleted; the others are disconnected or disabled. An agent whose only
+ * Its conversations, with their messages, notes and files, a round at a time, as the clean-up deletes them ([CAN-16],
+ * [CUM-05]): contacts, bookings and the AI's costs stay. A file that cannot be deleted stops it, so nothing is lost.
+ */
+async function deleteChannelConversations(channelId: string, storage: FileStorage): Promise<{ conversations: number; messages: number }> {
+  const total = { conversations: 0, messages: 0 };
+  for (;;) {
+    const rows = await db.select({ id: conversations.id }).from(conversations).where(eq(conversations.channelId, channelId)).limit(CONVERSATIONS_PER_ROUND);
+    if (rows.length === 0) return total;
+    const removed = await deleteConversationsWithFiles(
+      rows.map((row) => row.id),
+      storage,
+    );
+    total.conversations += removed.deleted;
+    total.messages += removed.messages;
+    if (removed.kept > 0) throw new ConflictError("No se han podido borrar algunos archivos de sus conversaciones, así que el canal sigue ahí. Vuelve a intentarlo en un rato.");
+  }
+}
+
+/**
+ * Deletes the channel and, first, its conversations ([CAN-16]); disabling it keeps them instead. An agent whose only
  * channel it was sees every channel from now on ([PER-02]): the result says so, for the admin.
  */
-export async function deleteChannel(actor: Actor, channelId: string): Promise<ChannelMembersResult> {
+export async function deleteChannel(actor: Actor, channelId: string, deps: { storage?: FileStorage } = {}): Promise<ChannelMembersResult> {
   assertCan(actor, PERMISSIONS.channels.manage);
+  // What stops it is checked before anything is deleted.
+  const found = await loadChannel(db, channelId);
+  await assertNoRuleChoosesBy(db, found.id);
+  const removed = await deleteChannelConversations(found.id, deps.storage ?? getFileStorage());
   const deleted = await db.transaction(async (tx) => {
     const channel = await loadChannel(tx, channelId);
     const [{ n }] = await tx.select({ n: count() }).from(conversations).where(eq(conversations.channelId, channel.id));
-    if (n > 0) throw new ConflictError("Este canal tiene conversaciones: desactívalo en lugar de borrarlo, así conservas su historial.");
-    // [ENV-16] A repeated envío that chooses by this channel would widen to everyone without it.
-    const [rule] = await tx.select({ name: campaignRules.name }).from(campaignRules).where(eq(campaignRules.filterChannelId, channel.id)).limit(1);
-    if (rule) throw new ConflictError(`El envío repetido «${rule.name}» elige a quién escribe por este canal: cámbialo o bórralo antes de borrar el canal.`);
+    if (n > 0) throw new ConflictError("Han llegado mensajes nuevos mientras se borraba: vuelve a pulsar «Borrar canal».");
+    await assertNoRuleChoosesBy(tx, channel.id);
     const members = await tx.select({ userId: channelMembers.userId }).from(channelMembers).where(eq(channelMembers.channelId, channel.id));
     // Children first: nothing relies on cascades.
     await tx.delete(channelMembers).where(eq(channelMembers.channelId, channel.id));
@@ -395,7 +434,10 @@ export async function deleteChannel(actor: Actor, channelId: string): Promise<Ch
     await tx.update(consents).set({ channelId: null }).where(eq(consents.channelId, channel.id));
     await tx.update(oauthStates).set({ channelId: null }).where(eq(oauthStates.channelId, channel.id));
     await tx.delete(channels).where(eq(channels.id, channel.id));
-    await writeAudit({ actor, action: "channel.deleted", targetType: "channel", targetId: channel.id, metadata: { type: channel.type } }, tx);
+    await writeAudit(
+      { actor, action: "channel.deleted", targetType: "channel", targetId: channel.id, metadata: { type: channel.type, conversations: removed.conversations, messages: removed.messages } },
+      tx,
+    );
     return { id: channel.id, type: channel.type, via: whatsappViaOf(channel), channel, leftWithout: await agentsWithoutChannels(tx, members.map((row) => row.userId)) };
   });
   // A deleted mailbox is not polled any more, nor a deleted bot or Instagram account checked.

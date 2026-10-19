@@ -324,21 +324,34 @@ async function deleteQuietConversations(round: Round): Promise<boolean> {
     .orderBy(asc(conversations.createdAt))
     .limit(CONVERSATION_BATCH);
   if (rows.length === 0) return false;
-  const ids = rows.map((row) => row.id);
+  const removed = await deleteConversationsWithFiles(
+    rows.map((row) => row.id),
+    round.storage,
+  );
+  round.counts.conversationsDeleted += removed.deleted;
+  round.counts.messagesDeleted += removed.messages;
+  round.counts.notesDeleted += removed.notes;
+  return rows.length === CONVERSATION_BATCH && removed.deleted > 0;
+}
+
+/**
+ * These conversations with everything under them, their files first; also when their channel is deleted ([CAN-16]).
+ * One whose file could not be deleted stays as it is, for another try: `kept` counts them.
+ */
+export async function deleteConversationsWithFiles(
+  ids: readonly string[],
+  storage: FileStorage,
+): Promise<{ deleted: number; kept: number; messages: number; notes: number }> {
+  if (ids.length === 0) return { deleted: 0, kept: 0, messages: 0, notes: 0 };
   const withFiles = await db
     .select({ id: messages.id, conversationId: messages.conversationId, media: messages.media })
     .from(messages)
-    .where(and(inArray(messages.conversationId, ids), isNotNull(messages.media)));
-  const failed = await deleteFilesOf(withFiles, round.storage);
+    .where(and(inArray(messages.conversationId, [...ids]), isNotNull(messages.media)));
+  const failed = await deleteFilesOf(withFiles, storage);
   const kept = new Set(withFiles.filter((row) => failed.has(row.id)).map((row) => row.conversationId));
   const doomed = ids.filter((id) => !kept.has(id));
-  if (doomed.length > 0) {
-    const removed = await deleteConversationRows(doomed);
-    round.counts.conversationsDeleted += doomed.length;
-    round.counts.messagesDeleted += removed.messages;
-    round.counts.notesDeleted += removed.notes;
-  }
-  return rows.length === CONVERSATION_BATCH && doomed.length > 0;
+  const removed = doomed.length > 0 ? await deleteConversationRows(doomed) : { messages: 0, notes: 0 };
+  return { deleted: doomed.length, kept: kept.size, ...removed };
 }
 
 /** A conversation and everything under it; the AI's costs and the bookings stay without the link ([INF-07], [AGD-14]). */

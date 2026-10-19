@@ -7,21 +7,32 @@ import { useTransition } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
+import { formatNumber } from "@/lib/format";
 import { deleteChannelAction, setChannelEnabledAction } from "../../actions";
 
 type ChannelDangerZoneProps = {
   channelId: string;
   channelName: string;
+  /** How many conversations deleting it deletes too ([CAN-16]). */
+  conversations: number;
   enabled: boolean;
   /** A disconnected WhatsApp number is connected again with its wizard instead of «Activar» ([WA-28]). */
   reconnectHref?: string | null;
 };
 
+/** What «Borrar canal» deletes, said before it does ([CAN-16]). */
+function deleteDescription(conversations: number): string {
+  if (conversations === 0) return "Se borran el canal y su configuración, y no se puede deshacer.";
+  const which = conversations === 1 ? "su conversación" : `sus ${formatNumber(conversations)} conversaciones`;
+  return `Se borran el canal, su configuración y ${which}, con sus mensajes, notas y archivos, y no se puede deshacer. Los contactos y sus citas se quedan. Si quieres conservar las conversaciones, desactívalo en lugar de borrarlo.`;
+}
+
 /**
- * Desactivar / Activar and Borrar ([CAN-16]): a disabled channel neither answers nor sends and keeps its history; only a
- * channel without conversations can be deleted, confirming by typing its name (DESIGN.md «Diálogos y confirmaciones»).
+ * Desactivar / Activar and Borrar ([CAN-16]): a disabled channel neither answers nor sends and keeps its history;
+ * deleting it deletes its conversations too, saying how many and confirming by typing its name (DESIGN.md «Diálogos y
+ * confirmaciones»).
  */
-export function ChannelDangerZone({ channelId, channelName, enabled, reconnectHref = null }: ChannelDangerZoneProps) {
+export function ChannelDangerZone({ channelId, channelName, conversations, enabled, reconnectHref = null }: ChannelDangerZoneProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
@@ -50,7 +61,7 @@ export function ChannelDangerZone({ channelId, channelName, enabled, reconnectHr
           Desactivar o borrar
         </h2>
         <p className="text-sm text-muted-foreground">
-          Un canal desactivado no responde ni envía, y conserva sus conversaciones. Solo se puede borrar un canal que aún no tiene conversaciones.
+          Un canal desactivado no responde ni envía, y conserva sus conversaciones. Al borrarlo, se borran también sus conversaciones.
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -89,7 +100,7 @@ export function ChannelDangerZone({ channelId, channelName, enabled, reconnectHr
             </Button>
           }
           title={`¿Borrar «${channelName}»?`}
-          description="Se borran el canal y su configuración, y no se puede deshacer. Si ya tiene conversaciones no se borra: desactívalo para conservar su historial."
+          description={deleteDescription(conversations)}
           confirmLabel="Borrar canal"
           destructive
           requireText={channelName}
